@@ -1,0 +1,5 @@
+[
+  { "id": "shape-1", "title": "Blue Cube",   "author": "system", "type": "shape", "shape": "box",     "color": "#66ccff" },
+  { "id": "shape-2", "title": "Pink Sphere", "author": "system", "type": "shape", "shape": "sphere",  "color": "#ff6699" },
+  { "id": "shape-3", "title": "Lime Pyramid","author": "system", "type": "shape", "shape": "pyramid", "color": "#99ff66" }
+]
