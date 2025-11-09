@@ -72,22 +72,24 @@ export class FeedControls {
   private lastHeartAt = 0;
   private readonly REACT_COOLDOWN_MS = 800;
 
-  // NEW: HUD manager (per-model counts + show/hide)
+  // HUD manager (per-model counts + show/hide)
   private hudMgr: ReactionHudManager;
 
-  // NEW: short-pinch / tap detection
+  // Short-pinch / tap detection (RELAXED)
   private tapStartTime: number | null = null;
   private tapStartPos: THREE.Vector3 | null = null;
-  private readonly TAP_MAX_MS = 180;
-  private readonly TAP_MOVE_MAX = 0.02;     // meters
-  private readonly TAP_OBJ_DIST = 0.18;     // must be near model
+
+  // Tweaks: allow slightly longer and a bit more movement
+  private readonly TAP_MAX_MS = 260;      // was 180
+  private readonly TAP_MOVE_MAX = 0.045;  // was 0.02
+  private readonly TAP_OBJ_DIST = 0.28;   // was 0.18
 
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
     this.app.scene.add(this.rayGroup);
     this.initRay('left'); this.initRay('right');
     this.setRayVisible('left', false); this.setRayVisible('right', false);
 
-    // NEW: HUD manager (follows current model via store.getObjectWorldPos)
+    // HUD manager (follows current model via store.getObjectWorldPos)
     this.hudMgr = new ReactionHudManager(
       this.app.scene,
       this.app.camera,
@@ -233,12 +235,8 @@ export class FeedControls {
     if (this.tapStartPos && endPos && tapDur <= this.TAP_MAX_MS) {
       const move = this.tapStartPos.distanceTo(endPos);
       if (move <= this.TAP_MOVE_MAX) {
-        // only if tap happened near the current model
-        const near = (() => {
-          const distSurf = this.distanceToObjectSurface(endPos);
-          return (distSurf != null) && (distSurf <= this.TAP_OBJ_DIST);
-        })();
-        if (near) {
+        if (this.isNearModel(endPos)) {
+          this.store.notify('UI: short-pinch detected near model');
           this.hudMgr.showFor(this.currentModelKey());
         }
       }
@@ -477,6 +475,18 @@ export class FeedControls {
     const { center, radius } = info;
     const distCenter = worldPoint.distanceTo(center);
     return Math.max(0, distCenter - (radius + 0.04));
+  }
+
+  // New: robust "near model" test (works even if bounds are missing)
+  private isNearModel(point: THREE.Vector3): boolean {
+    const distSurf = this.distanceToObjectSurface(point);
+    if (distSurf != null) return distSurf <= this.TAP_OBJ_DIST;
+
+    // Fallback: compare to world center if bounds aren't available
+    const center = this.store.getObjectWorldPos();
+    if (!center) return false;
+    const d = point.distanceTo(center);
+    return d <= (this.TAP_OBJ_DIST + 0.08); // small cushion
   }
 
   // Use a stable key per model if your FeedStore exposes one; fallback to "default"
