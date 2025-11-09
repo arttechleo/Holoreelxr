@@ -4,6 +4,7 @@ import { HandEngine } from '../gestures/HandEngine';
 import { ThreeXRApp } from '../app/ThreeXRApp';
 import { FeedStore } from '../feed/FeedStore';
 import { ReactionHudManager } from '../ui/ReactionHudManager';
+import { StopPalmGesture } from '../gestures/StopPalmGesture';
 
 export class FeedControls {
   // ===== Scroll (1-hand vertical) =====
@@ -27,20 +28,20 @@ export class FeedControls {
   private baseDist = 0;
   private baseScale = 1;
   private filtDist = 0;
-  private readonly LPF_ALPHA = 0.28;
-  private readonly SCALE_GAIN = 2.2;
-  private readonly SCALE_DEADBAND = 0.004;
+  private readonly LPF_ALPHA = 0.28;       // distance low-pass
+  private readonly SCALE_GAIN = 2.2;       // exponential feel
+  private readonly SCALE_DEADBAND = 0.004; // smaller deadband so scale actually moves
   private readonly SCALE_MIN = 0.15;
   private readonly SCALE_MAX = 8;
 
-  // rotation (SmoothDamp)
+  // rotation (SmoothDamp) — tuned faster
   private rotTarget = 0;
   private rotVel = 0;
-  private readonly ROT_GAIN = 0.9;
-  private readonly ROT_DEADZONE = THREE.MathUtils.degToRad(1.0);
-  private readonly ROT_MAX_DELTA = THREE.MathUtils.degToRad(60);
-  private readonly ROT_SMOOTH_TIME = 0.12;
-  private readonly ROT_MAX_SPEED = THREE.MathUtils.degToRad(360);
+  private readonly ROT_GAIN = 0.9;  // was 0.56
+  private readonly ROT_DEADZONE = THREE.MathUtils.degToRad(1.0); // was 2.0
+  private readonly ROT_MAX_DELTA = THREE.MathUtils.degToRad(60); // was 40
+  private readonly ROT_SMOOTH_TIME = 0.12; // was 0.22
+  private readonly ROT_MAX_SPEED = THREE.MathUtils.degToRad(360); // was 225
 
   // moving-hand selector
   private LStart = new THREE.Vector3();
@@ -72,17 +73,18 @@ export class FeedControls {
   private lastHeartAt = 0;
   private readonly REACT_COOLDOWN_MS = 800;
 
-  // HUD manager (per-model counts + show/hide)
+  // NEW: HUD manager (per-model counts + show/hide)
   private hudMgr: ReactionHudManager;
 
-  // Short-pinch / tap detection (RELAXED)
+  // NEW: short-pinch / tap detection near model (kept as secondary trigger)
   private tapStartTime: number | null = null;
   private tapStartPos: THREE.Vector3 | null = null;
+  private readonly TAP_MAX_MS = 260;
+  private readonly TAP_MOVE_MAX = 0.045;
+  private readonly TAP_OBJ_DIST = 0.28;
 
-  // Tweaks: allow slightly longer and a bit more movement
-  private readonly TAP_MAX_MS = 260;      // was 180
-  private readonly TAP_MOVE_MAX = 0.045;  // was 0.02
-  private readonly TAP_OBJ_DIST = 0.28;   // was 0.18
+  // NEW: StopPalm gesture
+  private stopPalm: StopPalmGesture;
 
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
     this.app.scene.add(this.rayGroup);
@@ -95,6 +97,18 @@ export class FeedControls {
       this.app.camera,
       () => this.store.getObjectWorldPos()
     );
+
+    // === STOP PALM gesture ===
+    this.stopPalm = new StopPalmGesture(
+      this.hands,
+      this.app.camera,
+      () => this.store.getObjectWorldPos(),
+      (p)=> this.distanceToObjectSurface(p)
+    );
+    this.stopPalm.on('stoppalm', (_side) => {
+      this.store.notify('UI: Stop-palm detected – showing panel');
+      this.hudMgr.showFor(this.currentModelKey());
+    });
 
     this.hands.on('leftpinchstart',  () => this.onPinchStart('left'));
     this.hands.on('rightpinchstart', () => this.onPinchStart('right'));
@@ -143,6 +157,9 @@ export class FeedControls {
       this.updateGrabPendingGuard();
       this.updateRays();
 
+      // drive StopPalm gesture
+      this.stopPalm.tick();
+
       // HUD follow/particles
       this.hudMgr.tick(dt);
 
@@ -187,7 +204,7 @@ export class FeedControls {
     update('right', this.rightRay);
   }
 
-  // ---------- Pinch lifecycle + TAP detection ----------
+  // ---------- Pinch lifecycle + TAP detection (optional secondary trigger) ----------
   private onPinchStart(side:'left'|'right'){
     this.setRayVisible(side, true);
 
@@ -211,7 +228,6 @@ export class FeedControls {
       this.tryStartGrabPending(side);
     }
   }
-
   private onPinchEnd(side:'left'|'right'){
     this.setRayVisible(side, false);
     this.lastPinchY = null; this.filtPinchY = null; this.scrollAccum = 0; this.pinchStartAt = null;
@@ -227,7 +243,7 @@ export class FeedControls {
       this.rotVel = 0;
     }
 
-    // --- Short pinch "tap" to show HUD near the model ---
+    // --- Short pinch "tap" to show HUD near the model (secondary) ---
     const tEnd = performance.now();
     const tapDur = this.tapStartTime ? (tEnd - this.tapStartTime) : Infinity;
     const endPos = this.hands.pinchMid(side)?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
@@ -235,7 +251,10 @@ export class FeedControls {
     if (this.tapStartPos && endPos && tapDur <= this.TAP_MAX_MS) {
       const move = this.tapStartPos.distanceTo(endPos);
       if (move <= this.TAP_MOVE_MAX) {
-        if (this.isNearModel(endPos)) {
+        const distSurf = this.distanceToObjectSurface(endPos);
+        const near = (distSurf != null && distSurf <= this.TAP_OBJ_DIST) ||
+                     (this.store.getObjectWorldPos()?.distanceTo(endPos ?? new THREE.Vector3()) ?? 99) <= (this.TAP_OBJ_DIST + 0.08);
+        if (near) {
           this.store.notify('UI: short-pinch detected near model');
           this.hudMgr.showFor(this.currentModelKey());
         }
@@ -296,6 +315,7 @@ export class FeedControls {
       return; 
     }
 
+    // Use pinch midpoints (more stable) with fallback to thumb tips
     const Lp = this.hands.pinchMid('left')  ?? this.hands.thumbTip('left');
     const Rp = this.hands.pinchMid('right') ?? this.hands.thumbTip('right');
     if (!(Lp && Rp)) { 
@@ -305,6 +325,7 @@ export class FeedControls {
 
     this.lastL.copy(Lp); this.lastR.copy(Rp);
 
+    // (Re)arm baseline once, right after both pinches are active — ensures good baseDist
     const rawDist = Math.max(1e-6, Lp.distanceTo(Rp));
     if (!this.twoHandActive){
       this.twoHandActive = true;
@@ -313,27 +334,33 @@ export class FeedControls {
       this.baseScale = this.store.scale;
       this.filtDist  = rawDist;
 
+      // Initialize rotation target with current rotation to avoid jumps
       this.rotTarget = this.store.rotationY;
 
+      // Reset baselines for moving-hand selection
       this.LStart.copy(Lp);
       this.RStart.copy(Rp);
       return;
     }
 
-    // ---- SCALE ----
+    // ---- SCALE (decide once per frame, don't call setTarget yet) ----
     this.filtDist = this.filtDist + (rawDist - this.filtDist) * this.LPF_ALPHA;
+
     const ratio = this.filtDist / this.baseDist;
     let scaleRaw = this.baseScale * Math.pow(ratio, this.SCALE_GAIN);
     scaleRaw = THREE.MathUtils.clamp(scaleRaw, this.SCALE_MIN, this.SCALE_MAX);
 
     let newScale = this.store.scale;
-    if (Math.abs(scaleRaw - this.store.scale) > this.SCALE_DEADBAND) newScale = scaleRaw;
+    if (Math.abs(scaleRaw - this.store.scale) > this.SCALE_DEADBAND) {
+      newScale = scaleRaw;
+    }
 
-    // ---- ROTATION (yaw in XZ) ----
+    // ---- ROTATION (SmoothDamp) — measure yaw in XZ plane ----
     const lMove = this.lastL.distanceTo(this.LStart);
     const rMove = this.lastR.distanceTo(this.RStart);
     const movedEnough = (lMove + rMove) >= (this.MOVE_EPS * 2);
 
+    // yaw angle in XZ (rotation around Y)
     const aNow  = Math.atan2(this.lastR.z - this.lastL.z, this.lastR.x - this.lastL.x);
     const aBase = Math.atan2(this.RStart.z - this.LStart.z, this.RStart.x - this.LStart.x);
     let dA = aNow - aBase;
@@ -343,7 +370,7 @@ export class FeedControls {
 
     if (movedEnough && Math.abs(dA) >= this.ROT_DEADZONE) {
       dA = THREE.MathUtils.clamp(dA, -this.ROT_MAX_DELTA, this.ROT_MAX_DELTA);
-      const desired = this.store.rotationY - dA * this.ROT_GAIN;
+      const desired = this.store.rotationY - dA * this.ROT_GAIN; // minus keeps direction intuitive
       this.rotTarget = desired;
     }
 
@@ -352,6 +379,7 @@ export class FeedControls {
       this.ROT_SMOOTH_TIME, this.ROT_MAX_SPEED, dt
     );
 
+    // ---- Apply both transforms together (prevents scale being overwritten) ----
     this.store.setTargetTransform(newScale, smoothed);
   }
 
@@ -475,18 +503,6 @@ export class FeedControls {
     const { center, radius } = info;
     const distCenter = worldPoint.distanceTo(center);
     return Math.max(0, distCenter - (radius + 0.04));
-  }
-
-  // New: robust "near model" test (works even if bounds are missing)
-  private isNearModel(point: THREE.Vector3): boolean {
-    const distSurf = this.distanceToObjectSurface(point);
-    if (distSurf != null) return distSurf <= this.TAP_OBJ_DIST;
-
-    // Fallback: compare to world center if bounds aren't available
-    const center = this.store.getObjectWorldPos();
-    if (!center) return false;
-    const d = point.distanceTo(center);
-    return d <= (this.TAP_OBJ_DIST + 0.08); // small cushion
   }
 
   // Use a stable key per model if your FeedStore exposes one; fallback to "default"
