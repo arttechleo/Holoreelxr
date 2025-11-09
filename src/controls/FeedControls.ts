@@ -25,20 +25,20 @@ export class FeedControls {
   private baseDist = 0;
   private baseScale = 1;
   private filtDist = 0;
-  private readonly LPF_ALPHA = 0.28;      // distance low-pass (slightly higher → more responsive)
-  private readonly SCALE_GAIN = 2.2;      // exponential feel
+  private readonly LPF_ALPHA = 0.28;       // distance low-pass
+  private readonly SCALE_GAIN = 2.2;       // exponential feel
   private readonly SCALE_DEADBAND = 0.004; // smaller deadband so scale actually moves
   private readonly SCALE_MIN = 0.15;
   private readonly SCALE_MAX = 8;
 
-  // rotation (SmoothDamp)
+  // rotation (SmoothDamp) — tuned faster
   private rotTarget = 0;
   private rotVel = 0;
-  private readonly ROT_GAIN = 0.56;  // ~1.25x of previous 0.45
-  private readonly ROT_DEADZONE = THREE.MathUtils.degToRad(2.0);
-  private readonly ROT_MAX_DELTA = THREE.MathUtils.degToRad(40);
-  private readonly ROT_SMOOTH_TIME = 0.22;
-  private readonly ROT_MAX_SPEED = THREE.MathUtils.degToRad(225);
+  private readonly ROT_GAIN = 0.9;  // was 0.56
+  private readonly ROT_DEADZONE = THREE.MathUtils.degToRad(1.0); // was 2.0
+  private readonly ROT_MAX_DELTA = THREE.MathUtils.degToRad(60); // was 40
+  private readonly ROT_SMOOTH_TIME = 0.12; // was 0.22
+  private readonly ROT_MAX_SPEED = THREE.MathUtils.degToRad(360); // was 225
 
   // moving-hand selector
   private LStart = new THREE.Vector3();
@@ -273,30 +273,26 @@ export class FeedControls {
       return;
     }
 
-    // ---- SCALE ----
+    // ---- SCALE (decide once per frame, don't call setTarget yet) ----
     this.filtDist = this.filtDist + (rawDist - this.filtDist) * this.LPF_ALPHA;
 
-    // ratio of current to base distance
     const ratio = this.filtDist / this.baseDist;
-    // exponential feel, clamp to sane bounds
     let scaleRaw = this.baseScale * Math.pow(ratio, this.SCALE_GAIN);
     scaleRaw = THREE.MathUtils.clamp(scaleRaw, this.SCALE_MIN, this.SCALE_MAX);
 
-    // apply only if we cleared small deadband
+    let newScale = this.store.scale;
     if (Math.abs(scaleRaw - this.store.scale) > this.SCALE_DEADBAND) {
-      this.store.setTargetTransform(scaleRaw, this.store.rotationY);
-    } else {
-      // keep feeding current target (preserves smoothing in store)
-      this.store.setTargetTransform(this.store.scale, this.store.rotationY);
+      newScale = scaleRaw;
     }
 
-    // ---- ROTATION (SmoothDamp) ----
+    // ---- ROTATION (SmoothDamp) — measure yaw in XZ plane ----
     const lMove = this.lastL.distanceTo(this.LStart);
     const rMove = this.lastR.distanceTo(this.RStart);
     const movedEnough = (lMove + rMove) >= (this.MOVE_EPS * 2);
 
-    const aNow  = Math.atan2(this.lastR.y - this.lastL.y, this.lastR.x - this.lastL.x);
-    const aBase = Math.atan2(this.RStart.y - this.LStart.y, this.RStart.x - this.LStart.x);
+    // yaw angle in XZ (rotation around Y)
+    const aNow  = Math.atan2(this.lastR.z - this.lastL.z, this.lastR.x - this.lastL.x);
+    const aBase = Math.atan2(this.RStart.z - this.LStart.z, this.RStart.x - this.LStart.x);
     let dA = aNow - aBase;
 
     while (dA >  Math.PI) dA -= 2*Math.PI;
@@ -313,7 +309,8 @@ export class FeedControls {
       this.ROT_SMOOTH_TIME, this.ROT_MAX_SPEED, dt
     );
 
-    this.store.setTargetTransform(this.store.scale, smoothed);
+    // ---- Apply both transforms together (prevents scale being overwritten) ----
+    this.store.setTargetTransform(newScale, smoothed);
   }
 
   // ---------- SmoothDamp for angles ----------
