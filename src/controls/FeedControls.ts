@@ -1,7 +1,9 @@
+// src/controls/FeedControls.ts
 import * as THREE from 'three';
 import { HandEngine } from '../gestures/HandEngine';
 import { ThreeXRApp } from '../app/ThreeXRApp';
 import { FeedStore } from '../feed/FeedStore';
+import { ReactionHud } from '../ui/ReactionHud';
 
 export class FeedControls {
   // ===== Scroll (1-hand vertical) =====
@@ -34,11 +36,11 @@ export class FeedControls {
   // rotation (SmoothDamp) — tuned faster
   private rotTarget = 0;
   private rotVel = 0;
-  private readonly ROT_GAIN = 0.9;  // was 0.56
-  private readonly ROT_DEADZONE = THREE.MathUtils.degToRad(1.0); // was 2.0
-  private readonly ROT_MAX_DELTA = THREE.MathUtils.degToRad(60); // was 40
-  private readonly ROT_SMOOTH_TIME = 0.12; // was 0.22
-  private readonly ROT_MAX_SPEED = THREE.MathUtils.degToRad(360); // was 225
+  private readonly ROT_GAIN = 0.9;
+  private readonly ROT_DEADZONE = THREE.MathUtils.degToRad(1.0);
+  private readonly ROT_MAX_DELTA = THREE.MathUtils.degToRad(60);
+  private readonly ROT_SMOOTH_TIME = 0.12;
+  private readonly ROT_MAX_SPEED = THREE.MathUtils.degToRad(360);
 
   // moving-hand selector
   private LStart = new THREE.Vector3();
@@ -70,10 +72,21 @@ export class FeedControls {
   private lastHeartAt = 0;
   private readonly REACT_COOLDOWN_MS = 800;
 
+  // NEW: world-anchored reaction HUD
+  private reactionHud: ReactionHud;
+
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
     this.app.scene.add(this.rayGroup);
     this.initRay('left'); this.initRay('right');
     this.setRayVisible('left', false); this.setRayVisible('right', false);
+
+    // NEW: init HUD (mount to body or app.domParent if you have one)
+    this.reactionHud = new ReactionHud(
+      this.app.scene,
+      this.app.camera,
+      () => this.store.getObjectWorldPos(),
+      (this.app as any).domParent ?? null
+    );
 
     this.hands.on('leftpinchstart',  () => this.onPinchStart('left'));
     this.hands.on('rightpinchstart', () => this.onPinchStart('right'));
@@ -88,6 +101,9 @@ export class FeedControls {
       const side: 'left'|'right' = d?.side === 'left' ? 'left' : 'right';
       const start = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
       this.store.likeCurrent(start ?? undefined, side);
+
+      // NEW: show +1 UI
+      this.reactionHud.bump('like');
     });
 
     // Heart disabled if both hands pinching (transform mode)
@@ -100,6 +116,9 @@ export class FeedControls {
       const R = this.hands.pinchMid('right') ?? this.hands.indexTip('right');
       if (L) this.store.saveCurrent(L.clone());
       if (R) this.store.saveCurrent(R.clone());
+
+      // NEW: show +1 UI
+      this.reactionHud.bump('heart');
     });
 
     // frame loop
@@ -115,6 +134,9 @@ export class FeedControls {
       this.updateGrabDrag();
       this.updateGrabPendingGuard();
       this.updateRays();
+
+      // NEW: drive HUD
+      this.reactionHud.tick();
 
       this.store.tick(dt);
     });
@@ -169,10 +191,8 @@ export class FeedControls {
       this.scrollAccum = 0;
     }
 
-    // If the other hand is already pinching, we'll (re)arm two-hand transform baseline
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) {
-      // force re-arm next frame so scale uses a good base distance
       this.twoHandActive = false;
     } else {
       this.tryStartGrabPending(side);
@@ -182,11 +202,9 @@ export class FeedControls {
     this.setRayVisible(side, false);
     this.lastPinchY = null; this.filtPinchY = null; this.scrollAccum = 0; this.pinchStartAt = null;
 
-    // end grab if the grabbing hand releases
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
     if (this.grabbing && this.grabSide === side) { this.grabbing = false; this.grabSide = null; this.store.notify('Placed'); }
 
-    // leaving two-hand mode if one hand releases
     const other = side === 'left' ? 'right' : 'left';
     if (!this.hands.state[other].pinch) {
       this.twoHandActive = false;
@@ -209,7 +227,7 @@ export class FeedControls {
     const mid = this.hands.pinchMid(side);
     if (mid){
       const distSurf = this.distanceToObjectSurface(mid);
-      if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) return; // near object → don't scroll
+      if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) return;
     }
 
     const y = this.hands.pinchMid(side)?.y ?? null;
@@ -245,7 +263,6 @@ export class FeedControls {
       return; 
     }
 
-    // Use pinch midpoints (more stable) with fallback to thumb tips
     const Lp = this.hands.pinchMid('left')  ?? this.hands.thumbTip('left');
     const Rp = this.hands.pinchMid('right') ?? this.hands.thumbTip('right');
     if (!(Lp && Rp)) { 
@@ -255,7 +272,6 @@ export class FeedControls {
 
     this.lastL.copy(Lp); this.lastR.copy(Rp);
 
-    // (Re)arm baseline once, right after both pinches are active — ensures good baseDist
     const rawDist = Math.max(1e-6, Lp.distanceTo(Rp));
     if (!this.twoHandActive){
       this.twoHandActive = true;
@@ -264,16 +280,14 @@ export class FeedControls {
       this.baseScale = this.store.scale;
       this.filtDist  = rawDist;
 
-      // Initialize rotation target with current rotation to avoid jumps
       this.rotTarget = this.store.rotationY;
 
-      // Reset baselines for moving-hand selection
       this.LStart.copy(Lp);
       this.RStart.copy(Rp);
       return;
     }
 
-    // ---- SCALE (decide once per frame, don't call setTarget yet) ----
+    // ---- SCALE ----
     this.filtDist = this.filtDist + (rawDist - this.filtDist) * this.LPF_ALPHA;
 
     const ratio = this.filtDist / this.baseDist;
@@ -285,12 +299,11 @@ export class FeedControls {
       newScale = scaleRaw;
     }
 
-    // ---- ROTATION (SmoothDamp) — measure yaw in XZ plane ----
+    // ---- ROTATION (yaw in XZ) ----
     const lMove = this.lastL.distanceTo(this.LStart);
     const rMove = this.lastR.distanceTo(this.RStart);
     const movedEnough = (lMove + rMove) >= (this.MOVE_EPS * 2);
 
-    // yaw angle in XZ (rotation around Y)
     const aNow  = Math.atan2(this.lastR.z - this.lastL.z, this.lastR.x - this.lastL.x);
     const aBase = Math.atan2(this.RStart.z - this.LStart.z, this.RStart.x - this.LStart.x);
     let dA = aNow - aBase;
@@ -300,7 +313,7 @@ export class FeedControls {
 
     if (movedEnough && Math.abs(dA) >= this.ROT_DEADZONE) {
       dA = THREE.MathUtils.clamp(dA, -this.ROT_MAX_DELTA, this.ROT_MAX_DELTA);
-      const desired = this.store.rotationY - dA * this.ROT_GAIN; // minus keeps direction intuitive
+      const desired = this.store.rotationY - dA * this.ROT_GAIN;
       this.rotTarget = desired;
     }
 
@@ -309,7 +322,6 @@ export class FeedControls {
       this.ROT_SMOOTH_TIME, this.ROT_MAX_SPEED, dt
     );
 
-    // ---- Apply both transforms together (prevents scale being overwritten) ----
     this.store.setTargetTransform(newScale, smoothed);
   }
 
