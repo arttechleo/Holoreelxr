@@ -4,11 +4,9 @@ import { ThreeXRApp } from '../app/ThreeXRApp';
 import { FeedStore } from '../feed/FeedStore';
 
 /**
- * Goals in this revision:
- * - Scroll: only with ONE hand, only when pinching IN AIR (not near object), after a tiny hold,
- *           with larger displacement + velocity threshold + cooldown. Much slower & deliberate.
- * - Rotation: much slower (bigger cooldown + slower tween + reduced gain) and smoothed via target.
- * - Rays: stable dashed ray from each pinching hand to the active object (or forward if none).
+ * Rotation smoothing:
+ * - Uses SmoothDamp (critically damped) for angle.
+ * - Lower gain + deadzone + clamp to tame jitter.
  */
 export class FeedControls {
   // ===== Scroll (1-hand vertical) =====
@@ -18,40 +16,33 @@ export class FeedControls {
   private scrollCooldownUntil = 0;
   private pinchStartAt: number | null = null;
 
-  // Tunables (feel free to tweak)
-  private readonly SCROLL_MIN_HOLD_MS = 140;          // wait a bit after pinch start
-  private readonly SCROLL_DISP = 0.028;               // bigger = need more travel to scroll (slower)
-  private readonly SCROLL_COOLDOWN_MS = 330;          // time between successive scrolls
-  private readonly SCROLL_VEL_MIN = 0.010;            // require noticeable velocity
-  private readonly SCROLL_IN_AIR_DIST = 0.24;         // must be at least this far from object surface
-  private readonly LPF_SCROLL_ALPHA = 0.22;           // pinchY low-pass filter
+  private readonly SCROLL_MIN_HOLD_MS = 140;
+  private readonly SCROLL_DISP = 0.028;
+  private readonly SCROLL_COOLDOWN_MS = 330;
+  private readonly SCROLL_VEL_MIN = 0.010;
+  private readonly SCROLL_IN_AIR_DIST = 0.24;
+  private readonly LPF_SCROLL_ALPHA = 0.22;
 
   // ===== Two-hand transform =====
   private twoHandActive = false;
   private baseDist = 0;
   private baseAngle = 0;
   private baseScale = 1;
-  private baseRotY = 0;
 
-  // Scale feel
+  // scale feel
   private readonly SCALE_GAIN = 2.2;
   private LPF_ALPHA = 0.25;
   private SCALE_DEADBAND = 0.01;
   private filtDist = 0;
 
-  // Rotation feel (MUCH SLOWER now)
-  private readonly SNAP_RAD = THREE.MathUtils.degToRad(15);
-  private readonly SNAP_MIN_DELTA = THREE.MathUtils.degToRad(5);
-  private readonly ROT_COOLDOWN_MS = 700;             // was 220 → much slower cadence
-  private readonly ROT_TWEEN_SPEED = 3;               // was 10 → slow tween
-  private readonly ROT_GAIN = 0.6;                    // was 2.0/1.0 → gentler mapping
-  private lastRotSnapAt = 0;
-
-  // rotation tween -> we feed store.setTargetTransform for rotation for extra smoothing
-  private rotTweenActive = false;
-  private rotFrom = 0;
-  private rotTo = 0;
-  private rotT = 0;                                    // 0..1
+  // --- ROTATION: SmoothDamp params (buttery smooth) ---
+  private rotTarget = 0;                 // desired angle (rad)
+  private rotVel = 0;                    // angular velocity (rad/s) used by smoothDamp
+  private readonly ROT_GAIN = 0.45;      // mapping from hand angle delta -> object yaw (lower = gentler)
+  private readonly ROT_DEADZONE = THREE.MathUtils.degToRad(2.0); // ignore tiny jitter
+  private readonly ROT_MAX_DELTA = THREE.MathUtils.degToRad(40); // clamp incoming delta per calc
+  private readonly ROT_SMOOTH_TIME = 0.22; // seconds to reach target ~63% (critically damped)
+  private readonly ROT_MAX_SPEED = THREE.MathUtils.degToRad(180); // rad/s clamp
 
   // moving-hand selector
   private LStart = new THREE.Vector3();
@@ -93,7 +84,6 @@ export class FeedControls {
     this.hands.on('leftpinchend',    () => this.onPinchEnd('left'));
     this.hands.on('rightpinchend',   () => this.onPinchEnd('right'));
 
-    // Like → launch from initiating hand
     this.hands.on('thumbsupstart', (d:any) => {
       const now = performance.now();
       if (now - this.lastLikeAt < this.REACT_COOLDOWN_MS) return;
@@ -123,18 +113,9 @@ export class FeedControls {
       const dt = Math.max(0, (now - last) / 1000);
       last = now;
 
-      // slow rotation tween
-      if (this.rotTweenActive) {
-        this.rotT = Math.min(1, this.rotT + dt * this.ROT_TWEEN_SPEED);
-        const rot = THREE.MathUtils.lerp(this.rotFrom, this.rotTo, this.rotT);
-        // Use target so store applies extra smoothing too
-        this.store.setTargetTransform(this.store.scale, rot);
-        if (this.rotT >= 1) this.rotTweenActive = false;
-      }
-
       this.updateAutoAcquirePending();
       this.updateScroll(now);
-      this.updateTwoHandTransform(now);
+      this.updateTwoHandTransform(dt);  // <- rotation smoothed here
       this.updateGrabDrag();
       this.updateGrabPendingGuard();
       this.updateRays();
@@ -212,24 +193,18 @@ export class FeedControls {
     if ((lp && rp) || (!lp && !rp)) return;     // exactly one hand
     const side: 'left'|'right' = lp ? 'left' : 'right';
 
-    // require a tiny hold after pinch start
     if (this.pinchStartAt && (now - this.pinchStartAt) < this.SCROLL_MIN_HOLD_MS) return;
 
-    // only allow scroll when in air (not near the object surface)
     const mid = this.hands.pinchMid(side);
     if (mid){
       const distSurf = this.distanceToObjectSurface(mid);
-      if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) {
-        // near object → likely grab intent; do NOT scroll
-        return;
-      }
+      if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) return; // near object → don't scroll
     }
 
     const y = this.hands.pinchMid(side)?.y ?? null;
     if (y == null) return;
 
     if (this.filtPinchY == null) this.filtPinchY = y;
-    // low-pass filter for stability
     this.filtPinchY = this.filtPinchY + (y - this.filtPinchY) * this.LPF_SCROLL_ALPHA;
 
     if (this.lastPinchY == null) { this.lastPinchY = this.filtPinchY; return; }
@@ -237,7 +212,6 @@ export class FeedControls {
     const dy = this.filtPinchY - this.lastPinchY;
     this.lastPinchY = this.filtPinchY;
 
-    // require certain velocity to reduce accidental micro moves
     if (Math.abs(dy) < this.SCROLL_VEL_MIN) return;
 
     this.scrollAccum += dy;
@@ -250,8 +224,8 @@ export class FeedControls {
     }
   }
 
-  // ---------- Two-hand transform ----------
-  private updateTwoHandTransform(now:number){
+  // ---------- Two-hand transform (SCALED + SMOOTH ROTATION) ----------
+  private updateTwoHandTransform(dt:number){
     const lp = this.hands.state.left.pinch;
     const rp = this.hands.state.right.pinch;
     if (this.grabPending || this.grabbing) return;
@@ -261,17 +235,19 @@ export class FeedControls {
     const Rt = this.hands.thumbTip('right');
     if (!(Lt && Rt)) { this.twoHandActive = false; return; }
 
-    // positions
     this.lastL.copy(Lt); this.lastR.copy(Rt);
 
     const rawDist  = Lt.distanceTo(Rt);
     if (!this.twoHandActive){
       this.twoHandActive = true;
       this.baseDist  = rawDist;
-      this.baseAngle = this.angleFromHands(Lt, Rt);
       this.baseScale = this.store.scale;
-      this.baseRotY  = this.store.rotationY;
       this.filtDist  = rawDist;
+
+      // initialize rotation target with current rotation to avoid jumps
+      this.rotTarget = this.store.rotationY;
+
+      // reset movement baselines
       this.LStart.copy(Lt);
       this.RStart.copy(Rt);
       return;
@@ -285,39 +261,99 @@ export class FeedControls {
     const targetScale = scaleDelta > this.SCALE_DEADBAND ? scaleRaw : this.store.scale;
     this.store.setTargetTransform(targetScale, this.store.rotationY);
 
-    // ---- Rotation (slow snaps + extra smoothing) ----
+    // ---- Rotation (continuous + smoothed) ----
     const lMove = this.lastL.distanceTo(this.LStart);
     const rMove = this.lastR.distanceTo(this.RStart);
-    if (lMove + rMove < this.MOVE_EPS * 2) return; // tiny movement → ignore
+    if (lMove + rMove < this.MOVE_EPS * 2) {
+      // still apply smoothing toward target, but don't update target if hands barely moved
+      const smooth = this.smoothDampAngle(
+        this.store.rotationY, this.rotTarget, (v)=> this.rotVel = v, this.rotVel,
+        this.ROT_SMOOTH_TIME, this.ROT_MAX_SPEED, dt
+      );
+      this.store.setTargetTransform(this.store.scale, smooth);
+      return;
+    }
 
     const stationary = (lMove <= rMove) ? this.lastL : this.lastR;
     const moving     = (lMove <= rMove) ? this.lastR : this.lastL;
 
-    const angleNow = Math.atan2(moving.y - stationary.y, moving.x - stationary.x);
-    let dA = angleNow - this.baseAngle;
+    // angle in screen/XY space around stationary hand
+    let dA = Math.atan2(moving.y - stationary.y, moving.x - stationary.x)
+           - Math.atan2(this.RStart.y - this.LStart.y, this.RStart.x - this.LStart.x);
+
+    // normalize to [-PI, PI]
     while (dA >  Math.PI) dA -= 2*Math.PI;
     while (dA < -Math.PI) dA += 2*Math.PI;
 
-    const rotRaw = this.baseRotY - dA * this.ROT_GAIN;
-
-    if (Math.abs(rotRaw - this.store.rotationY) < this.SNAP_MIN_DELTA) return;
-
-    const snapped = Math.round(rotRaw / this.SNAP_RAD) * this.SNAP_RAD;
-    if (Math.abs(snapped - this.store.rotationY) > 1e-5) {
-      if (now - this.lastRotSnapAt >= this.ROT_COOLDOWN_MS && !this.rotTweenActive) {
-        this.lastRotSnapAt = now;
-        this.rotTweenActive = true;
-        this.rotFrom = this.store.rotationY;
-        this.rotTo = snapped;
-        this.rotT = 0;
-      }
+    if (Math.abs(dA) < this.ROT_DEADZONE) {
+      // small jitter: just smooth toward current target
+      const smooth = this.smoothDampAngle(
+        this.store.rotationY, this.rotTarget, (v)=> this.rotVel = v, this.rotVel,
+        this.ROT_SMOOTH_TIME, this.ROT_MAX_SPEED, dt
+      );
+      this.store.setTargetTransform(this.store.scale, smooth);
+      return;
     }
-    // keep baseRot near current to avoid drift
-    this.baseRotY = this.store.rotationY;
+
+    // clamp the raw delta to avoid jumps, then map by gain
+    dA = THREE.MathUtils.clamp(dA, -this.ROT_MAX_DELTA, this.ROT_MAX_DELTA);
+    const desired = this.store.rotationY - dA * this.ROT_GAIN; // minus keeps direction intuitive
+
+    this.rotTarget = desired;
+
+    // SmoothDamp toward target
+    const smoothed = this.smoothDampAngle(
+      this.store.rotationY, this.rotTarget, (v)=> this.rotVel = v, this.rotVel,
+      this.ROT_SMOOTH_TIME, this.ROT_MAX_SPEED, dt
+    );
+
+    this.store.setTargetTransform(this.store.scale, smoothed);
   }
 
-  private angleFromHands(L:THREE.Vector3, R:THREE.Vector3){
-    return Math.atan2(R.y - L.y, R.x - L.x);
+  // ---------- SmoothDamp for angles (critically-damped spring) ----------
+  // Adapted from Unity's SmoothDamp with angle wrapping
+  private smoothDampAngle(
+    current:number,
+    target:number,
+    setVel:(v:number)=>void,
+    currentVel:number,
+    smoothTime:number,
+    maxSpeed:number,
+    deltaTime:number
+  ){
+    // wrap difference to [-PI, PI]
+    let delta = target - current;
+    while (delta >  Math.PI) delta -= 2*Math.PI;
+    while (delta < -Math.PI) delta += 2*Math.PI;
+
+    target = current + delta;
+    const omega = 2 / Math.max(0.0001, smoothTime);
+    const x = omega * deltaTime;
+    const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+
+    let change = current - target;
+    const originalTo = target;
+
+    // clamp max speed
+    const maxChange = maxSpeed * smoothTime;
+    change = THREE.MathUtils.clamp(change, -maxChange, maxChange);
+    target = current - change;
+
+    const temp = (currentVel + omega * (target - current)) * deltaTime;
+    const newVel = (currentVel - omega * temp) * exp;
+    let output = target + (change + temp) * exp;
+
+    // prevent overshoot
+    const origDelta = originalTo - current;
+    const outDelta = output - originalTo;
+    if (origDelta * outDelta > 0) {
+      output = originalTo;
+      setVel(0);
+      return output;
+    }
+
+    setVel(newVel);
+    return output;
   }
 
   // ---------- Grab ----------
@@ -397,6 +433,6 @@ export class FeedControls {
     const info = this.store.getObjectBounds(); if (!info) return null;
     const { center, radius } = info;
     const distCenter = worldPoint.distanceTo(center);
-    return Math.max(0, distCenter - (radius + 0.04)); // +4cm margin
+    return Math.max(0, distCenter - (radius + 0.04));
   }
 }
