@@ -1,185 +1,291 @@
 // src/ui/ReactionHud.ts
 import * as THREE from 'three';
-import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 
 type Kind = 'like' | 'heart';
 
+/**
+ * 3D, world-anchored reaction HUD:
+ * - A billboard panel (plane) rendered in 3D, facing the camera
+ * - Shows 👍/❤️ counts and a "Comments" area with lorem ipsum
+ * - On bump(kind), increments count and spawns a floating "+1" sprite
+ *
+ * Public API:
+ *   tick(dt: number): void
+ *   bump(kind: 'like'|'heart'): void
+ */
 export class ReactionHud {
-  private renderer: CSS2DRenderer;
-  private anchor = new THREE.Object3D();
-  private panelObj: CSS2DObject;
+  private anchor = new THREE.Group();
+  private panel: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  private panelTex: THREE.CanvasTexture;
+  private panelCanvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
 
-  private container: HTMLDivElement;
-  private likeCountEl: HTMLSpanElement;
-  private heartCountEl: HTMLSpanElement;
-  private chipEl: HTMLDivElement;
-  private fadeTimer: number | null = null;
   private visible = false;
+  private autoHideMs = 1500;
+  private hideAt = 0;
 
   private likeCount = 0;
   private heartCount = 0;
 
-  private readonly OFFSET = new THREE.Vector3(0, 0.15, 0); // a bit above the model
-  private readonly AUTO_HIDE_MS = 1500;
+  // particles (+1 sprites) that float up & fade
+  private particles: Array<{
+    sprite: THREE.Sprite;
+    vel: THREE.Vector3;
+    ttl: number; // seconds
+  }> = [];
 
-  /**
-   * @param scene three.js scene
-   * @param camera scene camera
-   * @param getObjectWorldPos returns current world position of the model (center)
-   * @param mount optional element for CSS2D canvas; defaults to document.body
-   */
+  // layout / style
+  private readonly PANEL_W = 0.28; // meters
+  private readonly PANEL_H = 0.20;
+  private readonly OFFSET = new THREE.Vector3(0, 0.16, 0); // above model center
+
   constructor(
     private scene: THREE.Scene,
     private camera: THREE.Camera,
-    private getObjectWorldPos: () => THREE.Vector3 | null,
-    mount?: HTMLElement | null
+    private getObjectWorldPos: () => THREE.Vector3 | null
   ) {
-    // CSS2D overlay canvas
-    this.renderer = new CSS2DRenderer();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.domElement.style.position = 'absolute';
-    this.renderer.domElement.style.top = '0';
-    this.renderer.domElement.style.left = '0';
-    this.renderer.domElement.style.pointerEvents = 'none';
-    (mount ?? document.body).appendChild(this.renderer.domElement);
+    // ----- panel canvas -----
+    this.panelCanvas = document.createElement('canvas');
+    this.panelCanvas.width = 512;
+    this.panelCanvas.height = 360;
+    const ctx = this.panelCanvas.getContext('2d');
+    if (!ctx) throw new Error('ReactionHud: cannot get 2D context');
+    this.ctx = ctx;
 
-    window.addEventListener('resize', () => {
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.panelTex = new THREE.CanvasTexture(this.panelCanvas);
+    this.panelTex.minFilter = THREE.LinearFilter;
+    this.panelTex.magFilter = THREE.LinearFilter;
+    this.panelTex.needsUpdate = true;
+
+    const geo = new THREE.PlaneGeometry(this.PANEL_W, this.PANEL_H);
+    const mat = new THREE.MeshBasicMaterial({
+      map: this.panelTex,
+      transparent: true,
+      opacity: 0.0, // start hidden
+      depthTest: true,
+      depthWrite: false,
     });
+    this.panel = new THREE.Mesh(geo, mat);
+    this.panel.renderOrder = 999; // draw on top-ish
+    this.anchor.add(this.panel);
 
-    // Panel DOM
-    this.container = document.createElement('div');
-    this.container.style.pointerEvents = 'auto';
-    this.container.style.opacity = '0';
-    this.container.style.transition = 'opacity 150ms ease';
-    this.container.style.userSelect = 'none';
+    // small offset so particles can appear above the panel
+    this.panel.position.set(0, 0, 0);
 
-    const panel = document.createElement('div');
-    panel.style.minWidth = '220px';
-    panel.style.maxWidth = '280px';
-    panel.style.padding = '12px';
-    panel.style.borderRadius = '14px';
-    panel.style.background = 'rgba(18,18,28,0.82)';
-    panel.style.backdropFilter = 'blur(6px)';
-    panel.style.color = '#fff';
-    panel.style.boxShadow = '0 6px 20px rgba(0,0,0,0.35)';
-    panel.style.fontFamily = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-    panel.style.fontSize = '14px';
-    panel.style.position = 'relative';
-    this.container.appendChild(panel);
+    this.scene.add(this.anchor);
 
-    const title = document.createElement('div');
-    title.textContent = 'Reactions';
-    title.style.fontWeight = '700';
-    title.style.marginBottom = '8px';
-    title.style.opacity = '0.95';
-    panel.appendChild(title);
+    // initial draw
+    this.redrawPanel();
+  }
 
-    // counts
-    const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.gap = '14px';
-    row.style.alignItems = 'center';
-    row.style.marginBottom = '8px';
-    panel.appendChild(row);
+  /** Call each frame with dt (seconds) */
+  tick(dt: number) {
+    // follow model
+    const pos = this.getObjectWorldPos?.();
+    if (pos) {
+      this.anchor.position.copy(pos).add(this.OFFSET);
+    }
 
-    const makeCount = (emoji: string) => {
-      const w = document.createElement('div');
-      w.style.display = 'inline-flex';
-      w.style.gap = '8px';
-      w.style.alignItems = 'center';
-      const em = document.createElement('span'); em.textContent = emoji;
-      const val = document.createElement('span');
-      val.textContent = '0';
-      val.style.fontVariantNumeric = 'tabular-nums';
-      val.style.opacity = '0.9';
-      w.appendChild(em); w.appendChild(val);
-      return { w, val };
+    // billboard to camera
+    this.anchor.quaternion.copy(this.camera.quaternion);
+
+    // auto-hide
+    if (this.visible && performance.now() >= this.hideAt) {
+      this.setVisible(false);
+    }
+
+    // update floating "+1" particles
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.ttl -= dt;
+      if (p.ttl <= 0) {
+        p.sprite.parent?.remove(p.sprite);
+        this.particles.splice(i, 1);
+        continue;
+      }
+      p.sprite.position.addScaledVector(p.vel, dt);
+      const m = p.sprite.material as THREE.SpriteMaterial;
+      m.opacity = Math.max(0, p.ttl / 0.6); // fade out over last ~0.6s
+    }
+  }
+
+  /** Increment count and play +1 particle */
+  bump(kind: Kind) {
+    if (kind === 'like') this.likeCount++;
+    else this.heartCount++;
+
+    this.redrawPanel();
+    this.playChip(kind);
+    this.setVisible(true);
+    this.hideAt = performance.now() + this.autoHideMs;
+  }
+
+  // ---- internal ----
+
+  private setVisible(v: boolean) {
+    this.visible = v;
+    const target = v ? 1.0 : 0.0;
+
+    // quick opacity tween (manual, simple)
+    const mat = this.panel.material;
+    const start = mat.opacity;
+    const duration = 140;
+    const t0 = performance.now();
+
+    const step = () => {
+      const t = (performance.now() - t0) / duration;
+      const k = Math.min(1, Math.max(0, t));
+      mat.opacity = start + (target - start) * k;
+      if (k < 1) requestAnimationFrame(step);
     };
+    requestAnimationFrame(step);
+  }
 
-    const like = makeCount('👍');
-    const heart = makeCount('❤️');
-    row.appendChild(like.w);
-    row.appendChild(heart.w);
-    this.likeCountEl = like.val;
-    this.heartCountEl = heart.val;
+  private roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    const rr = Math.min(r, w * 0.5, h * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
+  private redrawPanel() {
+    const c = this.panelCanvas;
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, c.width, c.height);
+
+    // bg
+    this.roundedRect(ctx, 0, 0, c.width, c.height, 24);
+    ctx.fillStyle = 'rgba(18,18,28,0.82)';
+    ctx.fill();
+
+    // title
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 28px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.globalAlpha = 0.95;
+    ctx.fillText('Reactions', 22, 44);
+    ctx.globalAlpha = 1;
+
+    // counts row
+    ctx.font = '600 26px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText(`👍  ${this.likeCount}`, 22, 86);
+    ctx.fillText(`❤️  ${this.heartCount}`, 160, 86);
+
+    // divider
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(18, 102, c.width - 36, 2);
+    ctx.globalAlpha = 1;
 
     // comments
-    const commentsHeader = document.createElement('div');
-    commentsHeader.textContent = 'Comments';
-    commentsHeader.style.fontWeight = '700';
-    commentsHeader.style.margin = '6px 0 6px';
-    commentsHeader.style.opacity = '0.9';
-    panel.appendChild(commentsHeader);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 20px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText('Comments', 22, 132);
 
-    const comments = document.createElement('div');
-    comments.style.lineHeight = '1.35';
-    comments.style.opacity = '0.95';
-    comments.innerHTML = `
-      <p style="margin:4px 0;">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam eget hendrerit metus.</p>
-      <p style="margin:4px 0;">Integer faucibus magna non tincidunt mattis, purus lorem gravida augue, nec viverra nibh enim eget velit.</p>
-    `;
-    panel.appendChild(comments);
+    ctx.font = '400 18px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.globalAlpha = 0.95;
+    this.wrapText(
+      ctx,
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam eget hendrerit metus.',
+      22, 160, c.width - 44, 22
+    );
+    this.wrapText(
+      'Integer faucibus magna non tincidunt mattis, purus lorem gravida augue, nec viverra nibh enim eget velit.',
+      22, 206, c.width - 44, 22
+    );
+    ctx.globalAlpha = 1;
 
-    // +1 chip
-    this.chipEl = document.createElement('div');
-    this.chipEl.style.position = 'absolute';
-    this.chipEl.style.left = '50%';
-    this.chipEl.style.top = '-8px';
-    this.chipEl.style.transform = 'translate(-50%, -10px)';
-    this.chipEl.style.padding = '4px 8px';
-    this.chipEl.style.borderRadius = '999px';
-    this.chipEl.style.background = 'rgba(255,255,255,0.25)';
-    this.chipEl.style.color = '#fff';
-    this.chipEl.style.fontWeight = '700';
-    this.chipEl.style.opacity = '0';
-    this.chipEl.style.transition = 'opacity 120ms ease, transform 420ms cubic-bezier(.2,.7,.2,1)';
-    this.chipEl.textContent = '+1';
-    panel.appendChild(this.chipEl);
-
-    // attach
-    this.panelObj = new CSS2DObject(this.container);
-    this.anchor.add(this.panelObj);
-    this.scene.add(this.anchor);
+    this.panelTex.needsUpdate = true;
   }
 
-  /** call each frame */
-  tick() {
-    const pos = this.getObjectWorldPos?.();
-    if (pos) this.anchor.position.copy(pos).add(this.OFFSET);
-    this.renderer.render(this.scene, this.camera);
+  private wrapText(
+    ctxOrText: CanvasRenderingContext2D | string,
+    textOrX: string | number,
+    xOrY: number,
+    yOrMaxWidth: number,
+    maxWidthOrLineHeight: number,
+    lineHeight?: number
+  ) {
+    // two overloads for convenience above
+    if (typeof ctxOrText !== 'string') {
+      const ctx = ctxOrText;
+      const text = textOrX as string;
+      const x = yOrMaxWidth as number; // actually 'y' in our calls
+      const y = maxWidthOrLineHeight as number; // actually 'maxWidth'
+      const maxWidth = lineHeight as number; // actually 'lineHeight' (we pass 22)
+      const words = text.split(' ');
+      let line = '';
+      let cursorY = x;
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        const testWidth = metrics.width;
+        if (testWidth > y && n > 0) {
+          ctx.fillText(line, 22, cursorY);
+          line = words[n] + ' ';
+          cursorY += maxWidth;
+        } else {
+          line = testLine;
+        }
+      }
+      ctx.fillText(line, 22, cursorY);
+      return;
+    }
+
+    // old signature support (not used)
   }
 
-  /** show + increment */
-  bump(kind: Kind) {
-    if (kind === 'like') {
-      this.likeCount++;
-      this.likeCountEl.textContent = String(this.likeCount);
-      this.chipEl.textContent = '+1 👍';
-    } else {
-      this.heartCount++;
-      this.heartCountEl.textContent = String(this.heartCount);
-      this.chipEl.textContent = '+1 ❤️';
-    }
+  private playChip(kind: Kind) {
+    // build a small canvas texture with "+1 👍/❤️"
+    const chipCanvas = document.createElement('canvas');
+    chipCanvas.width = 256;
+    chipCanvas.height = 128;
+    const cx = chipCanvas.getContext('2d')!;
+    cx.clearRect(0, 0, chipCanvas.width, chipCanvas.height);
 
-    if (!this.visible) {
-      this.visible = true;
-      this.container.style.opacity = '1';
-    }
+    // rounded bg
+    cx.fillStyle = 'rgba(255,255,255,0.25)';
+    const r = 32, w = chipCanvas.width, h = chipCanvas.height;
+    cx.beginPath();
+    cx.moveTo(r, 0);
+    cx.arcTo(w, 0, w, h, r);
+    cx.arcTo(w, h, 0, h, r);
+    cx.arcTo(0, h, 0, 0, r);
+    cx.arcTo(0, 0, w, 0, r);
+    cx.closePath();
+    cx.fill();
 
-    // chip pop
-    this.chipEl.style.opacity = '1';
-    this.chipEl.style.transform = 'translate(-50%, -22px)';
-    setTimeout(() => {
-      this.chipEl.style.opacity = '0';
-      this.chipEl.style.transform = 'translate(-50%, -10px)';
-    }, 320);
+    cx.fillStyle = '#fff';
+    cx.font = '700 42px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+    cx.fillText(kind === 'like' ? '+1 👍' : '+1 ❤️', w / 2, h / 2);
 
-    // auto hide
-    if (this.fadeTimer) clearTimeout(this.fadeTimer);
-    this.fadeTimer = window.setTimeout(() => {
-      this.container.style.opacity = '0';
-      this.visible = false;
-    }, this.AUTO_HIDE_MS);
+    const tex = new THREE.CanvasTexture(chipCanvas);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 1 });
+    const sprite = new THREE.Sprite(mat);
+
+    // size relative to panel
+    const chipW = this.PANEL_W * 0.55;
+    const aspect = chipCanvas.height / chipCanvas.width;
+    sprite.scale.set(chipW, chipW * aspect, 1);
+
+    // start slightly above panel center
+    sprite.position.set(0, this.PANEL_H * 0.35, 0.002);
+
+    this.anchor.add(sprite);
+
+    // upward velocity and TTL
+    this.particles.push({
+      sprite,
+      vel: new THREE.Vector3(0, 0.25, 0), // m/s up
+      ttl: 0.8, // seconds
+    });
   }
 }
