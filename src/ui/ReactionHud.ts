@@ -4,14 +4,15 @@ import * as THREE from 'three';
 type Kind = 'like' | 'heart';
 
 /**
- * 3D, world-anchored reaction HUD:
- * - A billboard panel (plane) rendered in 3D, facing the camera
- * - Shows 👍/❤️ counts and a "Comments" area with lorem ipsum
- * - On bump(kind), increments count and spawns a floating "+1" sprite
+ * 3D, world-anchored reaction HUD (ALWAYS VISIBLE)
+ * - Billboard panel rendered in 3D, facing the camera
+ * - Shows stable 👍/❤️ counters and a "Comments" block (lorem ipsum)
+ * - On bump(kind), increments counters and spawns a floating "+1" sprite
  *
  * Public API:
  *   tick(dt: number): void
  *   bump(kind: 'like'|'heart'): void
+ *   setCounts(like: number, heart: number): void   // optional initializer
  */
 export class ReactionHud {
   private anchor = new THREE.Group();
@@ -19,10 +20,6 @@ export class ReactionHud {
   private panelTex: THREE.CanvasTexture;
   private panelCanvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-
-  private visible = false;
-  private autoHideMs = 1500;
-  private hideAt = 0;
 
   private likeCount = 0;
   private heartCount = 0;
@@ -61,16 +58,13 @@ export class ReactionHud {
     const mat = new THREE.MeshBasicMaterial({
       map: this.panelTex,
       transparent: true,
-      opacity: 0.0, // start hidden
+      opacity: 1.0,        // ALWAYS visible
       depthTest: true,
       depthWrite: false,
     });
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.renderOrder = 999; // draw on top-ish
+    this.panel.renderOrder = 999;
     this.anchor.add(this.panel);
-
-    // small offset so particles can appear above the panel
-    this.panel.position.set(0, 0, 0);
 
     this.scene.add(this.anchor);
 
@@ -78,21 +72,21 @@ export class ReactionHud {
     this.redrawPanel();
   }
 
+  /** Optional: initialize counts from some store */
+  setCounts(like: number, heart: number) {
+    this.likeCount = Math.max(0, Math.floor(like));
+    this.heartCount = Math.max(0, Math.floor(heart));
+    this.redrawPanel();
+  }
+
   /** Call each frame with dt (seconds) */
   tick(dt: number) {
     // follow model
     const pos = this.getObjectWorldPos?.();
-    if (pos) {
-      this.anchor.position.copy(pos).add(this.OFFSET);
-    }
+    if (pos) this.anchor.position.copy(pos).add(this.OFFSET);
 
     // billboard to camera
     this.anchor.quaternion.copy(this.camera.quaternion);
-
-    // auto-hide
-    if (this.visible && performance.now() >= this.hideAt) {
-      this.setVisible(false);
-    }
 
     // update floating "+1" particles
     for (let i = this.particles.length - 1; i >= 0; i--) {
@@ -116,30 +110,9 @@ export class ReactionHud {
 
     this.redrawPanel();
     this.playChip(kind);
-    this.setVisible(true);
-    this.hideAt = performance.now() + this.autoHideMs;
   }
 
-  // ---- internal ----
-
-  private setVisible(v: boolean) {
-    this.visible = v;
-    const target = v ? 1.0 : 0.0;
-
-    // quick opacity tween (manual, simple)
-    const mat = this.panel.material;
-    const start = mat.opacity;
-    const duration = 140;
-    const t0 = performance.now();
-
-    const step = () => {
-      const t = (performance.now() - t0) / duration;
-      const k = Math.min(1, Math.max(0, t));
-      mat.opacity = start + (target - start) * k;
-      if (k < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  }
+  // ---- internal drawing helpers ----
 
   private roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
     const rr = Math.min(r, w * 0.5, h * 0.5);
@@ -193,6 +166,7 @@ export class ReactionHud {
       22, 160, c.width - 44, 22
     );
     this.wrapText(
+      ctx,
       'Integer faucibus magna non tincidunt mattis, purus lorem gravida augue, nec viverra nibh enim eget velit.',
       22, 206, c.width - 44, 22
     );
@@ -202,40 +176,29 @@ export class ReactionHud {
   }
 
   private wrapText(
-    ctxOrText: CanvasRenderingContext2D | string,
-    textOrX: string | number,
-    xOrY: number,
-    yOrMaxWidth: number,
-    maxWidthOrLineHeight: number,
-    lineHeight?: number
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    lineHeight: number
   ) {
-    // two overloads for convenience above
-    if (typeof ctxOrText !== 'string') {
-      const ctx = ctxOrText;
-      const text = textOrX as string;
-      const x = yOrMaxWidth as number; // actually 'y' in our calls
-      const y = maxWidthOrLineHeight as number; // actually 'maxWidth'
-      const maxWidth = lineHeight as number; // actually 'lineHeight' (we pass 22)
-      const words = text.split(' ');
-      let line = '';
-      let cursorY = x;
-      for (let n = 0; n < words.length; n++) {
-        const testLine = line + words[n] + ' ';
-        const metrics = ctx.measureText(testLine);
-        const testWidth = metrics.width;
-        if (testWidth > y && n > 0) {
-          ctx.fillText(line, 22, cursorY);
-          line = words[n] + ' ';
-          cursorY += maxWidth;
-        } else {
-          line = testLine;
-        }
+    const words = text.split(' ');
+    let line = '';
+    let cursorY = y;
+    for (let n = 0; n < words.length; n++) {
+      const testLine = line + words[n] + ' ';
+      const metrics = ctx.measureText(testLine);
+      const testWidth = metrics.width;
+      if (testWidth > maxWidth && n > 0) {
+        ctx.fillText(line, x, cursorY);
+        line = words[n] + ' ';
+        cursorY += lineHeight;
+      } else {
+        line = testLine;
       }
-      ctx.fillText(line, 22, cursorY);
-      return;
     }
-
-    // old signature support (not used)
+    ctx.fillText(line, x, cursorY);
   }
 
   private playChip(kind: Kind) {
