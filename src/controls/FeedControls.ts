@@ -3,11 +3,6 @@ import { HandEngine } from '../gestures/HandEngine';
 import { ThreeXRApp } from '../app/ThreeXRApp';
 import { FeedStore } from '../feed/FeedStore';
 
-/**
- * Rotation smoothing:
- * - Uses SmoothDamp (critically damped) for angle.
- * - Lower gain + deadzone + clamp to tame jitter.
- */
 export class FeedControls {
   // ===== Scroll (1-hand vertical) =====
   private lastPinchY: number | null = null;
@@ -23,26 +18,27 @@ export class FeedControls {
   private readonly SCROLL_IN_AIR_DIST = 0.24;
   private readonly LPF_SCROLL_ALPHA = 0.22;
 
-  // ===== Two-hand transform =====
+  // ===== Two-hand transform (scale + rotation) =====
   private twoHandActive = false;
+
+  // scale state
   private baseDist = 0;
-  private baseAngle = 0;
   private baseScale = 1;
-
-  // scale feel
-  private readonly SCALE_GAIN = 2.2;
-  private LPF_ALPHA = 0.25;
-  private SCALE_DEADBAND = 0.01;
   private filtDist = 0;
+  private readonly LPF_ALPHA = 0.28;      // distance low-pass (slightly higher → more responsive)
+  private readonly SCALE_GAIN = 2.2;      // exponential feel
+  private readonly SCALE_DEADBAND = 0.004; // smaller deadband so scale actually moves
+  private readonly SCALE_MIN = 0.15;
+  private readonly SCALE_MAX = 8;
 
-  // --- ROTATION: SmoothDamp params (buttery smooth) ---
-  private rotTarget = 0;                 // desired angle (rad)
-  private rotVel = 0;                    // angular velocity (rad/s) used by smoothDamp
-  private readonly ROT_GAIN = 0.45;      // mapping from hand angle delta -> object yaw (lower = gentler)
-  private readonly ROT_DEADZONE = THREE.MathUtils.degToRad(2.0); // ignore tiny jitter
-  private readonly ROT_MAX_DELTA = THREE.MathUtils.degToRad(40); // clamp incoming delta per calc
-  private readonly ROT_SMOOTH_TIME = 0.22; // seconds to reach target ~63% (critically damped)
-  private readonly ROT_MAX_SPEED = THREE.MathUtils.degToRad(180); // rad/s clamp
+  // rotation (SmoothDamp)
+  private rotTarget = 0;
+  private rotVel = 0;
+  private readonly ROT_GAIN = 0.56;  // ~1.25x of previous 0.45
+  private readonly ROT_DEADZONE = THREE.MathUtils.degToRad(2.0);
+  private readonly ROT_MAX_DELTA = THREE.MathUtils.degToRad(40);
+  private readonly ROT_SMOOTH_TIME = 0.22;
+  private readonly ROT_MAX_SPEED = THREE.MathUtils.degToRad(225);
 
   // moving-hand selector
   private LStart = new THREE.Vector3();
@@ -115,7 +111,7 @@ export class FeedControls {
 
       this.updateAutoAcquirePending();
       this.updateScroll(now);
-      this.updateTwoHandTransform(dt);  // <- rotation smoothed here
+      this.updateTwoHandTransform(dt);
       this.updateGrabDrag();
       this.updateGrabPendingGuard();
       this.updateRays();
@@ -173,14 +169,29 @@ export class FeedControls {
       this.scrollAccum = 0;
     }
 
+    // If the other hand is already pinching, we'll (re)arm two-hand transform baseline
     const other = side === 'left' ? 'right' : 'left';
-    if (this.hands.state[other].pinch) this.cancelGrabPending(); else this.tryStartGrabPending(side);
+    if (this.hands.state[other].pinch) {
+      // force re-arm next frame so scale uses a good base distance
+      this.twoHandActive = false;
+    } else {
+      this.tryStartGrabPending(side);
+    }
   }
   private onPinchEnd(side:'left'|'right'){
     this.setRayVisible(side, false);
     this.lastPinchY = null; this.filtPinchY = null; this.scrollAccum = 0; this.pinchStartAt = null;
+
+    // end grab if the grabbing hand releases
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
     if (this.grabbing && this.grabSide === side) { this.grabbing = false; this.grabSide = null; this.store.notify('Placed'); }
+
+    // leaving two-hand mode if one hand releases
+    const other = side === 'left' ? 'right' : 'left';
+    if (!this.hands.state[other].pinch) {
+      this.twoHandActive = false;
+      this.rotVel = 0;
+    }
   }
 
   // ---------- Scroll (ONE hand, vertical, deliberate) ----------
@@ -224,84 +235,79 @@ export class FeedControls {
     }
   }
 
-  // ---------- Two-hand transform (SCALED + SMOOTH ROTATION) ----------
+  // ---------- Two-hand transform (SCALE + ROT, smoothed) ----------
   private updateTwoHandTransform(dt:number){
     const lp = this.hands.state.left.pinch;
     const rp = this.hands.state.right.pinch;
     if (this.grabPending || this.grabbing) return;
-    if (!(lp && rp)) { this.twoHandActive = false; return; }
+    if (!(lp && rp)) { 
+      if (this.twoHandActive) { this.twoHandActive = false; this.rotVel = 0; }
+      return; 
+    }
 
-    const Lt = this.hands.thumbTip('left');
-    const Rt = this.hands.thumbTip('right');
-    if (!(Lt && Rt)) { this.twoHandActive = false; return; }
+    // Use pinch midpoints (more stable) with fallback to thumb tips
+    const Lp = this.hands.pinchMid('left')  ?? this.hands.thumbTip('left');
+    const Rp = this.hands.pinchMid('right') ?? this.hands.thumbTip('right');
+    if (!(Lp && Rp)) { 
+      if (this.twoHandActive) { this.twoHandActive = false; this.rotVel = 0; }
+      return; 
+    }
 
-    this.lastL.copy(Lt); this.lastR.copy(Rt);
+    this.lastL.copy(Lp); this.lastR.copy(Rp);
 
-    const rawDist  = Lt.distanceTo(Rt);
+    // (Re)arm baseline once, right after both pinches are active — ensures good baseDist
+    const rawDist = Math.max(1e-6, Lp.distanceTo(Rp));
     if (!this.twoHandActive){
       this.twoHandActive = true;
+
       this.baseDist  = rawDist;
       this.baseScale = this.store.scale;
       this.filtDist  = rawDist;
 
-      // initialize rotation target with current rotation to avoid jumps
+      // Initialize rotation target with current rotation to avoid jumps
       this.rotTarget = this.store.rotationY;
 
-      // reset movement baselines
-      this.LStart.copy(Lt);
-      this.RStart.copy(Rt);
+      // Reset baselines for moving-hand selection
+      this.LStart.copy(Lp);
+      this.RStart.copy(Rp);
       return;
     }
 
-    // ---- Scale ----
+    // ---- SCALE ----
     this.filtDist = this.filtDist + (rawDist - this.filtDist) * this.LPF_ALPHA;
-    const ratio = Math.max(0.01, this.filtDist / this.baseDist);
-    const scaleRaw = this.baseScale * Math.pow(ratio, this.SCALE_GAIN);
-    const scaleDelta = Math.abs(scaleRaw - this.store.scale);
-    const targetScale = scaleDelta > this.SCALE_DEADBAND ? scaleRaw : this.store.scale;
-    this.store.setTargetTransform(targetScale, this.store.rotationY);
 
-    // ---- Rotation (continuous + smoothed) ----
+    // ratio of current to base distance
+    const ratio = this.filtDist / this.baseDist;
+    // exponential feel, clamp to sane bounds
+    let scaleRaw = this.baseScale * Math.pow(ratio, this.SCALE_GAIN);
+    scaleRaw = THREE.MathUtils.clamp(scaleRaw, this.SCALE_MIN, this.SCALE_MAX);
+
+    // apply only if we cleared small deadband
+    if (Math.abs(scaleRaw - this.store.scale) > this.SCALE_DEADBAND) {
+      this.store.setTargetTransform(scaleRaw, this.store.rotationY);
+    } else {
+      // keep feeding current target (preserves smoothing in store)
+      this.store.setTargetTransform(this.store.scale, this.store.rotationY);
+    }
+
+    // ---- ROTATION (SmoothDamp) ----
     const lMove = this.lastL.distanceTo(this.LStart);
     const rMove = this.lastR.distanceTo(this.RStart);
-    if (lMove + rMove < this.MOVE_EPS * 2) {
-      // still apply smoothing toward target, but don't update target if hands barely moved
-      const smooth = this.smoothDampAngle(
-        this.store.rotationY, this.rotTarget, (v)=> this.rotVel = v, this.rotVel,
-        this.ROT_SMOOTH_TIME, this.ROT_MAX_SPEED, dt
-      );
-      this.store.setTargetTransform(this.store.scale, smooth);
-      return;
-    }
+    const movedEnough = (lMove + rMove) >= (this.MOVE_EPS * 2);
 
-    const stationary = (lMove <= rMove) ? this.lastL : this.lastR;
-    const moving     = (lMove <= rMove) ? this.lastR : this.lastL;
+    const aNow  = Math.atan2(this.lastR.y - this.lastL.y, this.lastR.x - this.lastL.x);
+    const aBase = Math.atan2(this.RStart.y - this.LStart.y, this.RStart.x - this.LStart.x);
+    let dA = aNow - aBase;
 
-    // angle in screen/XY space around stationary hand
-    let dA = Math.atan2(moving.y - stationary.y, moving.x - stationary.x)
-           - Math.atan2(this.RStart.y - this.LStart.y, this.RStart.x - this.LStart.x);
-
-    // normalize to [-PI, PI]
     while (dA >  Math.PI) dA -= 2*Math.PI;
     while (dA < -Math.PI) dA += 2*Math.PI;
 
-    if (Math.abs(dA) < this.ROT_DEADZONE) {
-      // small jitter: just smooth toward current target
-      const smooth = this.smoothDampAngle(
-        this.store.rotationY, this.rotTarget, (v)=> this.rotVel = v, this.rotVel,
-        this.ROT_SMOOTH_TIME, this.ROT_MAX_SPEED, dt
-      );
-      this.store.setTargetTransform(this.store.scale, smooth);
-      return;
+    if (movedEnough && Math.abs(dA) >= this.ROT_DEADZONE) {
+      dA = THREE.MathUtils.clamp(dA, -this.ROT_MAX_DELTA, this.ROT_MAX_DELTA);
+      const desired = this.store.rotationY - dA * this.ROT_GAIN; // minus keeps direction intuitive
+      this.rotTarget = desired;
     }
 
-    // clamp the raw delta to avoid jumps, then map by gain
-    dA = THREE.MathUtils.clamp(dA, -this.ROT_MAX_DELTA, this.ROT_MAX_DELTA);
-    const desired = this.store.rotationY - dA * this.ROT_GAIN; // minus keeps direction intuitive
-
-    this.rotTarget = desired;
-
-    // SmoothDamp toward target
     const smoothed = this.smoothDampAngle(
       this.store.rotationY, this.rotTarget, (v)=> this.rotVel = v, this.rotVel,
       this.ROT_SMOOTH_TIME, this.ROT_MAX_SPEED, dt
@@ -310,8 +316,7 @@ export class FeedControls {
     this.store.setTargetTransform(this.store.scale, smoothed);
   }
 
-  // ---------- SmoothDamp for angles (critically-damped spring) ----------
-  // Adapted from Unity's SmoothDamp with angle wrapping
+  // ---------- SmoothDamp for angles ----------
   private smoothDampAngle(
     current:number,
     target:number,
@@ -321,7 +326,6 @@ export class FeedControls {
     maxSpeed:number,
     deltaTime:number
   ){
-    // wrap difference to [-PI, PI]
     let delta = target - current;
     while (delta >  Math.PI) delta -= 2*Math.PI;
     while (delta < -Math.PI) delta += 2*Math.PI;
@@ -334,7 +338,6 @@ export class FeedControls {
     let change = current - target;
     const originalTo = target;
 
-    // clamp max speed
     const maxChange = maxSpeed * smoothTime;
     change = THREE.MathUtils.clamp(change, -maxChange, maxChange);
     target = current - change;
@@ -343,7 +346,6 @@ export class FeedControls {
     const newVel = (currentVel - omega * temp) * exp;
     let output = target + (change + temp) * exp;
 
-    // prevent overshoot
     const origDelta = originalTo - current;
     const outDelta = output - originalTo;
     if (origDelta * outDelta > 0) {
