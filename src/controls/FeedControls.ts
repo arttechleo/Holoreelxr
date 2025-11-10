@@ -73,17 +73,19 @@ export class FeedControls {
   private lastHeartAt = 0;
   private readonly REACT_COOLDOWN_MS = 800;
 
-  // NEW: HUD manager (per-model counts + show/hide)
+  // HUD manager (per-model counts + show/hide)
   private hudMgr: ReactionHudManager;
 
-  // NEW: short-pinch / tap detection near model (kept as secondary trigger)
+  // === NEW: Quick pinch ("tap") to show HUD ===
   private tapStartTime: number | null = null;
   private tapStartPos: THREE.Vector3 | null = null;
-  private readonly TAP_MAX_MS = 260;
-  private readonly TAP_MOVE_MAX = 0.045;
-  private readonly TAP_OBJ_DIST = 0.28;
+  private lastTapAt = 0;
+  private readonly TAP_MAX_MS = 240;         // quick pinch must be shorter than this
+  private readonly TAP_MOVE_MAX = 0.040;     // allow a little motion
+  private readonly TAP_OBJ_DIST = 0.30;      // must be near model
+  private readonly TAP_COOLDOWN_MS = 500;    // prevent double-fires
 
-  // NEW: StopPalm gesture
+  // Stop-palm gesture (existing)
   private stopPalm: StopPalmGesture;
 
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
@@ -91,14 +93,14 @@ export class FeedControls {
     this.initRay('left'); this.initRay('right');
     this.setRayVisible('left', false); this.setRayVisible('right', false);
 
-    // HUD manager (follows current model via store.getObjectWorldPos)
+    // HUD manager
     this.hudMgr = new ReactionHudManager(
       this.app.scene,
       this.app.camera,
       () => this.store.getObjectWorldPos()
     );
 
-    // === STOP PALM gesture ===
+    // Stop-palm gesture still supported
     this.stopPalm = new StopPalmGesture(
       this.hands,
       this.app.camera,
@@ -110,11 +112,13 @@ export class FeedControls {
       this.hudMgr.showFor(this.currentModelKey());
     });
 
+    // Hand lifecycle
     this.hands.on('leftpinchstart',  () => this.onPinchStart('left'));
     this.hands.on('rightpinchstart', () => this.onPinchStart('right'));
     this.hands.on('leftpinchend',    () => this.onPinchEnd('left'));
     this.hands.on('rightpinchend',   () => this.onPinchEnd('right'));
 
+    // Reactions -> count + HUD chip
     this.hands.on('thumbsupstart', (d:any) => {
       const now = performance.now();
       if (now - this.lastLikeAt < this.REACT_COOLDOWN_MS) return;
@@ -124,11 +128,9 @@ export class FeedControls {
       const start = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
       this.store.likeCurrent(start ?? undefined, side);
 
-      // per-model bump
       this.hudMgr.bump(this.currentModelKey(), 'like');
     });
 
-    // Heart disabled if both hands pinching (transform mode)
     this.hands.on('heartstart', () => {
       if (this.twoHandActive || (this.hands.state.left.pinch && this.hands.state.right.pinch)) return;
       const now = performance.now();
@@ -139,7 +141,6 @@ export class FeedControls {
       if (L) this.store.saveCurrent(L.clone());
       if (R) this.store.saveCurrent(R.clone());
 
-      // per-model bump
       this.hudMgr.bump(this.currentModelKey(), 'heart');
     });
 
@@ -157,7 +158,7 @@ export class FeedControls {
       this.updateGrabPendingGuard();
       this.updateRays();
 
-      // drive StopPalm gesture
+      // gestures
       this.stopPalm.tick();
 
       // HUD follow/particles
@@ -204,7 +205,7 @@ export class FeedControls {
     update('right', this.rightRay);
   }
 
-  // ---------- Pinch lifecycle + TAP detection (optional secondary trigger) ----------
+  // ---------- Pinch lifecycle + QUICK PINCH to show HUD ----------
   private onPinchStart(side:'left'|'right'){
     this.setRayVisible(side, true);
 
@@ -216,11 +217,11 @@ export class FeedControls {
       this.scrollAccum = 0;
     }
 
-    // record tap start
+    // record quick-pinch start
     this.tapStartTime = performance.now();
     this.tapStartPos = this.hands.pinchMid(side)?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
 
-    // If the other hand is pinching, rearm two-hand baseline
+    // If the other hand is already pinching, re-arm two-hand baseline
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) {
       this.twoHandActive = false;
@@ -228,9 +229,28 @@ export class FeedControls {
       this.tryStartGrabPending(side);
     }
   }
+
   private onPinchEnd(side:'left'|'right'){
     this.setRayVisible(side, false);
-    this.lastPinchY = null; this.filtPinchY = null; this.scrollAccum = 0; this.pinchStartAt = null;
+
+    // ---- QUICK PINCH detection (primary UI trigger) ----
+    const now = performance.now();
+    const duration = this.tapStartTime ? (now - this.tapStartTime) : Infinity;
+    const endPos = this.hands.pinchMid(side)?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
+
+    if (this.tapStartPos && endPos && duration <= this.TAP_MAX_MS && (now - this.lastTapAt) >= this.TAP_COOLDOWN_MS) {
+      const travel = this.tapStartPos.distanceTo(endPos);
+      if (travel <= this.TAP_MOVE_MAX) {
+        if (this.isNearModel(endPos)) {
+          this.lastTapAt = now;
+          this.store.notify('UI: quick pinch – showing panel');
+          this.hudMgr.showFor(this.currentModelKey());
+        }
+      }
+    }
+
+    // reset tap state
+    this.tapStartTime = null; this.tapStartPos = null;
 
     // end grab if the grabbing hand releases
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
@@ -243,25 +263,8 @@ export class FeedControls {
       this.rotVel = 0;
     }
 
-    // --- Short pinch "tap" to show HUD near the model (secondary) ---
-    const tEnd = performance.now();
-    const tapDur = this.tapStartTime ? (tEnd - this.tapStartTime) : Infinity;
-    const endPos = this.hands.pinchMid(side)?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
-
-    if (this.tapStartPos && endPos && tapDur <= this.TAP_MAX_MS) {
-      const move = this.tapStartPos.distanceTo(endPos);
-      if (move <= this.TAP_MOVE_MAX) {
-        const distSurf = this.distanceToObjectSurface(endPos);
-        const near = (distSurf != null && distSurf <= this.TAP_OBJ_DIST) ||
-                     (this.store.getObjectWorldPos()?.distanceTo(endPos ?? new THREE.Vector3()) ?? 99) <= (this.TAP_OBJ_DIST + 0.08);
-        if (near) {
-          this.store.notify('UI: short-pinch detected near model');
-          this.hudMgr.showFor(this.currentModelKey());
-        }
-      }
-    }
-
-    this.tapStartTime = null; this.tapStartPos = null;
+    // reset scroll trackers
+    this.lastPinchY = null; this.filtPinchY = null; this.scrollAccum = 0; this.pinchStartAt = null;
   }
 
   // ---------- Scroll (ONE hand, vertical, deliberate) ----------
@@ -503,6 +506,14 @@ export class FeedControls {
     const { center, radius } = info;
     const distCenter = worldPoint.distanceTo(center);
     return Math.max(0, distCenter - (radius + 0.04));
+  }
+
+  private isNearModel(point: THREE.Vector3): boolean {
+    const distSurf = this.distanceToObjectSurface(point);
+    if (distSurf != null) return distSurf <= this.TAP_OBJ_DIST;
+    const center = this.store.getObjectWorldPos();
+    if (!center) return false;
+    return point.distanceTo(center) <= (this.TAP_OBJ_DIST + 0.08);
   }
 
   // Use a stable key per model if your FeedStore exposes one; fallback to "default"
