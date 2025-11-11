@@ -24,8 +24,8 @@ export class HandEngine {
   private lastMap = new Map<string,{val:boolean; changeAt:number}>();
 
   public state = {
-    left:  { pinch:false, thumbsup:false, peace:false },
-    right: { pinch:false, thumbsup:false, peace:false },
+    left:  { pinch:false, thumbsup:false },
+    right: { pinch:false, thumbsup:false },
     heart:false
   };
 
@@ -63,6 +63,7 @@ export class HandEngine {
     const inputSources = Array.from(session.inputSources || []).filter((s:any)=> !!s.hand);
     if (!inputSources.length) return;
 
+    // clear
     this.lastPos.left = {}; this.lastPos.right = {};
     for (const src of inputSources) {
       const side = (src.handedness === 'left' || src.handedness === 'right') ? src.handedness : 'left';
@@ -80,15 +81,13 @@ export class HandEngine {
     const J = (side:Side, name:XRHandJointName) => this.lastPos[side]?.[name] ?? null;
     const dist = (a:THREE.Vector3|null, b:THREE.Vector3|null) => (a&&b)? a.distanceTo(b) : 1e9;
 
-    // Pinch (per hand)
+    // Pinch
     const leftPinch  = dist(J('left','thumb-tip'),  J('left','index-finger-tip'))  < 0.035;
     const rightPinch = dist(J('right','thumb-tip'), J('right','index-finger-tip')) < 0.035;
-    this.state.left.pinch  = leftPinch;
-    this.state.right.pinch = rightPinch;
-    this.updateFlag('left.pinch', leftPinch, {side:'left'});
-    this.updateFlag('right.pinch', rightPinch, {side:'right'});
+    this.state.left.pinch  = leftPinch;  this.updateFlag('left.pinch', leftPinch, {side:'left'});
+    this.state.right.pinch = rightPinch; this.updateFlag('right.pinch', rightPinch, {side:'right'});
 
-    // Thumbs-up (simple heuristic)
+    // Thumbsup (simple)
     const thumbUp = (side:Side) => {
       const W = J(side,'wrist'), T = J(side,'thumb-tip');
       if (!W || !T) return false;
@@ -101,40 +100,34 @@ export class HandEngine {
     if (thumbUp('right')) this.emit('thumbsupstart',{side:'right'});
 
     // HEART: both index tips close AND both thumb tips close
-    const L_i = J('left','index-finger-tip');
-    const R_i = J('right','index-finger-tip');
-    const L_t = J('left','thumb-tip');
-    const R_t = J('right','thumb-tip');
+    const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
+    const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
     const NEAR = 0.045;
     const heartNow = dist(L_i, R_i) < NEAR && dist(L_t, R_t) < NEAR;
-    this.state.heart = heartNow;
-    this.updateFlag('heart', heartNow);
+    this.state.heart = heartNow; this.updateFlag('heart', heartNow);
 
-    // ===== Peace ✌️ detection (either hand) =====
-    const isExtended = (side:Side, tip:XRHandJointName, thresh=0.085) => {
-      const W = J(side,'wrist'), T = J(side, tip);
-      return !!(W && T && T.distanceTo(W) > thresh);
+    // NEW: ILY/🤟 pose (thumb + index + pinky extended; middle & ring curled)
+    const ily = (side:Side) => {
+      const W = J(side,'wrist');
+      const IT = J(side,'index-finger-tip');
+      const PT = J(side,'pinky-finger-tip');
+      const TT = J(side,'thumb-tip');
+      const MT = J(side,'middle-finger-tip');
+      const RT = J(side,'ring-finger-tip');
+      if (!(W && IT && PT && TT && MT && RT)) return false;
+      const ext = (p:THREE.Vector3|null, thr:number)=> p ? p.distanceTo(W!) > thr : false;
+      const cur = (p:THREE.Vector3|null, thr:number)=> p ? p.distanceTo(W!) < thr : false;
+      return ext(IT,0.085) && ext(PT,0.085) && ext(TT,0.080) && cur(MT,0.075) && cur(RT,0.075);
     };
-    const isCurled = (side:Side, tip:XRHandJointName, thresh=0.075) => {
-      const W = J(side,'wrist'), T = J(side, tip);
-      return !!(W && T && T.distanceTo(W) < thresh);
-    };
-
-    const peace = (side:Side) =>
-      isExtended(side,'index-finger-tip') &&
-      isExtended(side,'middle-finger-tip') &&
-      isCurled(side,'ring-finger-tip') &&
-      isCurled(side,'pinky-finger-tip'); // thumb free/ignored
-
-    this.state.left.peace  = peace('left');
-    this.state.right.peace = peace('right');
-    this.updateFlag('left.peace',  this.state.left.peace,  {side:'left'});
-    this.updateFlag('right.peace', this.state.right.peace, {side:'right'});
+    if (ily('left'))  this.emit('ilystart', {side:'left'});
+    if (ily('right')) this.emit('ilystart', {side:'right'});
   }
 
-  wristY(side: Side){ const Jp = this.lastPos[side]['wrist']; return Jp ? Jp.y : null; }
+  // -------- helpers used by controls --------
+  wristY(side: Side){ const J = this.lastPos[side]['wrist']; return J ? J.y : null; }
   thumbTip(side: Side){ const p = this.lastPos[side]['thumb-tip']; return p ? p.clone() : null; }
   indexTip(side: Side){ const p = this.lastPos[side]['index-finger-tip']; return p ? p.clone() : null; }
+  indexProx(side: Side){ const p = this.lastPos[side]['index-finger-phalanx-proximal']; return p ? p.clone() : null; }
   pinchMid(side: Side){
     const t = this.thumbTip(side), i = this.indexTip(side);
     return (t && i) ? t.add(i).multiplyScalar(0.5) : null;
