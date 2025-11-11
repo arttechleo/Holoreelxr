@@ -8,45 +8,37 @@ export class ThreeXRApp {
   public scene = new THREE.Scene();
   public camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 100);
   public contentRoot = new THREE.Group();
-
-  /** Dedicated, light DOM overlay – safer than using document.body */
-  public readonly overlayRoot: HTMLDivElement;
+  public overlayRoot: HTMLElement;
 
   private onFrameCbs: Array<(info: XRFrameInfo) => void> = [];
   private refSpace: XRReferenceSpace | null = null;
   private handFactory = new XRHandModelFactory();
   private handsAdded = false;
 
-  /** Saved render loop so we can pause/resume during typing */
-  private renderLoop?: (t: number, frame?: XRFrame) => void;
+  private paused = false;
+  private loopFn?: (t: number, frame?: XRFrame) => void;
+  private onPauseCbs: Array<() => void> = [];
+  private onResumeCbs: Array<() => void> = [];
 
   constructor() {
-    // Canvas / renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType?.('local-floor');
     document.body.appendChild(this.renderer.domElement);
 
-    // Transparent for AR passthrough
     this.scene.background = null;
-
-    // World
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x222233, 0.9));
     this.scene.add(this.contentRoot);
 
-    // Overlay root (lightweight container used by domOverlay)
+    // Overlay root (for lightweight DOM UI if needed)
     this.overlayRoot = document.createElement('div');
-    this.overlayRoot.id = 'overlay-root';
     Object.assign(this.overlayRoot.style, {
-      position: 'absolute',
+      position: 'fixed',
       inset: '0',
-      pointerEvents: 'auto',
-      contain: 'layout paint size style',
-      fontFamily: 'system-ui, sans-serif',
-    } as CSSStyleDeclaration);
-    // Prevent XR select hijack on overlay taps
-    this.overlayRoot.addEventListener('beforexrselect', (e: any) => e.preventDefault());
+      pointerEvents: 'none',
+      zIndex: '5',
+    });
     document.body.appendChild(this.overlayRoot);
 
     addEventListener('resize', () => {
@@ -59,15 +51,22 @@ export class ThreeXRApp {
     this.renderer.xr.addEventListener('sessionstart', async () => {
       this.refSpace = (this.renderer.xr as any).getReferenceSpace?.() ?? null;
       document.body.classList.add('xr-overlay');
-      this.ensureDebugHands(); // only visible if hand-tracking is active
+      this.ensureDebugHands();
     });
     this.renderer.xr.addEventListener('sessionend', () => {
       this.refSpace = null;
       document.body.classList.remove('xr-overlay');
     });
 
-    // Pre-warm OS keyboard a single time to avoid long first-open
-    this.prewarmKeyboard();
+    // Pause / resume on tab switch
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.pause();
+      else this.resume();
+    });
+    window.addEventListener('pagehide', () => this.pause());
+    window.addEventListener('pageshow', () => this.resume());
+    window.addEventListener('blur', () => this.pause());
+    window.addEventListener('focus', () => this.resume());
 
     this.wireExplicitButtons();
   }
@@ -75,28 +74,40 @@ export class ThreeXRApp {
   onFrame(cb: (info: XRFrameInfo) => void) {
     this.onFrameCbs.push(cb);
   }
+  onPause(cb: () => void) {
+    this.onPauseCbs.push(cb);
+  }
+  onResume(cb: () => void) {
+    this.onResumeCbs.push(cb);
+  }
 
   start() {
-    this.renderLoop = (_t: number, frame?: XRFrame) => {
-      const sess = (this.renderer.xr as any).getSession?.();
-      if (!sess) return; // guard if XR tears down
-      const refSpace = this.refSpace ?? (this.renderer.xr as any).getReferenceSpace?.() ?? null;
+    this.loopFn = (_t: number, frame?: XRFrame) => {
+      const refSpace = this.refSpace ?? (this.renderer.xr as any).getReferenceSpace?.();
       for (const cb of this.onFrameCbs) cb({ frame: frame ?? null, refSpace });
       this.renderer.render(this.scene, this.camera);
     };
-    this.renderer.setAnimationLoop(this.renderLoop);
+    this.renderer.setAnimationLoop(this.loopFn);
   }
 
-  /** Pause XR draw while a DOM input has focus (prevents device-loss on some headsets). */
+  pause() {
+    if (this.paused) return;
+    this.paused = true;
+    this.renderer.setAnimationLoop(null);
+    for (const f of this.onPauseCbs) f();
+  }
+  resume() {
+    if (!this.paused) return;
+    this.paused = false;
+    if (this.loopFn) this.renderer.setAnimationLoop(this.loopFn);
+    for (const f of this.onResumeCbs) f();
+  }
+
   pauseWhileFocused(el: HTMLElement) {
-    if (!el) return;
-    const pause = () => this.renderer.setAnimationLoop(null);
-    const resume = () => this.renderer.setAnimationLoop(this.renderLoop ?? null);
-    el.addEventListener('focus', pause);
-    el.addEventListener('blur', resume);
+    el.addEventListener('focus', () => this.pause());
+    el.addEventListener('blur', () => this.resume());
   }
 
-  // =============== Buttons (explicit AR/VR) ===============
   private wireExplicitButtons() {
     const arBtn = document.getElementById('enter-ar') as HTMLButtonElement | null;
     const vrBtn = document.getElementById('enter-vr') as HTMLButtonElement | null;
@@ -119,22 +130,20 @@ export class ThreeXRApp {
       setLabel(arBtn, hasAR ? 'Enter AR' : 'AR not supported', !!hasAR);
       setLabel(vrBtn, hasVR ? 'Enter VR' : 'VR not supported', !!hasVR);
 
-      // AR flow (dom-overlay + optional hand-tracking)
       arBtn?.addEventListener('click', async () => {
         const sessionInit: XRSessionInit = {
-          requiredFeatures: ['local-floor'] as any,
+          requiredFeatures: ['local-floor'],
           optionalFeatures: ['dom-overlay', 'hit-test', 'hand-tracking'],
           // @ts-ignore
-          domOverlay: { root: this.overlayRoot },
+          domOverlay: { root: document.body },
         };
         const session = await xr.requestSession('immersive-ar', sessionInit as any);
         await (this.renderer.xr as any).setSession(session);
       });
 
-      // VR flow (no dom-overlay; hand-tracking optional)
       vrBtn?.addEventListener('click', async () => {
         const sessionInit: XRSessionInit = {
-          requiredFeatures: ['local-floor'] as any,
+          requiredFeatures: ['local-floor'],
           optionalFeatures: ['hand-tracking'],
         };
         const session = await xr.requestSession('immersive-vr', sessionInit as any);
@@ -145,7 +154,6 @@ export class ThreeXRApp {
     init().catch(console.error);
   }
 
-  // Visible hand meshes to help debug/align gestures
   private ensureDebugHands() {
     if (this.handsAdded) return;
     const h0 = this.renderer.xr.getHand(0);
@@ -154,18 +162,5 @@ export class ThreeXRApp {
     h0.add(this.handFactory.createHandModel(h0, 'mesh'));
     h1.add(this.handFactory.createHandModel(h1, 'mesh'));
     this.handsAdded = true;
-  }
-
-  /** Warm up OS keyboard so first open is fast */
-  private prewarmKeyboard() {
-    const warm = document.createElement('input');
-    warm.type = 'text';
-    Object.assign(warm.style, { position: 'absolute', opacity: '0', pointerEvents: 'none' });
-    document.body.appendChild(warm);
-    setTimeout(() => {
-      warm.focus();
-      (navigator as any).virtualKeyboard?.show?.();
-      setTimeout(() => warm.blur(), 50);
-    }, 0);
   }
 }

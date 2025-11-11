@@ -143,7 +143,8 @@ export class FeedControls {
     });
 
     // ILY → open compose (DOM input – safe keyboard)
-    this.hands.on('ilystart', () => this.openDomComposer(''));
+this.hands.on('ilystart', () => this.openExternalComposer(''));
+
 
     // Peace → repost (debounced + visual)
     this.hands.on('peacestart', () => {
@@ -219,55 +220,18 @@ export class FeedControls {
     return true;
   }
 
-  // ---------- DOM comment composer ----------
-  private openDomComposer(prefill = '') {
-    if (!this.composer) {
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.placeholder = 'Write a comment…';
-      input.autocomplete = 'off';
-      input.autocapitalize = 'sentences';
-      input.spellcheck = false;
-      input.inputMode = 'text';
-      Object.assign(input.style, {
-        position: 'absolute',
-        right: '24px',
-        bottom: '24px',
-        width: 'min(420px, 42vw)',
-        padding: '12px 14px',
-        borderRadius: '12px',
-        border: '1px solid rgba(0,0,0,0.12)',
-        background: 'rgba(255,255,255,0.96)',
-        fontSize: '16px',
-        zIndex: '10',
-      } as CSSStyleDeclaration);
-
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          const text = input.value.trim();
-          if (text) this.hudMgr.addCommentForCurrent(text, 'You');
-          input.value = '';
-          input.blur();
-          (this.hudMgr as any).postQuickComment?.();
-        } else if (e.key === 'Escape') {
-          input.blur();
-        }
-      });
-
-      // Pause XR while typing to avoid device-loss on some runtimes
-      this.app.pauseWhileFocused(input);
-
-      this.app.overlayRoot.appendChild(input);
-      this.composer = input;
-    }
-
-    this.composer.value = prefill;
-    // Focus outside XR frame
-    requestAnimationFrame(() => {
-      this.composer!.focus();
-      (navigator as any).virtualKeyboard?.show?.();
-    });
+  // --- OPEN EXTERNAL COMPOSER (new tab → native keyboard) ---
+private openExternalComposer(prefill = '') {
+  try {
+    const key = this.currentModelKey();
+    const u = new URL('/compose.html', location.origin); // same-origin page
+    u.searchParams.set('k', key);
+    if (prefill) u.searchParams.set('t', prefill);
+    window.open(u.toString(), '_blank', 'noopener,noreferrer');
+  } catch (e) {
+    console.warn('Failed to open compose tab:', e);
   }
+}
 
   // ---------- Try to click HUD directly from pinch start ----------
   private tryClickHud(side: 'left' | 'right'): boolean {
@@ -365,7 +329,7 @@ export class FeedControls {
             this.hudMgr.bump(key, 'repost');
           }
         } else if (hit.kind === 'post' || hit.kind === 'compose') {
-          this.openDomComposer('');
+          if (hit.kind === 'post' || hit.kind === 'compose') this.openExternalComposer('');
         }
       };
 
