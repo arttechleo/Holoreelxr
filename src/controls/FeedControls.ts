@@ -266,7 +266,7 @@ private openExternalComposer(prefill = '') {
         this.hudMgr.bump(key, 'repost');
       }
     } else if (hit.kind === 'post' || hit.kind === 'compose') {
-      this.openDomComposer('');
+       this.openExternalComposer('');
     }
 
     // swallow pinch so it doesn't scroll/grab this time
@@ -398,7 +398,7 @@ private openExternalComposer(prefill = '') {
           this.hudMgr.bump(key, 'repost');
         }
       } else if (hitKind === 'post' || hitKind === 'compose') {
-        this.openDomComposer('');
+         this.openExternalComposer('');
       }
     }
   }
