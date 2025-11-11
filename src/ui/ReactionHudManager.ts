@@ -2,30 +2,45 @@
 import * as THREE from 'three';
 import { ReactionHud, ReactionKind, Comment } from './ReactionHud';
 
-type Counts = { like: number; heart: number; repost: number };
+export type Counts = { like: number; heart: number; repost: number };
+
+type PersistShape = {
+  counts: Record<string, Counts>;
+  comments: Record<string, Comment[]>;
+};
 
 export class ReactionHudManager {
   private hud: ReactionHud;
 
-  // Per-model state
+  // Per-model state (in-memory)
   private counts = new Map<string, Counts>();
   private comments = new Map<string, Comment[]>();
-
   private currentKey: string | null = null;
+
+  // Persistence
+  private storageKey: string;
+  private onChange?: (modelKey: string, counts: Counts, comments: Comment[]) => void;
 
   constructor(
     scene: THREE.Scene,
     camera: THREE.Camera,
-    getObjectWorldPos: () => THREE.Vector3 | null
+    getObjectWorldPos: () => THREE.Vector3 | null,
+    options?: { storageKey?: string; onChange?: (modelKey: string, counts: Counts, comments: Comment[]) => void }
   ) {
     this.hud = new ReactionHud(scene, camera, getObjectWorldPos);
-    // Preload with some Lorem Ipsum bubbles for any model we show
+    this.storageKey = options?.storageKey ?? 'xr-reactions-v1';
+    this.onChange = options?.onChange;
+
+    // Load persisted state
+    this.hydrate();
   }
 
-  /** Where is per-model data stored?
-   *  → In-memory Maps (counts & comments), keyed by your model key (FeedStore.getCurrentKey()).
-   *  Persist to backend/localStorage as needed where you integrate data I/O.
-   */
+  // ---------- Icons pass-through ----------
+  setIcons(heartUrl?: string, likeUrl?: string, repostUrl?: string) {
+    this.hud.setIcons(heartUrl, likeUrl, repostUrl);
+  }
+
+  // ---------- Data access ----------
   getCounts(modelKey: string): Counts {
     return this.counts.get(modelKey) ?? { like: 0, heart: 0, repost: 0 };
   }
@@ -34,40 +49,46 @@ export class ReactionHudManager {
     return this.comments.get(modelKey) ?? [];
   }
 
-  setIcons(heartUrl?: string, likeUrl?: string, repostUrl?: string) {
-    this.hud.setIcons(heartUrl, likeUrl, repostUrl);
+  getCurrentKey() { return this.currentKey; }
+
+  // Optional: listen to changes (for analytics or external UI)
+  setOnChange(cb?: (modelKey: string, counts: Counts, comments: Comment[]) => void) {
+    this.onChange = cb;
   }
 
-  /** Set/replace comments for a model. */
+  // ---------- Comments ----------
   setComments(modelKey: string, list: Comment[]) {
-    this.comments.set(modelKey, list.slice());
-    if (this.currentKey === modelKey) this.hud.setComments(list);
+    const copy = list.slice();
+    this.comments.set(modelKey, copy);
+    if (this.currentKey === modelKey) this.hud.setComments(copy);
+    this.persist();
+    this.emitChange(modelKey);
   }
 
-  /** Append a comment to current model. */
   addCommentForCurrent(text: string, author = 'You') {
     if (!this.currentKey) return;
-    const list = this.comments.get(this.currentKey) ?? [];
+    const arr = this.comments.get(this.currentKey) ?? [];
     const c: Comment = { id: `c-${Date.now()}`, author, text };
-    list.push(c);
-    this.comments.set(this.currentKey, list);
+    arr.push(c);
+    this.comments.set(this.currentKey, arr);
     this.hud.appendComment(c);
+    this.persist();
+    this.emitChange(this.currentKey);
   }
 
-  /** Scroll current comments. */
   scrollComments(steps: number) {
     this.hud.scrollComments(steps);
   }
 
-  /** Show HUD for a model key, with defaults if empty. */
+  // ---------- Show/bind ----------
   showFor(modelKey: string) {
     this.currentKey = modelKey;
 
-    // counters
+    // Bind counts
     const c = this.getCounts(modelKey);
     this.hud.setCounts(c.like, c.heart, c.repost);
 
-    // comments (seed with fun Lorem if empty)
+    // Seed comments if none
     if (!this.comments.has(modelKey) || this.comments.get(modelKey)!.length === 0) {
       const seed: Comment[] = [
         { id: 's1', author: 'Ada', text: 'Sed ut perspiciatis unde omnis iste natus error sit voluptatem.' },
@@ -76,15 +97,18 @@ export class ReactionHudManager {
         { id: 's4', author: 'Mira', text: 'Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae.' }
       ];
       this.comments.set(modelKey, seed);
+      this.persist();
+      this.emitChange(modelKey);
     }
     this.hud.setComments(this.comments.get(modelKey)!);
   }
 
-  hide() { /* panel is always visible by design; keep method for API symmetry */ }
+  // The UI is always visible by design; hide() no-ops to keep old calls safe
+  hide() { /* intentionally empty */ }
 
-  /** Increment per-model counter and flash chip. */
+  // ---------- Counters ----------
   bump(modelKey: string, kind: ReactionKind) {
-    const c = this.getCounts(modelKey);
+    const c = { ...this.getCounts(modelKey) };
     if (kind === 'like') c.like += 1;
     else if (kind === 'heart') c.heart += 1;
     else c.repost += 1;
@@ -94,71 +118,68 @@ export class ReactionHudManager {
       this.hud.setCounts(c.like, c.heart, c.repost);
       this.hud.flash(kind);
     }
+    this.persist();
+    this.emitChange(modelKey);
   }
 
-  tick(dt: number) { this.hud.tick(dt); }
+  // ---------- Hit test / quick actions ----------
+  hitTestWorld(worldPoint: THREE.Vector3) {
+    return this.hud.hitTestWorld(worldPoint);
+  }
 
-  // ---------- DOM Overlay: comment input (shows in MR if dom-overlay is active) ----------
-  /**
-   * Creates a tiny input at the bottom-left of the page. In a headset that supports
-   * WebXR DOM Overlay this appears inside MR; otherwise it falls back to the web page.
-   */
-  attachCommentOverlay() {
-    if (document.getElementById('xr-comment-bar')) return;
+  postQuickComment() {
+    this.hud.postQuickComment();
+    if (!this.currentKey) return;
+    const list = this.comments.get(this.currentKey) ?? [];
+    list.push({ id: `c-${Date.now()}`, author: 'You', text: 'Posted from MR ✍️' });
+    this.comments.set(this.currentKey, list);
+    this.persist();
+    this.emitChange(this.currentKey);
+  }
 
-    const bar = document.createElement('div');
-    bar.id = 'xr-comment-bar';
-    Object.assign(bar.style, {
-      position: 'fixed',
-      left: '12px',
-      bottom: '12px',
-      zIndex: '1000',
-      display: 'flex',
-      gap: '8px',
-      padding: '8px',
-      background: 'rgba(18,18,28,0.82)',
-      color: '#fff',
-      borderRadius: '10px',
-      backdropFilter: 'blur(8px)',
-      alignItems: 'center'
-    } as CSSStyleDeclaration);
+  // ---------- Tick ----------
+  tick(dt: number) {
+    this.hud.tick(dt);
+  }
 
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = 'Add a comment...';
-    Object.assign(input.style, {
-      width: '260px',
-      color: '#fff',
-      background: 'rgba(255,255,255,0.08)',
-      border: '1px solid rgba(255,255,255,0.22)',
-      borderRadius: '8px',
-      padding: '8px'
-    } as CSSStyleDeclaration);
+  // ---------- Persistence ----------
+  private hydrate() {
+    try {
+      const raw = localStorage.getItem(this.storageKey);
+      if (!raw) return;
+      const parsed: PersistShape = JSON.parse(raw);
+      if (parsed?.counts) {
+        Object.entries(parsed.counts).forEach(([k, v]) => this.counts.set(k, { ...v }));
+      }
+      if (parsed?.comments) {
+        Object.entries(parsed.comments).forEach(([k, v]) => this.comments.set(k, v.slice()));
+      }
+    } catch {
+      // ignore bad data
+    }
+  }
 
-    const btn = document.createElement('button');
-    btn.textContent = 'Post';
-    Object.assign(btn.style, {
-      background: '#4b83ff',
-      color: '#fff',
-      border: 'none',
-      borderRadius: '8px',
-      padding: '8px 12px',
-      cursor: 'pointer'
-    } as CSSStyleDeclaration);
+  private persist() {
+    try {
+      const obj: PersistShape = {
+        counts: {},
+        comments: {},
+      };
+      this.counts.forEach((v, k) => { obj.counts[k] = v; });
+      this.comments.forEach((v, k) => { obj.comments[k] = v; });
+      localStorage.setItem(this.storageKey, JSON.stringify(obj));
+    } catch {
+      // ignore storage failures (private mode, quota, etc.)
+    }
+  }
 
-    btn.onclick = () => {
-      const text = input.value.trim();
-      if (!text) return;
-      this.addCommentForCurrent(text);
-      input.value = '';
-    };
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') btn.click();
-    });
-
-    bar.appendChild(input);
-    bar.appendChild(btn);
-    document.body.appendChild(bar);
+  private emitChange(modelKey: string) {
+    if (!this.onChange) return;
+    const counts = this.getCounts(modelKey);
+    const comments = this.getComments(modelKey);
+    try { this.onChange(modelKey, counts, comments); } catch { /* ignore */ }
   }
 }
+
+// Export default too, so both import styles work
+export default ReactionHudManager;

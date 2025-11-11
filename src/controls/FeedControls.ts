@@ -27,14 +27,10 @@ export class FeedControls {
 
   // ===== Panel scroll (1-hand vertical near the panel) =====
   private panelScrollMode = false;
-  private readonly PANEL_W_M = 0.50;        // must match ReactionHud panel width (meters)
-  private readonly PANEL_H_M = 0.30;        // must match ReactionHud panel height (meters)
+  private readonly PANEL_W_M = 0.50;        // must match ReactionHud.PANEL_W
+  private readonly PANEL_H_M = 0.30;        // must match ReactionHud.PANEL_H
   private readonly PANEL_OFFSET_Y = 0.22;   // must match ReactionHud offset.y
-  private readonly PANEL_SCROLL_STEP_MULT = 1.0; // 1 step per SCROLL_DISP reached
-
-  // "Post" tap zone (lower-right corner of the panel)
-  private readonly POST_ZONE_W = 0.16;      // meters
-  private readonly POST_ZONE_H = 0.08;      // meters
+  private readonly PANEL_SCROLL_STEP_MULT = 1.0;
 
   // ===== Two-hand transform (scale + rotation) =====
   private twoHandActive = false;
@@ -118,8 +114,6 @@ export class FeedControls {
     this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png', '/assets/ui/repost.png');
     // Always show panel for current model
     this.hudMgr.showFor(this.currentModelKey());
-    // IMPORTANT: Remove DOM overlay comment bar (prevents covering Start AR/VR)
-    // this.hudMgr.attachCommentOverlay(); // <- removed on purpose
 
     // Hand lifecycle
     this.hands.on('leftpinchstart',  () => this.onPinchStart('left'));
@@ -127,11 +121,8 @@ export class FeedControls {
     this.hands.on('leftpinchend',    () => this.onPinchEnd('left'));
     this.hands.on('rightpinchend',   () => this.onPinchEnd('right'));
 
-    // (Optional) L gesture → force-show panel for current item
-    const onL = () => {
-      this.store.notify('L gesture detected → showing UI');
-      this.hudMgr.showFor(this.currentModelKey());
-    };
+    // L gesture → just ensure visible (we keep it visible anyway)
+    const onL = () => this.hudMgr.showFor(this.currentModelKey());
     this.hands.on('leftlshapestart',  onL);
     this.hands.on('rightlshapestart', onL);
 
@@ -159,8 +150,8 @@ export class FeedControls {
       this.hudMgr.bump(this.currentModelKey(), 'heart');
     });
 
-    // Peace sign → Repost
-    this.hands.on('peacesignstart', (d:any) => {
+    // Peace sign → Repost (listen to multiple event names to be safe)
+    const onRepost = (d:any) => {
       const now = performance.now();
       if (now - this.lastRepostAt < this.REACT_COOLDOWN_MS) return;
       this.lastRepostAt = now;
@@ -169,7 +160,10 @@ export class FeedControls {
       const start = this.hands.indexTip(side) ?? this.hands.pinchMid(side) ?? this.hands.thumbTip(side) ?? undefined;
       this.store.repostCurrent(start ?? undefined);
       this.hudMgr.bump(this.currentModelKey(), 'repost');
-    });
+    };
+    this.hands.on('peacesignstart', onRepost);
+    this.hands.on('victorystart',   onRepost);    // alias
+    this.hands.on('twoustart',      onRepost);    // alias
 
     // frame loop
     let last = performance.now();
@@ -296,18 +290,27 @@ export class FeedControls {
     if (this.tapStartPos && endPos && duration <= this.TAP_MAX_MS && (now - this.lastTapAt) >= this.TAP_COOLDOWN_MS) {
       const travel = this.tapStartPos.distanceTo(endPos);
       if (travel <= this.TAP_MOVE_MAX) {
-        // Quick tap near model shows panel (already shown) & test "post" if tap in post zone
         this.lastTapAt = now;
 
-        if (endPos) {
-          if (this.isInPanelPostZone(endPos)) {
-            // Post a sample comment INSIDE the MR panel (no browser overlay)
-            this.hudMgr.addCommentForCurrent('Posting from MR ✍️ (sample).');
+        // --- PANEL BUTTONS / COMMENTS ---
+        const hit = this.hudMgr.hitTestWorld(endPos);
+        if (hit) {
+          if (hit.kind === 'like' || hit.kind === 'heart' || hit.kind === 'repost') {
+            // route to counters + store reaction (for particles/platform pulse)
+            if (hit.kind === 'like')  this.store.likeCurrent(endPos.clone(), side);
+            if (hit.kind === 'heart') this.store.saveCurrent(endPos.clone());
+            if (hit.kind === 'repost') this.store.repostCurrent(endPos.clone());
+            this.hudMgr.bump(this.currentModelKey(), hit.kind);
+          } else if (hit.kind === 'post') {
+            this.hudMgr.postQuickComment();
             this.store.notify('Comment posted');
-          } else if (this.isNearModel(endPos)) {
-            this.store.notify('UI: quick pinch');
-            this.hudMgr.showFor(this.currentModelKey());
+          } else if (hit.kind === 'comments') {
+            // no-op here (scroll happens while pinching near panel)
           }
+          // done; skip feed/UI show
+        } else if (this.isNearModel(endPos)) {
+          // quick tap near model → ensure current model HUD is bound
+          this.hudMgr.showFor(this.currentModelKey());
         }
       }
     }
@@ -342,7 +345,6 @@ export class FeedControls {
 
     // If near panel during this pinch → treat vertical motion as comments scroll
     if (this.panelScrollMode || this.isNearPanel(mid)) {
-      // enter mode if not yet
       this.panelScrollMode = true;
 
       const y = mid.y;
@@ -361,13 +363,12 @@ export class FeedControls {
       this.scrollAccum += dy;
 
       if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP){
-        // negative dy (move down) → next comments (scroll down)
         const steps = (this.scrollAccum < 0 ? +1 : -1) * this.PANEL_SCROLL_STEP_MULT;
         this.hudMgr.scrollComments(steps);
         this.scrollAccum = 0;
         this.scrollCooldownUntil = now + 140; // snappier for comments
       }
-      return; // never fall through to feed scroll while in panel scroll mode
+      return;
     }
 
     // ---- FEED SCROLL ----
@@ -402,6 +403,9 @@ export class FeedControls {
     if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP){
       const dir = this.scrollAccum < 0 ? +1 : -1;
       this.store.next(dir);
+      // re-bind HUD to the new model (per-model counters/comments)
+      this.hudMgr.showFor(this.currentModelKey());
+
       this.scrollAccum = 0;
       this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
     }
@@ -599,40 +603,24 @@ export class FeedControls {
     return point.distanceTo(center) <= (this.TAP_OBJ_DIST + 0.08);
   }
 
-  /** Check if the hand point is within the panel's 2D footprint (world space AABB around anchor). */
+  /** Check if the hand point is within the panel's footprint (world AABB around panel center). */
   private isNearPanel(point: THREE.Vector3): boolean {
-    const center = this.store.getObjectWorldPos();
-    if (!center) return false;
-    const panelCenter = center.clone().add(new THREE.Vector3(0, this.PANEL_OFFSET_Y, 0));
-    // Treat panel as axis-aligned box in world (no rotation): small padding
+    const pc = this.getPanelCenter();
+    if (!pc) return false;
     const halfW = this.PANEL_W_M * 0.55;
     const halfH = this.PANEL_H_M * 0.55;
-    const dx = Math.abs(point.x - panelCenter.x);
-    const dy = Math.abs(point.y - panelCenter.y);
-    const dz = Math.abs(point.z - panelCenter.z);
-    const withinXZ = (dx <= halfW) && (Math.abs(point.z - panelCenter.z) <= halfW);
+    const dx = Math.abs(point.x - pc.x);
+    const dy = Math.abs(point.y - pc.y);
+    const dz = Math.abs(point.z - pc.z);
+    const withinXZ = (dx <= halfW) && (Math.abs(point.z - pc.z) <= halfW);
     const withinY  = (dy <= halfH);
     return withinXZ && withinY;
   }
 
-  /** Tap zone at panel's lower-right corner to "post" a comment inside MR (sample). */
-  private isInPanelPostZone(point: THREE.Vector3): boolean {
-    const center = this.store.getObjectWorldPos();
-    if (!center) return false;
-    const pc = center.clone().add(new THREE.Vector3(0, this.PANEL_OFFSET_Y, 0));
-
-    // Post zone: lower-right rect in panel local, approximated in world AABB.
-    const halfW = this.PANEL_W_M * 0.5;
-    const halfH = this.PANEL_H_M * 0.5;
-
-    const zoneMin = new THREE.Vector3(pc.x + (halfW - this.POST_ZONE_W), pc.y - (halfH), pc.z - this.POST_ZONE_W);
-    const zoneMax = new THREE.Vector3(pc.x + halfW,                      pc.y - (halfH - this.POST_ZONE_H), pc.z + this.POST_ZONE_W);
-
-    return (
-      point.x >= zoneMin.x && point.x <= zoneMax.x &&
-      point.y >= zoneMin.y && point.y <= zoneMax.y &&
-      point.z >= zoneMin.z && point.z <= zoneMax.z
-    );
+  private getPanelCenter(): THREE.Vector3 | null {
+    const obj = this.store.getObjectWorldPos();
+    if (!obj) return null;
+    return obj.clone().add(new THREE.Vector3(0, this.PANEL_OFFSET_Y, 0));
   }
 
   private currentModelKey(): string {
