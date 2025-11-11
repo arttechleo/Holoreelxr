@@ -1,4 +1,3 @@
-// src/feed/FeedStore.ts
 import * as THREE from 'three';
 import { SplatSequence } from './loaders/SplatSequence';
 
@@ -63,7 +62,12 @@ export class FeedStore {
 
   async showCurrent() {
     const item = this.items[this.index];
-    if (!item) return;
+    if (!item) {
+      this.toast('No items in feed');
+      // hide platform if it exists
+      this.parent.children.forEach(c => { if (c.name === 'content-platform') c.visible = false; });
+      return;
+    }
 
     if (this.seq) { this.seq.dispose(); this.seq = undefined; }
 
@@ -215,7 +219,7 @@ export class FeedStore {
 
   getObjectBounds(): { center: THREE.Vector3; radius: number; box: THREE.Box3 } | null {
     const obj = this.getObject();
-    if (!obj) return null;
+    if (!obj || !obj.visible) return null;
     const box = new THREE.Box3().setFromObject(obj);
     const center = box.getCenter(new THREE.Vector3());
     const radius = box.getSize(new THREE.Vector3()).length() * 0.5;
@@ -239,7 +243,7 @@ export class FeedStore {
   }
 
   /** Peace-sign gesture action → show repost feedback. */
-  repostCurrent(fromHand?: THREE.Vector3) {
+  repostCurrent(fromHand?: THREE.Vector3, _side: 'left' | 'right' = 'right') {
     this.toast('🔁 Reposted');
     if (fromHand instanceof THREE.Vector3) {
       this.launchEmoji(fromHand, '🔁', '#66e0ff');
@@ -260,20 +264,22 @@ export class FeedStore {
     this.platform.name = 'content-platform';
     this.parent.add(this.platform);
   }
-  private updatePlatformPose() {
-    if (!this.platform) return;
-    const info = this.getObjectBounds();
-    if (!info) { this.platform.visible = false; return; }
-    const { box } = info;
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    this.platform.position.set(center.x, box.min.y - 0.02, center.z);
-    const r = Math.max(size.x, size.z) * 0.35;
-    this.platform.scale.setScalar(Math.max(0.2, r));
-    this.platform.visible = true;
-  }
+private updatePlatformPose() {
+  if (!this.platform) return;
+  const info = this.getObjectBounds();
+  if (!info) { this.platform.visible = false; return; }
 
-    private platformPulse(color:number){
+  const { box } = info;
+  const center = box.getCenter(new THREE.Vector3());
+  const size   = box.getSize(new THREE.Vector3()); // ✅ fixed: no stray '>'
+
+  this.platform.position.set(center.x, box.min.y - 0.02, center.z);
+  const r = Math.max(size.x, size.z) * 0.35;
+  this.platform.scale.setScalar(Math.max(0.2, r));
+  this.platform.visible = true;
+}
+
+  private platformPulse(color:number){
     this.ensurePlatform();
     if (!this.platform) return;
 
@@ -312,7 +318,6 @@ export class FeedStore {
     }, 450);
   }
 
-
   // ---------- Emoji projectile ----------
   private launchEmoji(start: THREE.Vector3, emoji: string, fill: string) {
     const canvas = document.createElement('canvas');
@@ -346,11 +351,20 @@ export class FeedStore {
     const color = new THREE.Color(colorHex ?? '#66ccff');
     const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.0, emissive: 0x000000 });
     let geo: THREE.BufferGeometry;
+    // ✅ FIX: use the variable, not a type annotation
     switch (kind) {
-      case 'box':     geo = new THREE.BoxGeometry(0.4, 0.4, 0.4); break;
-      case 'sphere':  geo = new THREE.SphereGeometry(0.25, 32, 16); break;
-      case 'pyramid': geo = new THREE.ConeGeometry(0.28, 0.5, 4); break;
-      default:        geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+      case 'box':
+        geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+        break;
+      case 'sphere':
+        geo = new THREE.SphereGeometry(0.25, 32, 16);
+        break;
+      case 'pyramid':
+        geo = new THREE.ConeGeometry(0.28, 0.5, 4);
+        break;
+      default:
+        geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+        break;
     }
     return new THREE.Mesh(geo, mat);
   }

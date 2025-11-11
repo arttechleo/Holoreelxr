@@ -35,9 +35,10 @@ export class ThreeXRApp {
 
     // XR lifecycle → keep DOM overlay class and a stable refSpace
     this.renderer.xr.addEventListener('sessionstart', async () => {
-      this.refSpace = await (this.renderer.xr as any).getReferenceSpace?.() ?? null;
+      // prefer Three's manager getter if available
+      this.refSpace = (this.renderer.xr as any).getReferenceSpace?.() ?? null;
       document.body.classList.add('xr-overlay');
-      this.ensureDebugHands();  // add once per app
+      this.ensureDebugHands();  // add once per app (will only show if hand-tracking is available)
     });
     this.renderer.xr.addEventListener('sessionend', () => {
       this.refSpace = null;
@@ -78,11 +79,11 @@ export class ThreeXRApp {
       setLabel(arBtn, hasAR ? 'Enter AR' : 'AR not supported', !!hasAR);
       setLabel(vrBtn, hasVR ? 'Enter VR' : 'VR not supported', !!hasVR);
 
-      // AR flow (dom-overlay + hands)
+      // AR flow (dom-overlay; hand-tracking optional)
       arBtn?.addEventListener('click', async () => {
         const sessionInit: XRSessionInit = {
-          requiredFeatures: ['local-floor', 'hand-tracking'] as any,
-          optionalFeatures: ['dom-overlay', 'hit-test'],
+          requiredFeatures: ['local-floor'] as any,
+          optionalFeatures: ['dom-overlay', 'hit-test', 'hand-tracking'],
           // @ts-ignore
           domOverlay: { root: document.body }
         };
@@ -90,11 +91,11 @@ export class ThreeXRApp {
         await (this.renderer.xr as any).setSession(session);
       });
 
-      // VR flow (hands; dom-overlay is AR-only)
+      // VR flow (dom-overlay is AR-only; hand-tracking optional)
       vrBtn?.addEventListener('click', async () => {
         const sessionInit: XRSessionInit = {
-          requiredFeatures: ['local-floor', 'hand-tracking'] as any,
-          optionalFeatures: []
+          requiredFeatures: ['local-floor'] as any,
+          optionalFeatures: ['hand-tracking']
         };
         const session = await xr.requestSession('immersive-vr', sessionInit as any);
         await (this.renderer.xr as any).setSession(session);

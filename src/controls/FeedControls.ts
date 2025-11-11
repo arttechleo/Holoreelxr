@@ -1,4 +1,3 @@
-// src/controls/FeedControls.ts
 import * as THREE from 'three';
 import { HandEngine } from '../gestures/HandEngine';
 import { ThreeXRApp } from '../app/ThreeXRApp';
@@ -51,6 +50,7 @@ export class FeedControls {
   private uiHoverKind: string | null = null; private uiHoverBeganAt = 0; private uiLastY: number | null = null;
 
   private hudMgr: ReactionHudManager;
+  private selectBoundForSession: XRSession | null = null;
 
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
     this.app.scene.add(this.rayGroup); this.initRay('left'); this.initRay('right'); this.setRayVisible('left', false); this.setRayVisible('right', false);
@@ -78,9 +78,12 @@ export class FeedControls {
     // ILY → open compose (keyboard hook)
     this.hands.on('ilystart', () => { this.hudMgr.beginCommentEntry(); });
 
-    // Peace → repost (debounced to fix spam)
+    // Peace → repost (debounced to fix spam) + trigger store visuals
     this.hands.on('peacestart', () => {
-      const now=performance.now(); if(now-this.lastRepostAt<this.REACT_COOLDOWN_MS) return; this.lastRepostAt=now;
+      const now=performance.now();
+      if(now-this.lastRepostAt<this.REACT_COOLDOWN_MS) return;
+      this.lastRepostAt=now;
+      this.store.repostCurrent();
       this.hudMgr.bump(this.currentModelKey(),'repost');
     });
 
@@ -126,7 +129,14 @@ export class FeedControls {
     const key = this.currentModelKey();
     if (hit.kind === 'like')       { this.store.likeCurrent(from.clone(), side); this.hudMgr.bump(key,'like'); }
     else if (hit.kind === 'heart') { this.store.saveCurrent(from.clone());        this.hudMgr.bump(key,'heart'); }
-    else if (hit.kind === 'repost'){ const now=performance.now(); if(now-this.lastRepostAt>=this.REACT_COOLDOWN_MS){ this.lastRepostAt=now; this.hudMgr.bump(key,'repost'); } }
+    else if (hit.kind === 'repost'){
+      const now=performance.now();
+      if(now-this.lastRepostAt>=this.REACT_COOLDOWN_MS){
+        this.lastRepostAt=now;
+        this.store.repostCurrent(from.clone(), side);
+        this.hudMgr.bump(key,'repost');
+      }
+    }
     else if (hit.kind === 'post' || hit.kind === 'compose')  { this.hudMgr.beginCommentEntry(''); }
 
     // swallow pinch so it doesn't scroll/grab this time
@@ -142,6 +152,8 @@ export class FeedControls {
     const ensure = () => {
       const sess = xr.getSession?.() as XRSession | undefined;
       if (!sess) return;
+      if (this.selectBoundForSession === sess) return; // avoid duplicates
+      this.selectBoundForSession = sess;
       const getRef = () => xr.getReferenceSpace?.() as XRReferenceSpace;
 
       const clickFromEvent = (ev: any) => {
@@ -160,11 +172,18 @@ export class FeedControls {
         const key = this.currentModelKey();
         if (hit.kind === 'like')       { this.store.likeCurrent();   this.hudMgr.bump(key,'like'); }
         else if (hit.kind === 'heart') { this.store.saveCurrent();   this.hudMgr.bump(key,'heart'); }
-        else if (hit.kind === 'repost'){ const now=performance.now(); if(now-this.lastRepostAt>=this.REACT_COOLDOWN_MS){ this.lastRepostAt=now; this.hudMgr.bump(key,'repost'); } }
+        else if (hit.kind === 'repost') {
+          const now=performance.now();
+          if(now-this.lastRepostAt>=this.REACT_COOLDOWN_MS){
+            this.lastRepostAt=now;
+            this.store.repostCurrent();
+            this.hudMgr.bump(key,'repost');
+          }
+        }
         else if (hit.kind === 'post' || hit.kind === 'compose')  { this.hudMgr.beginCommentEntry(); }
       };
 
-      // avoid duplicates
+      // bind once per XRSession
       sess.addEventListener('select', clickFromEvent);
     };
 
@@ -197,7 +216,14 @@ export class FeedControls {
       const key = this.currentModelKey();
       if (hitKind === 'like')       { this.store.likeCurrent(); this.hudMgr.bump(key,'like'); }
       else if (hitKind === 'heart') { this.store.saveCurrent(); this.hudMgr.bump(key,'heart'); }
-      else if (hitKind === 'repost'){ const n=performance.now(); if(n-this.lastRepostAt>=this.REACT_COOLDOWN_MS){ this.lastRepostAt=n; this.hudMgr.bump(key,'repost'); } }
+      else if (hitKind === 'repost'){
+        const n=performance.now();
+        if(n-this.lastRepostAt>=this.REACT_COOLDOWN_MS){
+          this.lastRepostAt=n;
+          this.store.repostCurrent();
+          this.hudMgr.bump(key,'repost');
+        }
+      }
       else if (hitKind === 'post' || hitKind === 'compose')  { this.hudMgr.beginCommentEntry(); }
     }
   }
@@ -217,7 +243,7 @@ export class FeedControls {
     const update = (side:'left'|'right', line?:THREE.Line) => {
       if (!line) return;
       const pinching = this.hands.state[side].pinch;
-      const show = pinching && !this.scrollDisarmedThisPinch && !this.grabbing; // keep off while UI is active
+      const show = pinching && !this.scrollDisarmedThisPinch && !this.grabbing && !this.hudMgr.isComposing(); // keep off while composing
       if (!show){ line.visible = false; return; }
 
       const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
@@ -302,6 +328,8 @@ export class FeedControls {
     if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP){
       const dir = this.scrollAccum < 0 ? +1 : -1;
       this.store.next(dir);
+      // Keep HUD counts/comments synced with the newly active item
+      this.hudMgr.showFor(this.currentModelKey());
       this.scrollAccum = 0;
       this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
     }
@@ -409,7 +437,7 @@ export class FeedControls {
   }
   private updateGrabDrag(){
     if (!this.grabbing || !this.grabSide) return;
-    const other = this.grabSide==='left'?'right':'left';
+    const other = this.grabSide==='left'?'right' : 'left';
     if (this.hands.state[this.grabSide].pinch && this.hands.state[other].pinch){ this.grabbing=false; this.grabSide=null; this.store.notify('Grab canceled (two-hand mode)'); return; }
     if (!this.hands.state[this.grabSide].pinch){ this.grabbing=false; this.grabSide=null; this.store.notify('Placed'); return; }
     const mid = this.hands.pinchMid(this.grabSide); if (!mid) return;
