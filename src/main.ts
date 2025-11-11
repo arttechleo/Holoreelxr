@@ -18,7 +18,7 @@ hud.mountPlayer(()=> player.play(), ()=> player.pause());
   await store.showCurrent();
 
   app.onFrame((info) => {
-    hands.update(info); // <-- native WebXR joints
+    hands.update(info); // native WebXR joints
   });
 
   new FeedControls(app, hands, store);

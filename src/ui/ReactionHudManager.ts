@@ -1,4 +1,3 @@
-// src/ui/ReactionHudManager.ts
 import * as THREE from 'three';
 import { ReactionHud, ReactionKind } from './ReactionHud';
 
@@ -22,9 +21,16 @@ export class ReactionHudManager {
     this.hud.show(true);
   }
 
+  toggleFor(modelKey: string) {
+    if (this.currentKey === modelKey) {
+      this.hud.hide(); this.currentKey = null;
+    } else {
+      this.showFor(modelKey);
+    }
+  }
+
   hide() { this.hud.hide(); }
 
-  /** Manager updates numbers; HUD only visualizes (flash, not increment). */
   bump(modelKey: string, kind: ReactionKind) {
     const c = this.counts.get(modelKey) ?? { like: 0, heart: 0 };
     if (kind === 'like') c.like += 1; else c.heart += 1;
@@ -32,15 +38,11 @@ export class ReactionHudManager {
 
     if (this.currentKey === modelKey) {
       this.hud.setCounts(c.like, c.heart);
-      this.hud.flash(kind);    // visual only (no extra +1)
+      this.hud.flash(kind);
     }
   }
 
   tick(dt: number) { this.hud.tick(dt); }
-
   setAvatars(userUrl?: string, commenterUrl?: string) { this.hud.setAvatars(userUrl, commenterUrl); }
-
-  getCounts(modelKey: string) {
-    return this.counts.get(modelKey) ?? { like: 0, heart: 0 };
-  }
+  getCounts(modelKey: string) { return this.counts.get(modelKey) ?? { like: 0, heart: 0 }; }
 }

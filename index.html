@@ -7,9 +7,20 @@
     <style>
       html,body { margin:0; height:100%; background:#111; color:#eee; font-family: system-ui, Arial }
       canvas { display:block }
+      /* start-xr button */
+      #start-xr {
+        position: fixed; left: 12px; bottom: 12px; z-index: 100;
+        padding: 10px 14px; border-radius: 10px; border: 0;
+        background: #1e222d; color: #fff; font-weight: 600; cursor: pointer;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+      }
+      #start-xr[disabled] { opacity: .5; cursor: not-allowed; }
+      /* helpful when DOM overlay is active */
+      .xr-overlay * { pointer-events: auto; }
     </style>
   </head>
   <body>
-  <script type="module" src="/src/main.ts"></script>
+    <button id="start-xr">Start XR</button>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

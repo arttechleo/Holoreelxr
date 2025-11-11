@@ -23,8 +23,8 @@ export class HandEngine {
   private lastMap = new Map<string,{val:boolean; changeAt:number}>();
 
   public state = {
-    left:  { pinch:false, thumbsup:false },
-    right: { pinch:false, thumbsup:false },
+    left:  { pinch:false, thumbsup:false, lshape:false },
+    right: { pinch:false, thumbsup:false, lshape:false },
     heart:false
   };
 
@@ -87,7 +87,7 @@ export class HandEngine {
     this.updateFlag('left.pinch', leftPinch, {side:'left'});
     this.updateFlag('right.pinch', rightPinch, {side:'right'});
 
-    // Thumbs-up (kept simple)
+    // Thumbs-up (simple)
     const thumbUp = (side:Side) => {
       const W = J(side,'wrist'), T = J(side,'thumb-tip');
       if (!W || !T) return false;
@@ -104,12 +104,43 @@ export class HandEngine {
     const R_i = J('right','index-finger-tip');
     const L_t = J('left','thumb-tip');
     const R_t = J('right','thumb-tip');
-
-    const NEAR = 0.045; // ~4.5 cm
+    const NEAR = 0.045;
     const heartNow = dist(L_i, R_i) < NEAR && dist(L_t, R_t) < NEAR;
-
     this.state.heart = heartNow;
     this.updateFlag('heart', heartNow);
+
+    // L-shape gesture: index extended, thumb extended ~perpendicular; others curled.
+    const lShape = (side:Side) => {
+      const W = J(side,'wrist');
+      const I0 = J(side,'index-finger-metacarpal'), I1 = J(side,'index-finger-tip');
+      const T0 = J(side,'thumb-metacarpal'), T1 = J(side,'thumb-tip');
+      if (!(W && I0 && I1 && T0 && T1)) return false;
+
+      // extension
+      const indexExtended = I1.distanceTo(W) > 0.10;
+      const thumbExtended = T1.distanceTo(W) > 0.08;
+
+      // angle between index and thumb directions
+      const vI = I1.clone().sub(I0).normalize();
+      const vT = T1.clone().sub(T0).normalize();
+      const dot = THREE.MathUtils.clamp(vI.dot(vT), -1, 1);
+      const angle = Math.acos(dot); // 0..pi
+      const nearRightAngle = angle > THREE.MathUtils.degToRad(60) && angle < THREE.MathUtils.degToRad(120);
+
+      // other fingers curled
+      const curled = (name:XRHandJointName) => {
+        const P = J(side, name); return !!(P && W && P.distanceTo(W) < 0.075);
+      };
+      const othersCurled =
+        curled('middle-finger-tip') && curled('ring-finger-tip') && curled('pinky-finger-tip');
+
+      return indexExtended && thumbExtended && nearRightAngle && othersCurled;
+    };
+
+    const L = lShape('left'); const R = lShape('right');
+    this.state.left.lshape = L; this.state.right.lshape = R;
+    this.updateFlag('left.lshape',  L, {side:'left'});
+    this.updateFlag('right.lshape', R, {side:'right'});
   }
 
   wristY(side: Side){ const J = this.lastPos[side]['wrist']; return J ? J.y : null; }
