@@ -1,3 +1,4 @@
+// src/controls/FeedControls.ts
 import * as THREE from 'three';
 import { HandEngine } from '../gestures/HandEngine';
 import { ThreeXRApp } from '../app/ThreeXRApp';
@@ -60,16 +61,15 @@ export class FeedControls {
   private rayGroup = new THREE.Group();
   private leftRay?: THREE.Line;
   private rightRay?: THREE.Line;
- private rayMat = new THREE.LineDashedMaterial({
-  color: 0xffffff,
-  dashSize: 0.03,
-  gapSize: 0.02,
-  transparent: true,
-  opacity: 0.9,
-  depthTest: false,          // ✅ valid
-  depthWrite: false          // ✅ valid (optional)
-});
-
+  private rayMat = new THREE.LineDashedMaterial({
+    color: 0xffffff,
+    dashSize: 0.03,
+    gapSize: 0.02,
+    transparent: true,
+    opacity: 0.9,
+    depthTest: false,   // ✅ valid
+    depthWrite: false,  // ✅ valid
+  });
 
   // reaction throttles (incl. repost – fixes spam)
   private lastLikeAt = 0;
@@ -89,6 +89,15 @@ export class FeedControls {
   // DOM composer input (safer keyboard path)
   private composer?: HTMLInputElement;
 
+  // ---- anti-burst (close-hands) gating ----
+  private readonly CLUSTER_DIST = 0.11;         // m: consider hands "together" below this
+  private readonly CLUSTER_Y_OFFSET = -0.06;    // m: hands must be below object center by this
+  private readonly CLUSTER_COOLDOWN_MS = 450;   // collapse rapid repeats into one
+  private readonly GESTURE_HOLD_MS = 120;       // gesture must be stable this long
+  private clusterCooldownUntil = 0;
+  private lastStableCheckAt = 0;
+  private lastStableKind: 'like' | 'heart' | 'repost' | null = null;
+
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
     this.app.scene.add(this.rayGroup);
     this.initRay('left');
@@ -102,9 +111,9 @@ export class FeedControls {
     this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png', '/assets/ui/repost.png');
 
     // Place HUD close to object (left icons, right comments)
-    this.hudMgr.setOffsets(
+    (this.hudMgr as any).setOffsets?.(
       new THREE.Vector3(-0.25, -0.05, 0.0), // icons
-      new THREE.Vector3(0.28, 0.02, 0.0) // comments panel
+      new THREE.Vector3(0.28, 0.02, 0.0)    // comments panel
     );
 
     this.hudMgr.showFor(this.currentModelKey());
@@ -117,6 +126,7 @@ export class FeedControls {
 
     // Like / Heart
     this.hands.on('thumbsupstart', () => {
+      if (!this.acceptGesture('like')) return;
       const now = performance.now();
       if (now - this.lastLikeAt < this.REACT_COOLDOWN_MS) return;
       this.lastLikeAt = now;
@@ -124,6 +134,7 @@ export class FeedControls {
       this.hudMgr.bump(this.currentModelKey(), 'like');
     });
     this.hands.on('heartstart', () => {
+      if (!this.acceptGesture('heart')) return;
       const now = performance.now();
       if (now - this.lastHeartAt < this.REACT_COOLDOWN_MS) return;
       this.lastHeartAt = now;
@@ -136,6 +147,7 @@ export class FeedControls {
 
     // Peace → repost (debounced + visual)
     this.hands.on('peacestart', () => {
+      if (!this.acceptGesture('repost')) return;
       const now = performance.now();
       if (now - this.lastRepostAt < this.REACT_COOLDOWN_MS) return;
       this.lastRepostAt = now;
@@ -168,9 +180,47 @@ export class FeedControls {
     });
   }
 
+  // ---------- anti-burst helpers ----------
+  /** Are hands close together and low relative to the active content? */
+  private handsCloseAndLow(): boolean {
+    const L = this.hands.indexTip('left');
+    const R = this.hands.indexTip('right');
+    if (!L || !R) return false;
+
+    const obj = this.store.getObjectWorldPos();
+    const camY = this.app.camera.position.y;
+    const refY = obj ? obj.y : (camY - 0.10); // fallback if no object pos yet
+
+    const close = L.distanceTo(R) <= this.CLUSTER_DIST;
+    const low = (Math.max(L.y, R.y) - refY) <= this.CLUSTER_Y_OFFSET;
+    return close && low;
+  }
+
+  /** Collapse bursts and require a short stable hold before accepting a gesture. */
+  private acceptGesture(kind: 'like' | 'heart' | 'repost'): boolean {
+    const now = performance.now();
+
+    // collapse bursts that happen while hands are together & low
+    if (this.handsCloseAndLow()) {
+      if (now < this.clusterCooldownUntil) return false;
+      this.clusterCooldownUntil = now + this.CLUSTER_COOLDOWN_MS;
+    }
+
+    // simple hold hysteresis: same kind must be "stable" for GESTURE_HOLD_MS
+    if (this.lastStableKind !== kind) {
+      this.lastStableKind = kind;
+      this.lastStableCheckAt = now;
+      return false; // first frame we see this kind -> start timing
+    }
+    if (now - this.lastStableCheckAt < this.GESTURE_HOLD_MS) return false;
+
+    // passed gates
+    this.lastStableCheckAt = now; // keep ticking while continuing
+    return true;
+  }
+
   // ---------- DOM comment composer ----------
   private openDomComposer(prefill = '') {
-    // Create once
     if (!this.composer) {
       const input = document.createElement('input');
       input.type = 'text';
@@ -198,7 +248,7 @@ export class FeedControls {
           if (text) this.hudMgr.addCommentForCurrent(text, 'You');
           input.value = '';
           input.blur();
-          this.hudMgr.postQuickComment?.();
+          (this.hudMgr as any).postQuickComment?.();
         } else if (e.key === 'Escape') {
           input.blur();
         }
@@ -236,12 +286,15 @@ export class FeedControls {
 
     const key = this.currentModelKey();
     if (hit.kind === 'like') {
+      if (!this.acceptGesture('like')) return true; // handled (swallowed)
       this.store.likeCurrent(from.clone(), side);
       this.hudMgr.bump(key, 'like');
     } else if (hit.kind === 'heart') {
+      if (!this.acceptGesture('heart')) return true;
       this.store.saveCurrent(from.clone());
       this.hudMgr.bump(key, 'heart');
     } else if (hit.kind === 'repost') {
+      if (!this.acceptGesture('repost')) return true;
       const now = performance.now();
       if (now - this.lastRepostAt >= this.REACT_COOLDOWN_MS) {
         this.lastRepostAt = now;
@@ -296,12 +349,15 @@ export class FeedControls {
 
         const key = this.currentModelKey();
         if (hit.kind === 'like') {
+          if (!this.acceptGesture('like')) return;
           this.store.likeCurrent();
           this.hudMgr.bump(key, 'like');
         } else if (hit.kind === 'heart') {
+          if (!this.acceptGesture('heart')) return;
           this.store.saveCurrent();
           this.hudMgr.bump(key, 'heart');
         } else if (hit.kind === 'repost') {
+          if (!this.acceptGesture('repost')) return;
           const now = performance.now();
           if (now - this.lastRepostAt >= this.REACT_COOLDOWN_MS) {
             this.lastRepostAt = now;
@@ -362,12 +418,15 @@ export class FeedControls {
       this.uiHoverBeganAt = now + 10000;
       const key = this.currentModelKey();
       if (hitKind === 'like') {
+        if (!this.acceptGesture('like')) return;
         this.store.likeCurrent();
         this.hudMgr.bump(key, 'like');
       } else if (hitKind === 'heart') {
+        if (!this.acceptGesture('heart')) return;
         this.store.saveCurrent();
         this.hudMgr.bump(key, 'heart');
       } else if (hitKind === 'repost') {
+        if (!this.acceptGesture('repost')) return;
         const n = performance.now();
         if (n - this.lastRepostAt >= this.REACT_COOLDOWN_MS) {
           this.lastRepostAt = n;
@@ -403,7 +462,8 @@ export class FeedControls {
     const update = (side: 'left' | 'right', line?: THREE.Line) => {
       if (!line) return;
       const pinching = this.hands.state[side].pinch;
-      const show = pinching && !this.scrollDisarmedThisPinch && !this.grabbing && !this.hudMgr.isComposing();
+      const show =
+        pinching && !this.scrollDisarmedThisPinch && !this.grabbing && !this.hudMgr.isComposing();
       if (!show) {
         line.visible = false;
         return;
@@ -492,6 +552,9 @@ export class FeedControls {
     this.filtPinchY = null;
     this.scrollAccum = 0;
     this.pinchStartAt = null;
+
+    // reset hysteresis when user leaves a gesture interaction
+    this.lastStableKind = null;
   }
 
   private updateScroll(now: number) {
