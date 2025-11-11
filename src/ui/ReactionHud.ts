@@ -10,7 +10,6 @@ export class ReactionHud {
   private panelCanvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
-  // display-only values; manager owns the true counts
   private likeCount = 0;
   private heartCount = 0;
 
@@ -18,28 +17,20 @@ export class ReactionHud {
 
   private visible = false;
   private hideAt = 0;
-  private readonly AUTO_HIDE_MS = 2200;
+  private readonly AUTO_HIDE_MS = 4000; // longer
 
-  // layout
   private readonly PANEL_W = 0.42;
   private readonly PANEL_H = 0.24;
 
-  // base offset from object center
   private readonly BASE_OFFSET = new THREE.Vector3(0, 0.18, 0);
 
-  // orbiting UI around the object
   private orbitEnabled = true;
-  private orbitRadius = 0.18;     // meters, around object center
-  private orbitSpeed = 0.6;       // radians per second
-  private theta = 0;              // current orbit angle
-  private bobAmp = 0.02;          // up/down bob
+  private orbitRadius = 0.18;
+  private orbitSpeed = 0.6;
+  private theta = 0;
+  private bobAmp = 0.02;
   private bobSpeed = 1.4;
 
-  // optional avatars (kept, but not required)
-  private userAvatar?: HTMLImageElement;
-  private commenterAvatar?: HTMLImageElement;
-
-  // icons
   private heartIcon?: HTMLImageElement;
   private likeIcon?: HTMLImageElement;
 
@@ -61,10 +52,14 @@ export class ReactionHud {
 
     const geo = new THREE.PlaneGeometry(this.PANEL_W, this.PANEL_H);
     const mat = new THREE.MeshBasicMaterial({
-      map: this.panelTex, transparent: true, opacity: 0.0, depthTest: true, depthWrite: false
+      map: this.panelTex,
+      transparent: true,
+      opacity: 0.0,
+      depthTest: false,   // <<< always render on top
+      depthWrite: false
     });
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.renderOrder = 999;
+    this.panel.renderOrder = 9999; // extra high
     this.anchor.add(this.panel);
     this.scene.add(this.anchor);
 
@@ -77,49 +72,32 @@ export class ReactionHud {
     this.redraw();
   }
 
-  /** Provide icon URLs (e.g. '/assets/ui/heart.png', '/assets/ui/like.png') */
   setIcons(heartUrl?: string, likeUrl?: string) {
-    const load = (url?: string) => {
+    const load = (name: 'heart'|'like', url?: string) => {
       if (!url) return undefined;
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.src = url;
+      img.onerror = () => console.warn(`[ReactionHud] Icon failed to load: ${name} (${url})`);
+      img.onload = () => this.redraw();
       return img;
     };
-    this.heartIcon = load(heartUrl);
-    this.likeIcon = load(likeUrl);
-    const onload = () => this.redraw();
-    if (this.heartIcon) this.heartIcon.onload = onload;
-    if (this.likeIcon) this.likeIcon.onload = onload;
-  }
-
-  /** (Optional) avatars retained for future use */
-  setAvatars(userUrl?: string, commenterUrl?: string) {
-    const load = (url?: string) => {
-      if (!url) return undefined;
-      const img = new Image(); img.crossOrigin = 'anonymous'; img.src = url; return img;
-    };
-    this.userAvatar = load(userUrl);
-    this.commenterAvatar = load(commenterUrl);
-    const onload = () => this.redraw();
-    if (this.userAvatar) this.userAvatar.onload = onload;
-    if (this.commenterAvatar) this.commenterAvatar.onload = onload;
-  }
-
-  /** Visual chip only; manager has already updated numbers */
-  flash(kind: ReactionKind) {
-    this.spawnChip(kind);
-    this.show(); // ensure visible when flashing
+    this.heartIcon = load('heart', heartUrl);
+    this.likeIcon  = load('like',  likeUrl);
   }
 
   show(autoHide = true) {
-    if (!this.visible) { this.visible = true; this.fadeTo(1.0, 140); }
+    if (!this.visible) { this.visible = true; this.fadeTo(1.0, 160); }
     if (autoHide) this.hideAt = performance.now() + this.AUTO_HIDE_MS;
   }
-  hide() { if (this.visible) { this.visible = false; this.fadeTo(0.0, 140); } }
+  hide() { if (this.visible) { this.visible = false; this.fadeTo(0.0, 160); } }
+
+  flash(kind: ReactionKind) {
+    this.spawnChip(kind);
+    this.show(true);
+  }
 
   tick(dt: number) {
-    // anchor pose: orbit around object, always face camera
     const center = this.getObjectWorldPos?.();
     if (center) {
       if (this.orbitEnabled) {
@@ -151,28 +129,23 @@ export class ReactionHud {
     const c = this.panelCanvas, ctx = this.ctx;
     ctx.clearRect(0, 0, c.width, c.height);
 
-    // card bg
     this.rounded(ctx, 0, 0, c.width, c.height, 36);
-    ctx.fillStyle = 'rgba(18,18,28,0.85)'; ctx.fill();
+    ctx.fillStyle = 'rgba(18,18,28,0.92)'; ctx.fill();
 
-    // title
     ctx.fillStyle = '#fff';
     ctx.font = '700 34px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Reactions', c.width / 2, 64);
 
-    // icons row
     const rowY = 180;
     const gap = 140;
     const iconSize = 110;
 
-    // HEART (left)
     const heartX = c.width / 2 - gap;
     this.drawIconWithCounter(
       this.heartIcon, '❤️', heartX, rowY, iconSize, this.heartCount
     );
 
-    // LIKE (right)
     const likeX = c.width / 2 + gap;
     this.drawIconWithCounter(
       this.likeIcon, '👍', likeX, rowY, iconSize, this.likeCount
@@ -185,15 +158,13 @@ export class ReactionHud {
     const ctx = this.ctx;
     const half = size / 2;
 
-    // icon circle bg
     this.rounded(ctx, cx - half, cy - half, size, size, size * 0.24);
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
     ctx.fill();
 
-    if (img && img.complete) {
+    if (img && img.complete && img.naturalWidth > 0) {
       ctx.drawImage(img, cx - half, cy - half, size, size);
     } else {
-      // fallback emoji
       ctx.fillStyle = '#fff';
       ctx.font = `900 ${Math.floor(size * 0.78)}px system-ui,emoji`;
       ctx.textAlign = 'center';
@@ -201,7 +172,6 @@ export class ReactionHud {
       ctx.fillText(fallbackEmoji, cx, cy + 8);
     }
 
-    // counter (below)
     ctx.fillStyle = '#fff';
     ctx.font = '700 36px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
     ctx.textAlign = 'center';
