@@ -1,4 +1,3 @@
-// src/controls/FeedControls.ts
 import * as THREE from 'three';
 import { HandEngine } from '../gestures/HandEngine';
 import { ThreeXRApp } from '../app/ThreeXRApp';
@@ -27,13 +26,13 @@ export class FeedControls {
   private baseDist = 0;
   private baseScale = 1;
   private filtDist = 0;
-  private readonly LPF_ALPHA = 0.28;       // distance low-pass
-  private readonly SCALE_GAIN = 2.2;       // exponential feel
-  private readonly SCALE_DEADBAND = 0.004; // smaller deadband so scale actually moves
+  private readonly LPF_ALPHA = 0.28;
+  private readonly SCALE_GAIN = 2.2;
+  private readonly SCALE_DEADBAND = 0.004;
   private readonly SCALE_MIN = 0.15;
   private readonly SCALE_MAX = 8;
 
-  // rotation (SmoothDamp) — tuned faster
+  // rotation
   private rotTarget = 0;
   private rotVel = 0;
   private readonly ROT_GAIN = 0.9;
@@ -102,7 +101,12 @@ export class FeedControls {
     this.hands.on('leftpinchend',    () => this.onPinchEnd('left'));
     this.hands.on('rightpinchend',   () => this.onPinchEnd('right'));
 
-    // Reactions -> count + HUD flash (no double increment)
+    // L-gesture toggle for HUD (either hand)
+    const toggleHUD = () => this.hudMgr.toggleFor(this.currentModelKey());
+    this.hands.on('leftlshapestart',  toggleHUD);
+    this.hands.on('rightlshapestart', toggleHUD);
+
+    // Reactions -> count + HUD flash
     this.hands.on('thumbsupstart', (d:any) => {
       const now = performance.now();
       if (now - this.lastLikeAt < this.REACT_COOLDOWN_MS) return;
@@ -111,11 +115,10 @@ export class FeedControls {
       const side: 'left'|'right' = d?.side === 'left' ? 'left' : 'right';
       const start = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
       this.store.likeCurrent(start ?? undefined, side);
-
       this.hudMgr.bump(this.currentModelKey(), 'like');
     });
 
-    // Heart disabled if both hands pinching (transform mode)
+    // Heart (disabled in two-hand)
     this.hands.on('heartstart', () => {
       if (this.twoHandActive || (this.hands.state.left.pinch && this.hands.state.right.pinch)) return;
       const now = performance.now();
@@ -125,7 +128,6 @@ export class FeedControls {
       const R = this.hands.pinchMid('right') ?? this.hands.indexTip('right');
       if (L) this.store.saveCurrent(L.clone());
       if (R) this.store.saveCurrent(R.clone());
-
       this.hudMgr.bump(this.currentModelKey(), 'heart');
     });
 
@@ -143,9 +145,7 @@ export class FeedControls {
       this.updateGrabPendingGuard();
       this.updateRays();
 
-      // HUD follow/particles
       this.hudMgr.tick(dt);
-
       this.store.tick(dt);
     });
   }
@@ -230,8 +230,6 @@ export class FeedControls {
         }
       }
     }
-
-    // reset tap state
     this.tapStartTime = null; this.tapStartPos = null;
 
     // end grab if the grabbing hand releases
@@ -240,10 +238,7 @@ export class FeedControls {
 
     // leaving two-hand mode if one hand releases
     const other = side === 'left' ? 'right' : 'left';
-    if (!this.hands.state[other].pinch) {
-      this.twoHandActive = false;
-      this.rotVel = 0;
-    }
+    if (!this.hands.state[other].pinch) { this.twoHandActive = false; this.rotVel = 0; }
 
     // reset scroll trackers
     this.lastPinchY = null; this.filtPinchY = null; this.scrollAccum = 0; this.pinchStartAt = null;
@@ -290,7 +285,7 @@ export class FeedControls {
     }
   }
 
-  // ---------- Two-hand transform (SCALE + ROT, smoothed) ----------
+  // ---------- Two-hand transform (SCALE + ROT) ----------
   private updateTwoHandTransform(dt:number){
     const lp = this.hands.state.left.pinch;
     const rp = this.hands.state.right.pinch;
@@ -300,7 +295,6 @@ export class FeedControls {
       return; 
     }
 
-    // Use pinch midpoints (more stable) with fallback to thumb tips
     const Lp = this.hands.pinchMid('left')  ?? this.hands.thumbTip('left');
     const Rp = this.hands.pinchMid('right') ?? this.hands.thumbTip('right');
     if (!(Lp && Rp)) { 
@@ -310,7 +304,6 @@ export class FeedControls {
 
     this.lastL.copy(Lp); this.lastR.copy(Rp);
 
-    // (Re)arm baseline once, right after both pinches are active — ensures good baseDist
     const rawDist = Math.max(1e-6, Lp.distanceTo(Rp));
     if (!this.twoHandActive){
       this.twoHandActive = true;
@@ -319,16 +312,14 @@ export class FeedControls {
       this.baseScale = this.store.scale;
       this.filtDist  = rawDist;
 
-      // Initialize rotation target with current rotation to avoid jumps
       this.rotTarget = this.store.rotationY;
 
-      // Reset baselines for moving-hand selection
       this.LStart.copy(Lp);
       this.RStart.copy(Rp);
       return;
     }
 
-    // ---- SCALE ----
+    // SCALE
     this.filtDist = this.filtDist + (rawDist - this.filtDist) * this.LPF_ALPHA;
     const ratio = this.filtDist / this.baseDist;
     let scaleRaw = this.baseScale * Math.pow(ratio, this.SCALE_GAIN);
@@ -337,7 +328,7 @@ export class FeedControls {
     let newScale = this.store.scale;
     if (Math.abs(scaleRaw - this.store.scale) > this.SCALE_DEADBAND) newScale = scaleRaw;
 
-    // ---- ROTATION (SmoothDamp) — yaw in XZ plane ----
+    // ROTATION — yaw in XZ plane
     const lMove = this.lastL.distanceTo(this.LStart);
     const rMove = this.lastR.distanceTo(this.RStart);
     const movedEnough = (lMove + rMove) >= (this.MOVE_EPS * 2);
@@ -363,15 +354,9 @@ export class FeedControls {
     this.store.setTargetTransform(newScale, smoothed);
   }
 
-  // ---------- SmoothDamp for angles ----------
   private smoothDampAngle(
-    current:number,
-    target:number,
-    setVel:(v:number)=>void,
-    currentVel:number,
-    smoothTime:number,
-    maxSpeed:number,
-    deltaTime:number
+    current:number, target:number, setVel:(v:number)=>void, currentVel:number,
+    smoothTime:number, maxSpeed:number, deltaTime:number
   ){
     let delta = target - current;
     while (delta >  Math.PI) delta -= 2*Math.PI;
