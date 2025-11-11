@@ -32,6 +32,10 @@ export class FeedControls {
   private readonly PANEL_OFFSET_Y = 0.22;   // must match ReactionHud offset.y
   private readonly PANEL_SCROLL_STEP_MULT = 1.0; // 1 step per SCROLL_DISP reached
 
+  // "Post" tap zone (lower-right corner of the panel)
+  private readonly POST_ZONE_W = 0.16;      // meters
+  private readonly POST_ZONE_H = 0.08;      // meters
+
   // ===== Two-hand transform (scale + rotation) =====
   private twoHandActive = false;
 
@@ -90,7 +94,7 @@ export class FeedControls {
   // HUD (panel always visible, position-anchored)
   private hudMgr: ReactionHudManager;
 
-  // Quick pinch ("tap") to show HUD (kept for compatibility; panel is always shown anyway)
+  // Quick pinch ("tap") helpers
   private tapStartTime: number | null = null;
   private tapStartPos: THREE.Vector3 | null = null;
   private lastTapAt = 0;
@@ -112,9 +116,10 @@ export class FeedControls {
     );
     // Provide icons (ensure files exist)
     this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png', '/assets/ui/repost.png');
-    // Always show panel for current model and attach the DOM overlay comment bar
+    // Always show panel for current model
     this.hudMgr.showFor(this.currentModelKey());
-    this.hudMgr.attachCommentOverlay();
+    // IMPORTANT: Remove DOM overlay comment bar (prevents covering Start AR/VR)
+    // this.hudMgr.attachCommentOverlay(); // <- removed on purpose
 
     // Hand lifecycle
     this.hands.on('leftpinchstart',  () => this.onPinchStart('left'));
@@ -222,7 +227,7 @@ export class FeedControls {
     update('right', this.rightRay);
   }
 
-  // ---------- Pinch lifecycle (with scroll arming/disarm + instant grab + panel scroll detection) ----------
+  // ---------- Pinch lifecycle (with scroll arming/disarm + instant grab + panel interactions) ----------
   private onPinchStart(side:'left'|'right'){
     this.setRayVisible(side, true);
 
@@ -291,11 +296,18 @@ export class FeedControls {
     if (this.tapStartPos && endPos && duration <= this.TAP_MAX_MS && (now - this.lastTapAt) >= this.TAP_COOLDOWN_MS) {
       const travel = this.tapStartPos.distanceTo(endPos);
       if (travel <= this.TAP_MOVE_MAX) {
-        if (this.isNearModel(endPos)) {
-          this.lastTapAt = now;
-          // Panel is always shown, but keep notify for user feedback
-          this.store.notify('UI: quick pinch');
-          this.hudMgr.showFor(this.currentModelKey());
+        // Quick tap near model shows panel (already shown) & test "post" if tap in post zone
+        this.lastTapAt = now;
+
+        if (endPos) {
+          if (this.isInPanelPostZone(endPos)) {
+            // Post a sample comment INSIDE the MR panel (no browser overlay)
+            this.hudMgr.addCommentForCurrent('Posting from MR ✍️ (sample).');
+            this.store.notify('Comment posted');
+          } else if (this.isNearModel(endPos)) {
+            this.store.notify('UI: quick pinch');
+            this.hudMgr.showFor(this.currentModelKey());
+          }
         }
       }
     }
@@ -359,13 +371,8 @@ export class FeedControls {
     }
 
     // ---- FEED SCROLL ----
-
-    // disarmed pinch should never scroll feed
-    if (this.scrollDisarmedThisPinch) return;
-
-    // Require that this pinch started FAR from the object to be able to scroll at all
-    if (!this.scrollArmed) return;
-
+    if (this.scrollDisarmedThisPinch) return; // disarmed pinch should never scroll feed
+    if (!this.scrollArmed) return;            // must have started FAR from object
     if (this.pinchStartAt && (now - this.pinchStartAt) < this.SCROLL_MIN_HOLD_MS) return;
 
     if (mid){
@@ -603,10 +610,29 @@ export class FeedControls {
     const dx = Math.abs(point.x - panelCenter.x);
     const dy = Math.abs(point.y - panelCenter.y);
     const dz = Math.abs(point.z - panelCenter.z);
-    // Panel faces the user, but we model an area in XZ with some thickness
     const withinXZ = (dx <= halfW) && (Math.abs(point.z - panelCenter.z) <= halfW);
     const withinY  = (dy <= halfH);
     return withinXZ && withinY;
+  }
+
+  /** Tap zone at panel's lower-right corner to "post" a comment inside MR (sample). */
+  private isInPanelPostZone(point: THREE.Vector3): boolean {
+    const center = this.store.getObjectWorldPos();
+    if (!center) return false;
+    const pc = center.clone().add(new THREE.Vector3(0, this.PANEL_OFFSET_Y, 0));
+
+    // Post zone: lower-right rect in panel local, approximated in world AABB.
+    const halfW = this.PANEL_W_M * 0.5;
+    const halfH = this.PANEL_H_M * 0.5;
+
+    const zoneMin = new THREE.Vector3(pc.x + (halfW - this.POST_ZONE_W), pc.y - (halfH), pc.z - this.POST_ZONE_W);
+    const zoneMax = new THREE.Vector3(pc.x + halfW,                      pc.y - (halfH - this.POST_ZONE_H), pc.z + this.POST_ZONE_W);
+
+    return (
+      point.x >= zoneMin.x && point.x <= zoneMax.x &&
+      point.y >= zoneMin.y && point.y <= zoneMax.y &&
+      point.z >= zoneMin.z && point.z <= zoneMax.z
+    );
   }
 
   private currentModelKey(): string {
