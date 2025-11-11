@@ -13,28 +13,25 @@ export class FeedControls {
   private scrollCooldownUntil = 0;
   private pinchStartAt: number | null = null;
 
-  // Scroll arming/disarm: scroll is ONLY allowed if the pinch STARTS far from the model
+  // scrolling is opt-in only if pinch starts far from model
   private scrollArmed = false;
   private scrollDisarmedThisPinch = false;
-  private startDistSurf: number | null = null;    // distance from surface at pinch start
-  private startDistCenter: number | null = null;  // distance from center at pinch start
+  private startDistSurf: number | null = null;
+  private startDistCenter: number | null = null;
 
-  // Tunables (slightly stricter than before)
   private readonly SCROLL_MIN_HOLD_MS = 160;
   private readonly SCROLL_DISP = 0.03;
   private readonly SCROLL_COOLDOWN_MS = 380;
   private readonly SCROLL_VEL_MIN = 0.012;
 
-  private readonly SCROLL_IN_AIR_DIST = 0.28;       // if we get nearer than this → disarm for the rest of the pinch
-  private readonly SCROLL_START_FAR_SURF = 0.40;    // must start ≥ 40cm away from *surface* to arm
-  private readonly SCROLL_START_FAR_CENTER = 0.35;  // AND ≥ 35cm away from *center*
+  private readonly SCROLL_IN_AIR_DIST = 0.28;
+  private readonly SCROLL_START_FAR_SURF = 0.40;
+  private readonly SCROLL_START_FAR_CENTER = 0.35;
 
   private readonly LPF_SCROLL_ALPHA = 0.22;
 
-  // ===== Two-hand transform (scale + rotation) =====
+  // ===== Two-hand transform =====
   private twoHandActive = false;
-
-  // scale state
   private baseDist = 0;
   private baseScale = 1;
   private filtDist = 0;
@@ -60,7 +57,7 @@ export class FeedControls {
   private lastR = new THREE.Vector3();
   private readonly MOVE_EPS = 0.006;
 
-  // ===== Grab (one hand hold) =====
+  // ===== Grab =====
   private grabbing = false;
   private grabSide: 'left'|'right' | null = null;
   private grabOffset = new THREE.Vector3();
@@ -71,7 +68,7 @@ export class FeedControls {
 
   private readonly HOLD_MS = 150;
   private readonly PENDING_CANCEL_MOVE = 0.06;
-  private readonly INSTANT_GRAB_DIST = 0.14; // "very near" → immediate grab
+  private readonly INSTANT_GRAB_DIST = 0.14;
 
   // ===== Rays =====
   private rayGroup = new THREE.Group();
@@ -87,7 +84,7 @@ export class FeedControls {
 
   private hudMgr: ReactionHudManager;
 
-  // Quick pinch ("tap") to show HUD
+  // quick-pinch (still supported, but UI is always on now)
   private tapStartTime: number | null = null;
   private tapStartPos: THREE.Vector3 | null = null;
   private lastTapAt = 0;
@@ -101,15 +98,16 @@ export class FeedControls {
     this.initRay('left'); this.initRay('right');
     this.setRayVisible('left', false); this.setRayVisible('right', false);
 
-    // HUD manager
+    // HUD: always-on MR window
     this.hudMgr = new ReactionHudManager(
       this.app.scene,
       this.app.camera,
       () => this.store.getObjectWorldPos()
     );
-
-    // Provide your icon URLs (ensure files exist in /public/assets/ui)
+    this.hudMgr.enableAlwaysVisible(true);
     this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png');
+    // show immediately for the current model
+    this.hudMgr.showFor(this.currentModelKey());
 
     // Hand lifecycle
     this.hands.on('leftpinchstart',  () => this.onPinchStart('left'));
@@ -117,11 +115,8 @@ export class FeedControls {
     this.hands.on('leftpinchend',    () => this.onPinchEnd('left'));
     this.hands.on('rightpinchend',   () => this.onPinchEnd('right'));
 
-    // L-gesture → SHOW the UI (not toggle) so it always appears when detected
-    const onL = () => {
-      this.store.notify('L gesture detected → showing UI');
-      this.hudMgr.showFor(this.currentModelKey());
-    };
+    // L-gesture still allowed (but not required) – it simply refreshes/show
+    const onL = () => this.hudMgr.showFor(this.currentModelKey());
     this.hands.on('leftlshapestart',  onL);
     this.hands.on('rightlshapestart', onL);
 
@@ -163,6 +158,7 @@ export class FeedControls {
       this.updateGrabPendingGuard();
       this.updateRays();
 
+      // keep MR window following the object
       this.hudMgr.tick(dt);
       this.store.tick(dt);
     });
@@ -205,7 +201,7 @@ export class FeedControls {
     update('right', this.rightRay);
   }
 
-  // ---------- Pinch lifecycle (with start gating + instant grab) ----------
+  // ---------- Pinch lifecycle (start gating + instant grab) ----------
   private onPinchStart(side:'left'|'right'){
     this.setRayVisible(side, true);
 
@@ -218,13 +214,11 @@ export class FeedControls {
       this.scrollAccum = 0;
     }
 
-    // reset per-pinch scroll gating
     this.scrollDisarmedThisPinch = false;
     this.scrollArmed = false;
 
-    // quick pinch baseline
     this.tapStartTime = performance.now();
-    this.tapStartPos = mid?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
+    this.tapStartPos  = mid?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
 
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) {
@@ -232,7 +226,6 @@ export class FeedControls {
       return;
     }
 
-    // measure start distances
     const center = this.store.getObjectWorldPos();
     if (center && mid) {
       this.startDistCenter = mid.distanceTo(center);
@@ -243,24 +236,20 @@ export class FeedControls {
       this.startDistSurf = null;
     }
 
-    // if we start very close → instant grab
     if (this.startDistSurf != null && this.startDistSurf <= this.INSTANT_GRAB_DIST) {
       const objPosNow = this.store.getObjectWorldPos();
       if (objPosNow && mid) {
         this.grabbing = true; this.grabSide = side;
         this.grabOffset.copy(objPosNow).sub(mid);
-        this.store.notify('Grabbed');
-        this.scrollDisarmedThisPinch = true; // dragging should never scroll
+        this.scrollDisarmedThisPinch = true;
         return;
       }
     }
 
-    // arm scrolling ONLY if we started far from both surface AND center
     const farSurf = (this.startDistSurf ?? 1e9) >= this.SCROLL_START_FAR_SURF;
     const farCtr  = (this.startDistCenter ?? 1e9) >= this.SCROLL_START_FAR_CENTER;
     this.scrollArmed = farSurf && farCtr;
 
-    // if not armed, we’re nearish → try delayed grab
     if (!this.scrollArmed) this.tryStartGrabPending(side);
   }
 
@@ -271,25 +260,21 @@ export class FeedControls {
     const duration = this.tapStartTime ? (now - this.tapStartTime) : Infinity;
     const endPos = this.hands.pinchMid(side)?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
 
-    // quick pinch → show UI beside model
     if (this.tapStartPos && endPos && duration <= this.TAP_MAX_MS && (now - this.lastTapAt) >= this.TAP_COOLDOWN_MS) {
       const travel = this.tapStartPos.distanceTo(endPos);
       if (travel <= this.TAP_MOVE_MAX && this.isNearModel(endPos)) {
         this.lastTapAt = now;
-        this.store.notify('UI: quick pinch – showing panel');
-        this.hudMgr.showFor(this.currentModelKey());
+        this.hudMgr.showFor(this.currentModelKey()); // refresh counts (always visible anyway)
       }
     }
     this.tapStartTime = null; this.tapStartPos = null;
 
-    // end/cancel grab
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
-    if (this.grabbing && this.grabSide === side) { this.grabbing = false; this.grabSide = null; this.store.notify('Placed'); }
+    if (this.grabbing && this.grabSide === side) { this.grabbing = false; this.grabSide = null; }
 
     const other = side === 'left' ? 'right' : 'left';
     if (!this.hands.state[other].pinch) { this.twoHandActive = false; this.rotVel = 0; }
 
-    // reset scroll gating at end of pinch
     this.scrollArmed = false;
     this.scrollDisarmedThisPinch = false;
     this.startDistSurf = null; this.startDistCenter = null;
@@ -304,24 +289,19 @@ export class FeedControls {
 
     const lp = this.hands.state.left.pinch;
     const rp = this.hands.state.right.pinch;
-    if ((lp && rp) || (!lp && !rp)) return; // exactly one hand
+    if ((lp && rp) || (!lp && !rp)) return;
     const side: 'left'|'right' = lp ? 'left' : 'right';
 
-    // disarmed pinch should never scroll
     if (this.scrollDisarmedThisPinch) return;
-
-    // Require that this pinch was armed at start (far from model)
     if (!this.scrollArmed) return;
-
     if (this.pinchStartAt && (now - this.pinchStartAt) < this.SCROLL_MIN_HOLD_MS) return;
 
     const mid = this.hands.pinchMid(side);
     if (mid){
-      // If during the pinch we come close to the object, permanently disarm scrolling for this pinch
       const distSurf = this.distanceToObjectSurface(mid);
       const distCtr = this.store.getObjectWorldPos()?.distanceTo(mid) ?? 1e9;
       if ((distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) || distCtr < this.SCROLL_START_FAR_CENTER) {
-        this.scrollDisarmedThisPinch = true; // turn off scrolling until pinch end
+        this.scrollDisarmedThisPinch = true;
         return;
       }
     }
@@ -344,6 +324,9 @@ export class FeedControls {
     if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP){
       const dir = this.scrollAccum < 0 ? +1 : -1;
       this.store.next(dir);
+      // ensure window updates when feed item changes
+      this.hudMgr.showFor(this.currentModelKey());
+
       this.scrollAccum = 0;
       this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
     }
@@ -496,7 +479,6 @@ export class FeedControls {
       this.grabOffset.copy(objPosNow).sub(mid);
       this.grabPending = false; this.grabPendingSide = null; this.grabPendingStartY = null;
       this.grabbing = true; this.grabSide = side;
-      this.store.notify('Grabbed – move your hand to place');
     }, this.HOLD_MS);
   }
   private cancelGrabPending(){
@@ -516,10 +498,10 @@ export class FeedControls {
     if (!this.grabbing || !this.grabSide) return;
     const other = this.grabSide === 'left' ? 'right' : 'left';
     if (this.hands.state[this.grabSide].pinch && this.hands.state[other].pinch){
-      this.grabbing = false; this.grabSide = null; this.store.notify('Grab canceled (two-hand mode)'); return;
+      this.grabbing = false; this.grabSide = null; return;
     }
     if (!this.hands.state[this.grabSide].pinch){
-      this.grabbing = false; this.grabSide = null; this.store.notify('Placed'); return;
+      this.grabbing = false; this.grabSide = null; return;
     }
     const mid = this.hands.pinchMid(this.grabSide); if (!mid) return;
     const target = mid.clone().add(this.grabOffset);

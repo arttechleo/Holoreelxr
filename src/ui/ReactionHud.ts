@@ -16,8 +16,8 @@ export class ReactionHud {
   private particles: Array<{ sprite: THREE.Sprite; vel: THREE.Vector3; ttl: number }> = [];
 
   private visible = false;
-  private hideAt = 0;
-  private readonly AUTO_HIDE_MS = 4000; // longer
+  private hideAt = Infinity; // persistent by default => never hides
+  private readonly AUTO_HIDE_MS = 4000;
 
   private readonly PANEL_W = 0.42;
   private readonly PANEL_H = 0.24;
@@ -31,6 +31,7 @@ export class ReactionHud {
   private bobAmp = 0.02;
   private bobSpeed = 1.4;
 
+  private persistent = true; // <<< MR panel always visible (can be toggled via setPersistent)
   private heartIcon?: HTMLImageElement;
   private likeIcon?: HTMLImageElement;
 
@@ -55,15 +56,24 @@ export class ReactionHud {
       map: this.panelTex,
       transparent: true,
       opacity: 0.0,
-      depthTest: false,   // <<< always render on top
+      depthTest: false,   // always on top of real-world passthrough/meshes
       depthWrite: false
     });
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.renderOrder = 9999; // extra high
+    this.panel.renderOrder = 9999;
     this.anchor.add(this.panel);
     this.scene.add(this.anchor);
 
     this.redraw();
+  }
+
+  /** Keep MR window around even when no recent interaction */
+  setPersistent(enabled: boolean) {
+    this.persistent = enabled;
+    if (enabled) {
+      this.hideAt = Infinity;
+      this.show(false);
+    }
   }
 
   setCounts(like: number, heart: number) {
@@ -88,16 +98,22 @@ export class ReactionHud {
 
   show(autoHide = true) {
     if (!this.visible) { this.visible = true; this.fadeTo(1.0, 160); }
-    if (autoHide) this.hideAt = performance.now() + this.AUTO_HIDE_MS;
+    this.hideAt = autoHide && !this.persistent ? (performance.now() + this.AUTO_HIDE_MS) : Infinity;
   }
-  hide() { if (this.visible) { this.visible = false; this.fadeTo(0.0, 160); } }
+  hide() {
+    if (!this.persistent && this.visible) {
+      this.visible = false;
+      this.fadeTo(0.0, 160);
+    }
+  }
 
   flash(kind: ReactionKind) {
     this.spawnChip(kind);
-    this.show(true);
+    this.show(!this.persistent);
   }
 
   tick(dt: number) {
+    // follow object in MR space
     const center = this.getObjectWorldPos?.();
     if (center) {
       if (this.orbitEnabled) {
@@ -113,7 +129,7 @@ export class ReactionHud {
     }
     this.anchor.quaternion.copy(this.camera.quaternion);
 
-    if (this.visible && performance.now() >= this.hideAt) this.hide();
+    if (!this.persistent && this.visible && performance.now() >= this.hideAt) this.hide();
 
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
@@ -133,7 +149,7 @@ export class ReactionHud {
     ctx.fillStyle = 'rgba(18,18,28,0.92)'; ctx.fill();
 
     ctx.fillStyle = '#fff';
-    ctx.font = '700 34px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
+    ctx.font = '700 34px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Reactions', c.width / 2, 64);
 
@@ -142,14 +158,10 @@ export class ReactionHud {
     const iconSize = 110;
 
     const heartX = c.width / 2 - gap;
-    this.drawIconWithCounter(
-      this.heartIcon, '❤️', heartX, rowY, iconSize, this.heartCount
-    );
+    this.drawIconWithCounter(this.heartIcon, '❤️', heartX, rowY, iconSize, this.heartCount);
 
     const likeX = c.width / 2 + gap;
-    this.drawIconWithCounter(
-      this.likeIcon, '👍', likeX, rowY, iconSize, this.likeCount
-    );
+    this.drawIconWithCounter(this.likeIcon, '👍', likeX, rowY, iconSize, this.likeCount);
 
     this.panelTex.needsUpdate = true;
   }
@@ -173,7 +185,7 @@ export class ReactionHud {
     }
 
     ctx.fillStyle = '#fff';
-    ctx.font = '700 36px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
+    ctx.font = '700 36px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(String(count), cx, cy + half + 48);
@@ -187,7 +199,7 @@ export class ReactionHud {
     cx.beginPath(); cx.moveTo(r,0);
     cx.arcTo(w,0,w,h,r); cx.arcTo(w,h,0,h,r); cx.arcTo(0,h,0,0,r); cx.arcTo(0,0,w,0,r);
     cx.closePath(); cx.fill();
-    cx.fillStyle='#fff'; cx.font='800 64px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
+    cx.fillStyle='#fff'; cx.font='800 64px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
     cx.textAlign='center'; cx.textBaseline='middle';
     cx.fillText(kind==='like'?'+1 👍':'+1 ❤️', w/2, h/2);
 
