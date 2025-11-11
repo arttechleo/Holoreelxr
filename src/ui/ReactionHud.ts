@@ -1,7 +1,7 @@
 // src/ui/ReactionHud.ts
 import * as THREE from 'three';
 
-export type ReactionKind = 'like' | 'heart';
+export type ReactionKind = 'like' | 'heart' | 'repost';
 export type Comment = { id: string; author?: string; text: string };
 
 export class ReactionHud {
@@ -11,47 +11,40 @@ export class ReactionHud {
   private panelCanvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
-  // counts
+  // counters
   private likeCount = 0;
   private heartCount = 0;
+  private repostCount = 0;
 
   // comments
   private comments: Comment[] = [];
-  private scrollY = 0;         // pixels
-  private readonly SCROLL_STEP = 42;  // per "tick" we scroll by this many px
+  private scrollY = 0;                 // pixels
+  private readonly SCROLL_STEP = 42;
 
-  // particles
+  // particles (chips)
   private particles: Array<{ sprite: THREE.Sprite; vel: THREE.Vector3; ttl: number }> = [];
 
-  private visible = false;
-  private hideAt = Infinity; // persistent by default
-
-  // panel size in world units
+  private visible = true;              // always visible by default
   private readonly PANEL_W = 0.50;
   private readonly PANEL_H = 0.30;
 
-  // Layout in canvas pixels
-  private readonly CANVAS_W = 1024;
+  // high-res canvas for crisp text
+  private readonly CANVAS_W = 1152;
   private readonly CANVAS_H = 640;
 
-  // Position offset (just above the model; no orbit and NO head tracking)
+  // Position offset (above model). NO orbiting, NO head-tracking rotation, NO scaling linkage.
   private readonly OFFSET = new THREE.Vector3(0, 0.22, 0);
-  private persistent = true;
 
   // icons (optional)
   private heartIcon?: HTMLImageElement;
   private likeIcon?: HTMLImageElement;
-
-  // (optional) allow orienting with model yaw (set from manager)
-  private alignWithYaw = true;
-  private currentYaw = 0;
+  private repostIcon?: HTMLImageElement;
 
   constructor(
     private scene: THREE.Scene,
-    _camera: THREE.Camera,
+    _camera: THREE.Camera, // kept for signature compatibility; not used for rotation
     private getObjectWorldPos: () => THREE.Vector3 | null
   ) {
-    // canvas used as panel texture
     this.panelCanvas = document.createElement('canvas');
     this.panelCanvas.width = this.CANVAS_W;
     this.panelCanvas.height = this.CANVAS_H;
@@ -63,12 +56,11 @@ export class ReactionHud {
     this.panelTex.minFilter = THREE.LinearFilter;
     this.panelTex.magFilter = THREE.LinearFilter;
 
-    // plane in 3D (mixed reality)
     const geo = new THREE.PlaneGeometry(this.PANEL_W, this.PANEL_H);
     const mat = new THREE.MeshBasicMaterial({
       map: this.panelTex,
       transparent: true,
-      opacity: 1.0,   // global opacity; we also draw translucent background
+      opacity: 1.0,             // panel transparency is drawn in the canvas
       depthTest: false,
       depthWrite: false
     });
@@ -80,81 +72,62 @@ export class ReactionHud {
     this.redraw();
   }
 
-  /** Keep MR window around even when no recent interaction */
-  setPersistent(enabled: boolean) {
-    this.persistent = enabled;
-    if (enabled) { this.hideAt = Infinity; this.show(false); }
-  }
-
-  /** World-locked: set the UI yaw (e.g., to match the model’s rotationY) */
-  setYaw(yRadians: number) { this.currentYaw = yRadians; }
-
-  /** Provide icons */
-  setIcons(heartUrl?: string, likeUrl?: string) {
+  /** Provide icon URLs (heart/like/repost). */
+  setIcons(heartUrl?: string, likeUrl?: string, repostUrl?: string) {
     const load = (url?: string) => {
       if (!url) return undefined;
-      const img = new Image(); img.crossOrigin = 'anonymous'; img.src = url; img.onload = () => this.redraw();
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = url;
+      img.onload = () => this.redraw();
       return img;
     };
-    this.heartIcon = load(heartUrl);
-    this.likeIcon  = load(likeUrl);
+    this.heartIcon  = load(heartUrl);
+    this.likeIcon   = load(likeUrl);
+    this.repostIcon = load(repostUrl);
   }
 
-  /** Counts */
-  setCounts(like: number, heart: number) {
-    this.likeCount = Math.max(0, Math.floor(like));
-    this.heartCount = Math.max(0, Math.floor(heart));
+  /** Counters */
+  setCounts(like: number, heart: number, repost: number) {
+    this.likeCount   = Math.max(0, Math.floor(like));
+    this.heartCount  = Math.max(0, Math.floor(heart));
+    this.repostCount = Math.max(0, Math.floor(repost));
     this.redraw();
   }
 
-  /** Comments (full replacement) */
+  /** Comments (replace full list) */
   setComments(list: Comment[]) {
     this.comments = Array.isArray(list) ? list.slice() : [];
-    this.scrollY = 0; // reset scroll to top
+    this.scrollY = 0;
     this.redraw();
   }
 
-  /** Scroll comments by +/- steps (positive = down) */
+  /** Scroll comments (positive = down) */
   scrollComments(steps: number) {
     const maxScroll = Math.max(0, this.contentHeight() - this.commentsViewportH());
     this.scrollY = THREE.MathUtils.clamp(this.scrollY + steps * this.SCROLL_STEP, 0, maxScroll);
     this.redraw();
   }
 
-  show(autoHide = true) {
-    if (!this.visible) { this.visible = true; this.fadeTo(1.0, 140); }
-    this.hideAt = this.persistent ? Infinity : (performance.now() + 4000);
-  }
-  hide() {
-    if (!this.persistent && this.visible) {
-      this.visible = false;
-      this.fadeTo(0.0, 140);
-    }
+  /** Append a comment to the end. */
+  appendComment(c: Comment) {
+    this.comments.push(c);
+    this.redraw();
   }
 
+  /** Visual chip for any reaction. */
   flash(kind: ReactionKind) {
-    this.spawnChip(kind === 'like' ? '+1 👍' : '+1 ❤️');
-    this.show(!this.persistent);
+    const text = kind === 'like' ? '+1 👍' : kind === 'heart' ? '+1 ❤️' : '+1 🔁';
+    this.spawnChip(text);
   }
 
-  flashRepost() {
-    this.spawnChip('Reposted 🔁');
-    this.show(!this.persistent);
-  }
-
+  /** Follow object position only (NO rotation/scale updates). */
   tick(dt: number) {
-    // follow object in MR space (NO billboard; world-locked yaw)
     const center = this.getObjectWorldPos?.();
     if (center) {
       this.anchor.position.copy(center).add(this.OFFSET);
-      if (this.alignWithYaw) {
-        this.anchor.rotation.set(0, this.currentYaw, 0); // match model yaw only
-      }
     }
 
-    if (!this.persistent && this.visible && performance.now() >= this.hideAt) this.hide();
-
-    // chips
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.ttl -= dt;
@@ -169,28 +142,29 @@ export class ReactionHud {
     const c = this.panelCanvas, ctx = this.ctx;
     ctx.clearRect(0, 0, c.width, c.height);
 
-    // translucent card background
-    this.rounded(ctx, 0, 0, c.width, c.height, 36);
+    // Card background (slight transparency)
+    this.rounded(ctx, 0, 0, c.width, c.height, 32);
     ctx.fillStyle = 'rgba(18,18,28,0.82)';
     ctx.fill();
 
-    // header
+    // Header
     ctx.fillStyle = '#fff';
     ctx.font = '700 34px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText('Reactions', 36, 62);
 
-    // icons + counters
+    // Icons row
     const iconSize = 112;
-    const heartX = 36 + iconSize / 2;
-    const likeX  = heartX + iconSize + 36;
-    const rowY   = 62 + 32 + iconSize / 2;
+    const baseX = 36 + iconSize / 2;
+    const gap = 36 + iconSize;
+    const y = 62 + 32 + iconSize / 2;
 
-    this.drawIconWithCounter(this.heartIcon, '❤️', heartX, rowY, iconSize, this.heartCount);
-    this.drawIconWithCounter(this.likeIcon,  '👍', likeX,  rowY, iconSize, this.likeCount);
+    this.drawIconWithCounter(this.heartIcon, '❤️', baseX, y, iconSize, this.heartCount);
+    this.drawIconWithCounter(this.likeIcon,  '👍', baseX + gap, y, iconSize, this.likeCount);
+    this.drawIconWithCounter(this.repostIcon,'🔁', baseX + gap * 2, y, iconSize, this.repostCount);
 
-    // comments box
-    const boxX = likeX + iconSize / 2 + 48;
+    // Comments box (right side)
+    const boxX = baseX + gap * 2 + iconSize / 2 + 48;
     const boxY = 36;
     const boxW = c.width - boxX - 36;
     const boxH = c.height - boxY - 36;
@@ -198,26 +172,36 @@ export class ReactionHud {
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
     ctx.fill();
 
-    // draw comments with scroll
+    // Comments clipped region
     ctx.save();
     ctx.beginPath();
     ctx.rect(boxX + 16, boxY + 16, boxW - 32, boxH - 32);
     ctx.clip();
-
     ctx.translate(0, -this.scrollY);
-    let y = boxY + 28;
-    const lineH = 26;
-    ctx.fillStyle = '#EDEDED';
-    ctx.font = '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
 
+    // Render each comment as its own “bubble”
+    let cy = boxY + 24;
     for (const cmt of this.comments) {
-      const author = cmt.author ? `${cmt.author}: ` : '';
-      const text = author + cmt.text;
-      y = this.wrap(ctx, text, boxX + 24, y, boxW - 48, lineH) + 10;
+      const bubbleW = boxW - 48;
+      const linesH = this.measureWrappedHeight(
+        cmtText(cmt),
+        '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif',
+        bubbleW - 24,
+        26
+      );
+      const bubbleH = linesH + 24;
+
+      this.rounded(ctx, boxX + 24, cy, bubbleW, bubbleH, 12);
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fill();
+
+      ctx.fillStyle = '#EDEDED';
+      ctx.font = '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
+      cy = this.wrap(ctx, cmtText(cmt), boxX + 36, cy + 18, bubbleW - 24, 26) + 18 + 8;
     }
     ctx.restore();
 
-    // simple scrollbar
+    // Simple scrollbar
     const contentH = this.contentHeight();
     const viewH = this.commentsViewportH();
     if (contentH > viewH) {
@@ -234,25 +218,34 @@ export class ReactionHud {
     }
 
     this.panelTex.needsUpdate = true;
+
+    function cmtText(c: Comment) {
+      const author = c.author ? `${c.author}: ` : '';
+      return author + c.text;
+    }
   }
 
   private commentsViewportH(): number {
-    // inner box height minus paddings (matches drawing above)
-    return this.CANVAS_H - 36 - 36 - 32;
+    return this.CANVAS_H - 36 - 36 - 32; // box padding matches redraw
   }
 
   private contentHeight(): number {
-    // crude estimate: each line ~ 26px + 10 margin
-    const ctx = this.ctx;
-    ctx.font = '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
-    const boxW = this.CANVAS_W - (36 + 112/2 + 36 + 112/2 + 48) - 36; // same as redraw math
-    let y = 0;
+    // recompute layout height similar to redraw (bubbles)
+    const boxW = this.CANVAS_W - (36 + (112/2 + 36) * 2 + 112/2 + 48) - 36; // right box W
+    let total = 24;
     for (const cmt of this.comments) {
-      const author = cmt.author ? `${cmt.author}: ` : '';
-      const text = author + cmt.text;
-      y = this.wrap(ctx, text, 0, y, boxW - 48, 26) + 10;
+      const bubbleW = boxW - 48;
+      const linesH = this.measureWrappedHeight(
+        (cmt.author ? `${cmt.author}: ` : '') + cmt.text,
+        '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif',
+        bubbleW - 24,
+        26
+      );
+      const bubbleH = linesH + 24;
+      total += bubbleH + 8;
     }
-    return y + 32;
+    total += 24;
+    return total;
   }
 
   private drawIconWithCounter(img: HTMLImageElement | undefined, fallbackEmoji: string, cx: number, cy: number, size: number, count: number) {
@@ -275,10 +268,10 @@ export class ReactionHud {
     }
 
     ctx.fillStyle = '#fff';
-    ctx.font = '700 36px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = '700 32px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(String(count), cx, cy + half + 50);
+    ctx.fillText(String(count), cx, cy + half + 46);
   }
 
   private spawnChip(text: string) {
@@ -316,6 +309,7 @@ export class ReactionHud {
   }
 
   private wrap(ctx: CanvasRenderingContext2D, text:string, x:number, y:number, maxWidth:number, lh:number){
+    ctx.textAlign = 'left';
     const words = text.split(' '); let line=''; let cy=y;
     for (let i=0;i<words.length;i++){
       const test=line+words[i]+' '; const w=ctx.measureText(test).width;
@@ -326,9 +320,19 @@ export class ReactionHud {
     return cy + lh;
   }
 
-  private fadeTo(target:number, ms:number){
-    const mat = this.panel.material; const start = mat.opacity; const t0 = performance.now();
-    const step=()=>{ const t=(performance.now()-t0)/ms; const k=Math.min(1,Math.max(0,t)); mat.opacity=start+(target-start)*k; if(k<1) requestAnimationFrame(step); };
-    requestAnimationFrame(step);
+  private measureWrappedHeight(text:string, font:string, maxWidth:number, lh:number): number {
+    const ctx = this.ctx;
+    ctx.font = font;
+    const words = text.split(' ');
+    let line = '';
+    let h = 0;
+    for (let i=0;i<words.length;i++){
+      const test = line + words[i] + ' ';
+      const w = ctx.measureText(test).width;
+      if (w > maxWidth && i > 0) { h += lh; line = words[i] + ' '; }
+      else line = test;
+    }
+    h += lh;
+    return h;
   }
 }
