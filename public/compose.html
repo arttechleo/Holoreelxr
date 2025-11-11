@@ -1,0 +1,46 @@
+<!-- public/compose.html -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Comment</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <style>
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin: 0; padding: 24px; }
+    .wrap { max-width: 680px; margin: 0 auto; }
+    input[type="text"] {
+      width: 100%; font-size: 18px; padding: 12px 14px;
+      border-radius: 12px; border: 1px solid rgba(0,0,0,0.15);
+    }
+    button { margin-top: 12px; font-size: 16px; padding: 10px 14px; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>Add a comment</h2>
+    <input id="c" type="text" placeholder="Write a comment…" autocomplete="off" autocapitalize="sentences" />
+    <button id="post">Post</button>
+    <p id="status" style="opacity:.7; font-size:14px;"></p>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const key = params.get('k') || '';
+    const pre = params.get('t') || '';
+    const input = document.getElementById('c');
+    const btn = document.getElementById('post');
+    const status = document.getElementById('status');
+    input.value = pre;
+    setTimeout(()=> input.focus(), 0); // triggers Oculus virtual keyboard
+
+    btn.addEventListener('click', async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      // Example: POST back to your app’s backend if you have one.
+      // If not, you can use a URL protocol or simply instruct the user to close the tab.
+      // fetch('/api/comments', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({key, text})});
+      status.textContent = 'Posted. You can close this tab to return to MR.';
+    });
+  </script>
+</body>
+</html>
