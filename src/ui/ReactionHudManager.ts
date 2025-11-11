@@ -15,6 +15,7 @@ export class ReactionHudManager {
     this.hud = new ReactionHud(scene, camera, getObjectWorldPos);
   }
 
+  /** Show the floating window for this model (sets counts and fades in) */
   showFor(modelKey: string) {
     this.currentKey = modelKey;
     const c = this.counts.get(modelKey) ?? { like: 0, heart: 0 };
@@ -22,9 +23,11 @@ export class ReactionHudManager {
     this.hud.show(true);
   }
 
+  /** Optional toggle helper */
   toggleFor(modelKey: string) {
     if (this.currentKey === modelKey) {
-      this.hud.hide(); this.currentKey = null;
+      this.hud.hide();
+      this.currentKey = null;
     } else {
       this.showFor(modelKey);
     }
@@ -32,6 +35,7 @@ export class ReactionHudManager {
 
   hide() { this.hud.hide(); }
 
+  /** Increment counters and flash a chip when the window is showing this model */
   bump(modelKey: string, kind: ReactionKind) {
     const c = this.counts.get(modelKey) ?? { like: 0, heart: 0 };
     if (kind === 'like') c.like += 1; else c.heart += 1;
@@ -45,9 +49,14 @@ export class ReactionHudManager {
 
   tick(dt: number) { this.hud.tick(dt); }
 
-  setAvatars(userUrl?: string, commenterUrl?: string) { this.hud.setAvatars(userUrl, commenterUrl); }
+  /**
+   * Kept for backward compatibility. Current ReactionHud has no avatar support,
+   * so this is a no-op to avoid TS compile errors where callers still invoke it.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  setAvatars(_userUrl?: string, _commenterUrl?: string) { /* no-op */ }
 
-  /** New: provide icon URLs (e.g., '/assets/ui/heart.png', '/assets/ui/like.png') */
+  /** Provide icon URLs in /public (e.g., '/assets/ui/heart.png', '/assets/ui/like.png') */
   setIcons(heartUrl?: string, likeUrl?: string) { this.hud.setIcons(heartUrl, likeUrl); }
 
   getCounts(modelKey: string) {
