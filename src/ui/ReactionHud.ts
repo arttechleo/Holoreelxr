@@ -3,7 +3,6 @@ import * as THREE from 'three';
 
 export type ReactionKind = 'like' | 'heart' | 'repost';
 export type Comment = { id: string; author?: string; text: string };
-
 export type Hit =
   | { kind: 'like' | 'heart' | 'repost' }
   | { kind: 'post' }
@@ -33,14 +32,15 @@ export class ReactionHud {
   private readonly CANVAS_W = 1152;
   private readonly CANVAS_H = 640;
 
-  // Anchor the panel slightly above the model; position only (no rotation/scale)
+  // panel follows model position only (no head orbit / no rotation coupling)
   private readonly OFFSET = new THREE.Vector3(0, 0.22, 0);
 
+  // icons
   private heartIcon?: HTMLImageElement;
   private likeIcon?: HTMLImageElement;
   private repostIcon?: HTMLImageElement;
 
-  // cached canvas rects (px)
+  // cached rects (canvas px)
   private heartRect!: {x:number;y:number;w:number;h:number};
   private likeRect!: {x:number;y:number;w:number;h:number};
   private repostRect!: {x:number;y:number;w:number;h:number};
@@ -101,12 +101,7 @@ export class ReactionHud {
     this.redraw();
   }
 
-  setComments(list: Comment[]) {
-    this.comments = Array.isArray(list) ? list.slice() : [];
-    this.scrollY = 0;
-    this.redraw();
-  }
-
+  setComments(list: Comment[]) { this.comments = list.slice(); this.scrollY = 0; this.redraw(); }
   appendComment(c: Comment) { this.comments.push(c); this.redraw(); }
   postQuickComment(text = 'Posted from MR ✍️') { this.appendComment({ id: `c-${Date.now()}`, author: 'You', text }); }
 
@@ -116,7 +111,7 @@ export class ReactionHud {
     this.redraw();
   }
 
-  /** Follow object position only (no rotation/scale updates) */
+  /** Follow model position only */
   tick(dt: number) {
     const center = this.getObjectWorldPos?.();
     if (center) this.anchor.position.copy(center).add(this.OFFSET);
@@ -135,26 +130,42 @@ export class ReactionHud {
     this.spawnChip(text);
   }
 
-  /** Quick world-point hit test (used for “tap near panel center”). */
-  hitTestWorld(worldPoint: THREE.Vector3) {
+  /** Preferred: from a world point (e.g., pinch position), project onto panel plane, require proximity. */
+  projectHitFromPoint(worldPoint: THREE.Vector3, maxPlaneDistance = 0.12): Hit {
+    // build panel plane
+    const normal = new THREE.Vector3(0,0,1).applyQuaternion(
+      this.panel.getWorldQuaternion(new THREE.Quaternion())
+    ).normalize();
+    const pointOnPlane = new THREE.Vector3().setFromMatrixPosition(this.panel.matrixWorld);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, pointOnPlane);
+
+    // distance to plane
+    const dist = plane.distanceToPoint(worldPoint);
+    if (Math.abs(dist) > maxPlaneDistance) return null;
+
+    // orthogonal projection onto plane
+    const projected = worldPoint.clone().addScaledVector(normal, -dist);
+
+    // world -> local (panel space)
     const inv = new THREE.Matrix4().copy(this.panel.matrixWorld).invert();
-    const local = worldPoint.clone().applyMatrix4(inv); // panel local (XY plane)
+    const local = projected.applyMatrix4(inv);
+
+    // bounds
     if (Math.abs(local.x) > this.PANEL_W * 0.5 || Math.abs(local.y) > this.PANEL_H * 0.5) return null;
+
+    // map to canvas and test rects
     return this.hitCanvas(local);
   }
 
-  /** Full raycast (preferred): intersect a ray with the panel plane, then resolve which widget was hit. */
+  /** Full raycast (kept for completeness) */
   raycastHit(ray: THREE.Ray): Hit {
-    // Build panel plane from world transform
-    const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(this.panel.getWorldQuaternion(new THREE.Quaternion())).normalize();
+    const normal = new THREE.Vector3(0,0,1).applyQuaternion(this.panel.getWorldQuaternion(new THREE.Quaternion())).normalize();
     const pointOnPlane = new THREE.Vector3().setFromMatrixPosition(this.panel.matrixWorld);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, pointOnPlane);
 
     const hit = new THREE.Vector3();
-    const ok = ray.intersectPlane(plane, hit);
-    if (!ok) return null;
+    if (!ray.intersectPlane(plane, hit)) return null;
 
-    // Convert world → local to check bounds and map to canvas
     const inv = new THREE.Matrix4().copy(this.panel.matrixWorld).invert();
     const local = hit.applyMatrix4(inv);
     if (Math.abs(local.x) > this.PANEL_W * 0.5 || Math.abs(local.y) > this.PANEL_H * 0.5) return null;
@@ -162,12 +173,11 @@ export class ReactionHud {
     return this.hitCanvas(local);
   }
 
-  /** For aiming rays */
   getPanelCenterWorld(): THREE.Vector3 {
     return new THREE.Vector3().setFromMatrixPosition(this.panel.matrixWorld);
   }
 
-  // ---------- internal: map panel-local point → canvas rects ----------
+  // ---------- internal mapping ----------
   private hitCanvas(local: THREE.Vector3): Hit {
     const u = (local.x / this.PANEL_W) + 0.5;
     const v = 0.5 - (local.y / this.PANEL_H);
@@ -175,6 +185,7 @@ export class ReactionHud {
     const py = v * this.CANVAS_H;
 
     const inRect = (r:{x:number;y:number;w:number;h:number}) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+
     if (inRect(this.heartRect))  return { kind: 'heart' };
     if (inRect(this.likeRect))   return { kind: 'like' };
     if (inRect(this.repostRect)) return { kind: 'repost' };
@@ -183,7 +194,6 @@ export class ReactionHud {
     return null;
   }
 
-  // ---------- drawing ----------
   private commentsViewportH(): number { return this.commentsRect.h - 64; }
   private contentHeight(): number {
     let total = 8;
@@ -201,8 +211,7 @@ export class ReactionHud {
 
     // bg
     this.rounded(ctx, 0, 0, c.width, c.height, 32);
-    ctx.fillStyle = 'rgba(18,18,28,0.82)';
-    ctx.fill();
+    ctx.fillStyle = 'rgba(18,18,28,0.82)'; ctx.fill();
 
     // header
     ctx.fillStyle = '#fff';
@@ -227,10 +236,9 @@ export class ReactionHud {
     this.commentsRect = { x: boxX + 16, y: boxY + 16, w: boxW - 32, h: boxH - 32 };
 
     this.rounded(ctx, boxX, boxY, boxW, boxH, 20);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill();
 
-    // scrollable area
+    // scrollable comments
     ctx.save();
     ctx.beginPath();
     ctx.rect(this.commentsRect.x, this.commentsRect.y, this.commentsRect.w, this.commentsRect.h - 64);
@@ -241,7 +249,6 @@ export class ReactionHud {
     for (const cmt of this.comments) {
       const bubbleW = this.commentsRect.w;
       const text = (cmt.author ? `${cmt.author}: ` : '') + cmt.text;
-
       const linesH = this.measureWrappedHeight(text,'400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif', bubbleW - 24, 26);
       const bubbleH = linesH + 24;
 
@@ -263,7 +270,8 @@ export class ReactionHud {
     };
     this.rounded(ctx, this.postBtnRect.x, this.postBtnRect.y, this.postBtnRect.w, this.postBtnRect.h, 12);
     ctx.fillStyle = '#4b83ff'; ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = '700 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('Post', this.postBtnRect.x + btnW/2, this.postBtnRect.y + btnH/2 + 2);
 

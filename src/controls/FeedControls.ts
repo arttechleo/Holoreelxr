@@ -28,10 +28,9 @@ export class FeedControls {
   private uiPinchActive: boolean = false;
   private uiWasOverComments: boolean = false;
 
-  // ===== Two-hand transform (scale + rotation) =====
+  // ===== Two-hand transform =====
   private twoHandActive = false;
 
-  // scale state
   private baseDist = 0;
   private baseScale = 1;
   private filtDist = 0;
@@ -41,7 +40,6 @@ export class FeedControls {
   private readonly SCALE_MIN = 0.15;
   private readonly SCALE_MAX = 8;
 
-  // rotation smoothing
   private rotTarget = 0;
   private rotVel = 0;
   private readonly ROT_GAIN = 0.9;
@@ -56,7 +54,7 @@ export class FeedControls {
   private lastR = new THREE.Vector3();
   private readonly MOVE_EPS = 0.006;
 
-  // ===== Grab (one hand hold) =====
+  // ===== Grab =====
   private grabbing = false;
   private grabSide: 'left'|'right' | null = null;
   private grabOffset = new THREE.Vector3();
@@ -69,7 +67,7 @@ export class FeedControls {
   private readonly PENDING_CANCEL_MOVE = 0.06;
   private readonly INSTANT_GRAB_DIST = 0.14;
 
-  // ===== Rays (visual only) =====
+  // ===== Rays (visual) =====
   private rayGroup = new THREE.Group();
   private leftRay?: THREE.Line;  private rightRay?: THREE.Line;
   private rayMat = new THREE.LineDashedMaterial({
@@ -82,7 +80,6 @@ export class FeedControls {
 
   private hudMgr: ReactionHudManager;
 
-  // tap legacy
   private tapStartTime: number | null = null;
   private tapStartPos: THREE.Vector3 | null = null;
   private lastTapAt = 0;
@@ -98,7 +95,7 @@ export class FeedControls {
 
     this.hudMgr = new ReactionHudManager(this.app.scene, this.app.camera, () => this.store.getObjectWorldPos());
     this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png', '/assets/ui/repost.png');
-    this.hudMgr.showFor(this.currentModelKey()); // always visible & per-model
+    this.hudMgr.showFor(this.currentModelKey()); // always visible, per-model
 
     // Hand events
     this.hands.on('leftpinchstart',  () => this.onPinchStart('left'));
@@ -137,7 +134,7 @@ export class FeedControls {
     });
 
     // Peace → repost
-    const onPeace = () => { this.store.repostCurrent(); this.hudMgr.bump(this.currentModelKey(), 'repost'); };
+    const onPeace = () => { this.store.repostCurrent?.(); this.hudMgr.bump(this.currentModelKey(), 'repost'); };
     this.hands.on('leftpeacestart',  onPeace);
     this.hands.on('rightpeacestart', onPeace);
 
@@ -162,15 +159,6 @@ export class FeedControls {
       this.hudMgr.tick(dt);
       this.store.tick(dt);
     });
-  }
-
-  // ---------- Ray helpers ----------
-  private buildPinchRay(side:'left'|'right'): THREE.Ray | null {
-    const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side) ?? this.hands.indexTip(side);
-    if (!from) return null;
-    const to = this.hudMgr.getPanelCenterWorld();
-    const dir = to.clone().sub(from).normalize();
-    return new THREE.Ray(from.clone(), dir);
   }
 
   // ---------- Rays (visual only) ----------
@@ -216,88 +204,82 @@ export class FeedControls {
     const y = this.hands.pinchMid(side)?.y ?? null;
     if (y != null) { this.lastPinchY = y; this.filtPinchY = y; this.scrollAccum = 0; }
 
-    // reset gating
+    // reset
     this.scrollDisarmedThisPinch = false;
     this.scrollArmed = false;
-
-    // UI: if the ray hits the panel at pinch start → lock to UI interaction
     this.uiPinchActive = false;
     this.uiWasOverComments = false;
 
-    const ray = this.buildPinchRay(side);
-    if (ray) {
-      const hit = this.hudMgr.raycastHit(ray);
+    // If pinch starts near/over the panel -> UI mode
+    const p = this.hands.pinchMid(side) ?? this.hands.thumbTip(side) ?? this.hands.indexTip(side);
+    if (p) {
+      const hit = this.hudMgr.hitTestWorld(p);
       if (hit) {
         this.uiPinchActive = true;
         this.uiWasOverComments = hit.kind === 'comments';
-        this.scrollDisarmedThisPinch = true; // disable feed scroll while over UI
+        this.scrollDisarmedThisPinch = true; // never scroll feed while manipulating UI
         return;
       }
     }
 
-    // Quick pinch baseline for legacy UI show
+    // quick-pinch baseline
     this.tapStartTime = performance.now();
-    this.tapStartPos = this.hands.pinchMid(side)?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
+    this.tapStartPos = p?.clone() ?? null;
 
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) { this.twoHandActive = false; return; }
 
-    const pinch = this.hands.pinchMid(side);
-    const d = pinch ? this.distanceToObjectSurface(pinch) : null;
-
-    // instant grab
-    if (d != null && d <= this.INSTANT_GRAB_DIST) {
+    // near model? -> either instant grab or disarm scrolling
+    const distSurf = p ? this.distanceToObjectSurface(p) : null;
+    if (distSurf != null && distSurf <= this.INSTANT_GRAB_DIST) {
       const objPosNow = this.store.getObjectWorldPos();
-      if (objPosNow && pinch) {
+      if (objPosNow && p) {
         this.grabbing = true; this.grabSide = side;
-        this.grabOffset.copy(objPosNow).sub(pinch);
+        this.grabOffset.copy(objPosNow).sub(p);
         this.store.notify('Grabbed');
         this.scrollDisarmedThisPinch = true;
         return;
       }
     }
 
-    // arm feed scroll only if started far from object
-    if (d != null && d >= this.SCROLL_START_FAR) { this.scrollArmed = true; }
+    if (distSurf != null && distSurf >= this.SCROLL_START_FAR) this.scrollArmed = true;
     else { this.scrollDisarmedThisPinch = true; this.tryStartGrabPending(side); }
   }
 
   private onPinchEnd(side:'left'|'right'){
     this.setRayVisible(side, false);
 
-    // If this pinch was targeting the UI, perform a click on release via raycast.
+    // If we were in UI mode, treat this as a click on release
     if (this.uiPinchActive) {
-      const ray = this.buildPinchRay(side);
-      if (ray) {
-        const hit = this.hudMgr.raycastHit(ray);
+      const p = this.hands.pinchMid(side) ?? this.hands.thumbTip(side) ?? this.hands.indexTip(side);
+      if (p) {
+        const hit = this.hudMgr.hitTestWorld(p);
         if (hit) {
           if (hit.kind === 'like')       { this.store.likeCurrent();  this.hudMgr.bump(this.currentModelKey(), 'like'); }
           else if (hit.kind === 'heart') { this.store.saveCurrent();  this.hudMgr.bump(this.currentModelKey(), 'heart'); }
-          else if (hit.kind === 'repost'){ this.store.repostCurrent(); this.hudMgr.bump(this.currentModelKey(), 'repost'); }
-          else if (hit.kind === 'post')  { this.hudMgr.addCommentForCurrent('Posted from MR ✍️'); }
+          else if (hit.kind === 'repost'){ this.store.repostCurrent?.(); this.hudMgr.bump(this.currentModelKey(), 'repost'); }
+          else if (hit.kind === 'post')  { this.hudMgr.openTextInput(); }
         }
       }
       this.uiPinchActive = false;
       this.uiWasOverComments = false;
     } else {
-      // Legacy quick pinch → show UI near model
+      // Legacy quick pinch -> show UI
       const endPos = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
       const now = performance.now();
       const duration = this.tapStartTime ? (now - this.tapStartTime) : Infinity;
       if (this.tapStartPos && endPos && duration <= this.TAP_MAX_MS && (now - this.lastTapAt) >= this.TAP_COOLDOWN_MS) {
         const travel = this.tapStartPos.distanceTo(endPos);
         if (travel <= this.TAP_MOVE_MAX && this.isNearModel(endPos)) {
-          this.lastTapAt = now;
-          this.hudMgr.showFor(this.currentModelKey());
+          this.lastTapAt = now; this.hudMgr.showFor(this.currentModelKey());
         }
       }
     }
 
-    // release grab if needed
+    // release/cancel grab
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
     if (this.grabbing && this.grabSide === side) { this.grabbing = false; this.grabSide = null; this.store.notify('Placed'); }
 
-    // leave two-hand mode if other not pinching
     const other = side === 'left' ? 'right' : 'left';
     if (!this.hands.state[other].pinch) { this.twoHandActive = false; this.rotVel = 0; }
 
@@ -318,43 +300,36 @@ export class FeedControls {
     if ((lp && rp) || (!lp && !rp)) return; // exactly one hand
     const side: 'left'|'right' = lp ? 'left' : 'right';
 
-    // If UI is active and we're hovering comments area, scroll comments instead of the feed.
-    if (this.uiPinchActive) {
-      const ray = this.buildPinchRay(side);
-      if (!ray) return;
-      const hit = this.hudMgr.raycastHit(ray);
+    const pos = this.hands.pinchMid(side) ?? this.hands.thumbTip(side) ?? this.hands.indexTip(side);
+
+    // UI comments scrolling
+    if (this.uiPinchActive && pos) {
+      const hit = this.hudMgr.hitTestWorld(pos);
       if (!hit || hit.kind !== 'comments') return;
 
-      const y = (this.hands.pinchMid(side) ?? this.hands.thumbTip(side))?.y ?? null;
-      if (y == null) return;
-
+      const y = pos.y;
       if (this.filtPinchY == null) this.filtPinchY = y;
       this.filtPinchY = this.filtPinchY + (y - this.filtPinchY) * this.LPF_SCROLL_ALPHA;
 
       if (this.lastPinchY == null) { this.lastPinchY = this.filtPinchY; return; }
 
       const dy = this.filtPinchY - this.lastPinchY; this.lastPinchY = this.filtPinchY;
-
       const step = Math.abs(dy) >= this.SCROLL_VEL_MIN ? (dy < 0 ? +1 : -1) : 0;
       if (step !== 0) this.hudMgr.scrollComments(step);
       return;
     }
 
-    // Otherwise feed scroll with gating
+    // Feed scroll (gated)
     if (this.scrollDisarmedThisPinch) return;
     if (!this.scrollArmed) return;
     if (this.pinchStartAt && (now - this.pinchStartAt) < this.SCROLL_MIN_HOLD_MS) return;
 
-    const m = this.hands.pinchMid(side);
-    if (m){
-      const distSurf = this.distanceToObjectSurface(m);
-      if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) {
-        this.scrollDisarmedThisPinch = true;
-        return;
-      }
+    if (pos){
+      const distSurf = this.distanceToObjectSurface(pos);
+      if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) { this.scrollDisarmedThisPinch = true; return; }
     }
 
-    const y = m?.y ?? null;
+    const y = pos?.y ?? null;
     if (y == null) return;
 
     if (this.filtPinchY == null) this.filtPinchY = y;
@@ -377,7 +352,7 @@ export class FeedControls {
     }
   }
 
-  // ---------- Two-hand transform (SCALE + ROT) ----------
+  // ---------- Two-hand transform ----------
   private updateTwoHandTransform(dt:number){
     const lp = this.hands.state.left.pinch;
     const rp = this.hands.state.right.pinch;
