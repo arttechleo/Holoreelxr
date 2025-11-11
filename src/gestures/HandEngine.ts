@@ -24,8 +24,8 @@ export class HandEngine {
   private lastMap = new Map<string,{val:boolean; changeAt:number}>();
 
   public state = {
-    left:  { pinch:false, thumbsup:false },
-    right: { pinch:false, thumbsup:false },
+    left:  { pinch:false },
+    right: { pinch:false },
     heart:false
   };
 
@@ -63,7 +63,6 @@ export class HandEngine {
     const inputSources = Array.from(session.inputSources || []).filter((s:any)=> !!s.hand);
     if (!inputSources.length) return;
 
-    // clear
     this.lastPos.left = {}; this.lastPos.right = {};
     for (const src of inputSources) {
       const side = (src.handedness === 'left' || src.handedness === 'right') ? src.handedness : 'left';
@@ -81,13 +80,19 @@ export class HandEngine {
     const J = (side:Side, name:XRHandJointName) => this.lastPos[side]?.[name] ?? null;
     const dist = (a:THREE.Vector3|null, b:THREE.Vector3|null) => (a&&b)? a.distanceTo(b) : 1e9;
 
-    // Pinch
+    // pinch
     const leftPinch  = dist(J('left','thumb-tip'),  J('left','index-finger-tip'))  < 0.035;
     const rightPinch = dist(J('right','thumb-tip'), J('right','index-finger-tip')) < 0.035;
     this.state.left.pinch  = leftPinch;  this.updateFlag('left.pinch', leftPinch, {side:'left'});
     this.state.right.pinch = rightPinch; this.updateFlag('right.pinch', rightPinch, {side:'right'});
 
-    // Thumbsup (simple)
+    // heart (two-hands close)
+    const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
+    const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
+    const heartNow = dist(L_i, R_i) < 0.045 && dist(L_t, R_t) < 0.045;
+    this.state.heart = heartNow; this.updateFlag('heart', heartNow);
+
+    // thumbs up (like)
     const thumbUp = (side:Side) => {
       const W = J(side,'wrist'), T = J(side,'thumb-tip');
       if (!W || !T) return false;
@@ -99,14 +104,7 @@ export class HandEngine {
     if (thumbUp('left'))  this.emit('thumbsupstart',{side:'left'});
     if (thumbUp('right')) this.emit('thumbsupstart',{side:'right'});
 
-    // HEART: both index tips close AND both thumb tips close
-    const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
-    const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
-    const NEAR = 0.045;
-    const heartNow = dist(L_i, R_i) < NEAR && dist(L_t, R_t) < NEAR;
-    this.state.heart = heartNow; this.updateFlag('heart', heartNow);
-
-    // NEW: ILY/🤟 pose (thumb + index + pinky extended; middle & ring curled)
+    // ILY / 🤟 (thumb + index + pinky extended; middle & ring curled)
     const ily = (side:Side) => {
       const W = J(side,'wrist');
       const IT = J(side,'index-finger-tip');
@@ -121,13 +119,24 @@ export class HandEngine {
     };
     if (ily('left'))  this.emit('ilystart', {side:'left'});
     if (ily('right')) this.emit('ilystart', {side:'right'});
+
+    // PEACE ✌️ (index + middle extended; ring + pinky curled; thumb relaxed)
+    const peace = (side:Side) => {
+      const W = J(side,'wrist');
+      const IT = J(side,'index-finger-tip'), MT = J(side,'middle-finger-tip');
+      const RT = J(side,'ring-finger-tip'),  PT = J(side,'pinky-finger-tip');
+      if (!(W && IT && MT && RT && PT)) return false;
+      const ext = (p:THREE.Vector3|null, thr:number)=> p ? p.distanceTo(W!) > thr : false;
+      const cur = (p:THREE.Vector3|null, thr:number)=> p ? p.distanceTo(W!) < thr : false;
+      return ext(IT,0.085) && ext(MT,0.085) && cur(RT,0.075) && cur(PT,0.075);
+    };
+    if (peace('left'))  this.emit('peacestart',{side:'left'});
+    if (peace('right')) this.emit('peacestart',{side:'right'});
   }
 
-  // -------- helpers used by controls --------
-  wristY(side: Side){ const J = this.lastPos[side]['wrist']; return J ? J.y : null; }
+  // helpers
   thumbTip(side: Side){ const p = this.lastPos[side]['thumb-tip']; return p ? p.clone() : null; }
   indexTip(side: Side){ const p = this.lastPos[side]['index-finger-tip']; return p ? p.clone() : null; }
-  indexProx(side: Side){ const p = this.lastPos[side]['index-finger-phalanx-proximal']; return p ? p.clone() : null; }
   pinchMid(side: Side){
     const t = this.thumbTip(side), i = this.indexTip(side);
     return (t && i) ? t.add(i).multiplyScalar(0.5) : null;
