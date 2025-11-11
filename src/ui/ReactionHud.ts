@@ -7,7 +7,7 @@ export type Comment = { id: string; author?: string; text: string };
 type Hit =
   | { kind: 'like' | 'heart' | 'repost' }
   | { kind: 'post' }
-  | { kind: 'comments' } // generic comment area (for scroll)
+  | { kind: 'comments' }
   | null;
 
 export class ReactionHud {
@@ -17,50 +17,41 @@ export class ReactionHud {
   private panelCanvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
-  // counters
   private likeCount = 0;
   private heartCount = 0;
   private repostCount = 0;
 
-  // comments
   private comments: Comment[] = [];
-  private scrollY = 0;                 // pixels
+  private scrollY = 0;
   private readonly SCROLL_STEP = 42;
 
-  // particles (chips)
   private particles: Array<{ sprite: THREE.Sprite; vel: THREE.Vector3; ttl: number }> = [];
 
-  private visible = true;              // always visible by default
+  private visible = true;
 
-  // Panel geometry in meters (drawn to canvas)
   readonly PANEL_W = 0.50;
   readonly PANEL_H = 0.30;
 
-  // high-res canvas for crisp text
   private readonly CANVAS_W = 1152;
   private readonly CANVAS_H = 640;
 
-  // Position offset (above model). NO head-orbit, NO rotation/scale linkage.
   private readonly OFFSET = new THREE.Vector3(0, 0.22, 0);
 
-  // icons (optional)
   private heartIcon?: HTMLImageElement;
   private likeIcon?: HTMLImageElement;
   private repostIcon?: HTMLImageElement;
 
-  // cached layout rects (canvas pixel coords)
   private heartRect!: {x:number;y:number;w:number;h:number};
   private likeRect!: {x:number;y:number;w:number;h:number};
   private repostRect!: {x:number;y:number;w:number;h:number};
   private commentsRect!: {x:number;y:number;w:number;h:number};
   private postBtnRect!: {x:number;y:number;w:number;h:number};
 
-  // small thickness to consider Z proximity for hits (meters)
-  private readonly HIT_THICKNESS = 0.08;
+  private readonly HIT_THICKNESS = 0.16; // more forgiving
 
   constructor(
     private scene: THREE.Scene,
-    _camera: THREE.Camera, // kept for signature compatibility; not used for rotation
+    _camera: THREE.Camera,
     private getObjectWorldPos: () => THREE.Vector3 | null
   ) {
     this.panelCanvas = document.createElement('canvas');
@@ -78,7 +69,7 @@ export class ReactionHud {
     const mat = new THREE.MeshBasicMaterial({
       map: this.panelTex,
       transparent: true,
-      opacity: 1.0,             // panel transparency is drawn in the canvas
+      opacity: 1.0,
       depthTest: false,
       depthWrite: false
     });
@@ -90,7 +81,6 @@ export class ReactionHud {
     this.redraw();
   }
 
-  /** Provide icon URLs (heart/like/repost). */
   setIcons(heartUrl?: string, likeUrl?: string, repostUrl?: string) {
     const load = (url?: string) => {
       if (!url) return undefined;
@@ -105,7 +95,6 @@ export class ReactionHud {
     this.repostIcon = load(repostUrl);
   }
 
-  /** Counters */
   setCounts(like: number, heart: number, repost: number) {
     this.likeCount   = Math.max(0, Math.floor(like));
     this.heartCount  = Math.max(0, Math.floor(heart));
@@ -113,44 +102,37 @@ export class ReactionHud {
     this.redraw();
   }
 
-  /** Comments (replace full list) */
   setComments(list: Comment[]) {
     this.comments = Array.isArray(list) ? list.slice() : [];
     this.scrollY = 0;
     this.redraw();
   }
 
-  /** Scroll comments (positive = down) */
   scrollComments(steps: number) {
     const maxScroll = Math.max(0, this.contentHeight() - this.commentsViewportH());
     this.scrollY = THREE.MathUtils.clamp(this.scrollY + steps * this.SCROLL_STEP, 0, maxScroll);
     this.redraw();
   }
 
-  /** Append a comment to the end. */
   appendComment(c: Comment) {
     this.comments.push(c);
     this.redraw();
   }
 
-  /** Quick post: add a canned comment (used by MR "Post" button) */
   postQuickComment(text = 'Posted from MR ✍️') {
     this.appendComment({ id: `c-${Date.now()}`, author: 'You', text });
   }
 
-  /** Visual chip for any reaction. */
-  flash(kind: ReactionKind) {
+  flash(kind: ('like'|'heart'|'repost')) {
     const text = kind === 'like' ? '+1 👍' : kind === 'heart' ? '+1 ❤️' : '+1 🔁';
     this.spawnChip(text);
   }
 
-  /** Follow object position only (NO rotation/scale updates). */
   tick(dt: number) {
     const center = this.getObjectWorldPos?.();
     if (center) {
       this.anchor.position.copy(center).add(this.OFFSET);
     }
-
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.ttl -= dt;
@@ -160,20 +142,21 @@ export class ReactionHud {
     }
   }
 
-  /** World-space hit test against the panel; returns which UI element was tapped. */
+  /** Robust world-space hit test using panel's world transform. */
   hitTestWorld(worldPoint: THREE.Vector3): Hit {
-    // Convert world → panel-local (meters): (-W/2..+W/2, -H/2..+H/2)
-    const center = this.anchor.position.clone();
-    const dx = worldPoint.x - center.x;
-    const dy = worldPoint.y - center.y;
-    const dz = worldPoint.z - center.z;
-    if (Math.abs(dz) > this.HIT_THICKNESS) return null; // too far in Z (since panel is vertical plane facing user-ish)
+    // Transform world point into the panel's local space (meters)
+    const inv = new THREE.Matrix4().copy(this.panel.matrixWorld).invert();
+    const local = worldPoint.clone().applyMatrix4(inv); // panel local: XY plane, Z≈0
 
-    if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) return null;
+    // Reject if too far in Z
+    if (Math.abs(local.z) > this.HIT_THICKNESS) return null;
 
-    // panel-local → canvas pixel coords
-    const u = (dx / this.PANEL_W) + 0.5;
-    const v = 0.5 - (dy / this.PANEL_H);
+    // Outside of the panel bounds?
+    if (Math.abs(local.x) > this.PANEL_W * 0.5 || Math.abs(local.y) > this.PANEL_H * 0.5) return null;
+
+    // Convert to canvas pixel coords
+    const u = (local.x / this.PANEL_W) + 0.5;
+    const v = 0.5 - (local.y / this.PANEL_H);
     const px = u * this.CANVAS_W;
     const py = v * this.CANVAS_H;
 
@@ -188,17 +171,18 @@ export class ReactionHud {
     return null;
   }
 
-  /** Expose panel center (world) so controls can do proximity checks if needed. */
   getPanelCenterWorld(): THREE.Vector3 {
-    return this.anchor.position.clone();
+    return new THREE.Vector3().setFromMatrixPosition(this.panel.matrixWorld);
   }
+  getSizeMeters() { return { w: this.PANEL_W, h: this.PANEL_H }; }
+  getOffsetY() { return this.OFFSET.y; }
 
   // ---------- drawing ----------
   private redraw() {
     const c = this.panelCanvas, ctx = this.ctx;
     ctx.clearRect(0, 0, c.width, c.height);
 
-    // Card background (slight transparency)
+    // Card background
     this.rounded(ctx, 0, 0, c.width, c.height, 32);
     ctx.fillStyle = 'rgba(18,18,28,0.82)';
     ctx.fill();
@@ -209,18 +193,16 @@ export class ReactionHud {
     ctx.textAlign = 'left';
     ctx.fillText('Reactions', 36, 62);
 
-    // Icons row
     const iconSize = 112;
     const baseX = 36;
     const gap = 36 + iconSize;
     const tileY = 62 + 32;
 
-    // tiles
     this.heartRect  = this.drawIconWithCounter(this.heartIcon, '❤️', baseX,          tileY, iconSize, this.heartCount);
     this.likeRect   = this.drawIconWithCounter(this.likeIcon,  '👍', baseX + gap,    tileY, iconSize, this.likeCount);
     this.repostRect = this.drawIconWithCounter(this.repostIcon,'🔁', baseX + gap*2,  tileY, iconSize, this.repostCount);
 
-    // Comments box (right side)
+    // Comments
     const boxX = baseX + gap * 2 + iconSize + 48;
     const boxY = 36;
     const boxW = c.width - boxX - 36;
@@ -231,19 +213,20 @@ export class ReactionHud {
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
     ctx.fill();
 
-    // Comments clipped region
+    // clip region for comments, leaving 64px bottom area for Post button
     ctx.save();
     ctx.beginPath();
     ctx.rect(this.commentsRect.x, this.commentsRect.y, this.commentsRect.w, this.commentsRect.h - 64);
     ctx.clip();
     ctx.translate(0, -this.scrollY);
 
-    // Render each comment as its own “bubble”
     let cy = this.commentsRect.y + 8;
     for (const cmt of this.comments) {
       const bubbleW = this.commentsRect.w;
+      const text = (cmt.author ? `${cmt.author}: ` : '') + cmt.text;
+
       const linesH = this.measureWrappedHeight(
-        cmtText(cmt),
+        text,
         '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif',
         bubbleW - 24,
         26
@@ -256,11 +239,11 @@ export class ReactionHud {
 
       ctx.fillStyle = '#EDEDED';
       ctx.font = '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
-      cy = this.wrap(ctx, cmtText(cmt), this.commentsRect.x + 12, cy + 18, bubbleW - 24, 26) + 8;
+      cy = this.wrap(ctx, text, this.commentsRect.x + 12, cy + 18, bubbleW - 24, 26) + 8;
     }
     ctx.restore();
 
-    // "Post" button (inside comments area, bottom-right)
+    // Post button
     const btnW = 160, btnH = 44;
     this.postBtnRect = {
       x: this.commentsRect.x + this.commentsRect.w - btnW,
@@ -276,7 +259,7 @@ export class ReactionHud {
     ctx.textBaseline = 'middle';
     ctx.fillText('Post', this.postBtnRect.x + btnW/2, this.postBtnRect.y + btnH/2 + 2);
 
-    // Simple scrollbar
+    // Scrollbar
     const contentH = this.contentHeight();
     const viewH = this.commentsViewportH();
     if (contentH > viewH) {
@@ -293,24 +276,18 @@ export class ReactionHud {
     }
 
     this.panelTex.needsUpdate = true;
-
-    function cmtText(c: Comment) {
-      const author = c.author ? `${c.author}: ` : '';
-      return author + c.text;
-    }
   }
 
   private commentsViewportH(): number {
-    // clipped to commentsRect minus bottom area where the Post button sits (64px)
     return this.commentsRect.h - 64;
   }
 
   private contentHeight(): number {
-    // recompute layout height similar to redraw (bubbles)
     let total = 8;
     for (const cmt of this.comments) {
+      const text = (cmt.author ? `${cmt.author}: ` : '') + cmt.text;
       const linesH = this.measureWrappedHeight(
-        (cmt.author ? `${cmt.author}: ` : '') + cmt.text,
+        text,
         '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif',
         this.commentsRect.w - 24,
         26
@@ -323,7 +300,6 @@ export class ReactionHud {
 
   private drawIconWithCounter(img: HTMLImageElement | undefined, fallbackEmoji: string, x: number, y: number, size: number, count: number) {
     const ctx = this.ctx;
-    // soft tile
     this.rounded(ctx, x, y, size, size, size * 0.24);
     ctx.fillStyle = 'rgba(255,255,255,0.08)';
     ctx.fill();
