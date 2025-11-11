@@ -272,11 +272,14 @@ export class FeedStore {
     this.platform.scale.setScalar(Math.max(0.2, r));
     this.platform.visible = true;
   }
-  private platformPulse(color: number) {
+
+    private platformPulse(color:number){
     this.ensurePlatform();
     if (!this.platform) return;
 
     const mat = (this.platform.material as THREE.MeshStandardMaterial);
+    const base = { color: 0x111111, emissive: 0x000000, opacity: 0.15, emissiveIntensity: 0.0 };
+
     mat.color.set(0x111111);
     mat.emissive.setHex(color);
     mat.emissiveIntensity = 3.2;
@@ -299,8 +302,16 @@ export class FeedStore {
     this.parent.add(ring);
 
     this.effects.push({ mesh: ring, life: 0.7 });
-    setTimeout(() => { mat.opacity = 0.15; mat.emissiveIntensity = 0.8; }, 400);
+
+    // Reset back to neutral after a short delay (prevents “stuck” highlight)
+    setTimeout(()=> {
+      mat.opacity = base.opacity;
+      mat.emissiveIntensity = base.emissiveIntensity;
+      mat.emissive.setHex(base.emissive);
+      mat.color.set(base.color);
+    }, 450);
   }
+
 
   // ---------- Emoji projectile ----------
   private launchEmoji(start: THREE.Vector3, emoji: string, fill: string) {
