@@ -32,7 +32,7 @@ export class ReactionHud {
   private readonly CANVAS_W = 1152;
   private readonly CANVAS_H = 640;
 
-  // panel follows model position only (no head orbit / no rotation coupling)
+  // follow model position only
   private readonly OFFSET = new THREE.Vector3(0, 0.22, 0);
 
   // icons
@@ -79,7 +79,7 @@ export class ReactionHud {
     this.redraw();
   }
 
-  // ---------- external API ----------
+  // ---------- public API ----------
   setIcons(heartUrl?: string, likeUrl?: string, repostUrl?: string) {
     const load = (url?: string) => {
       if (!url) return undefined;
@@ -130,35 +130,44 @@ export class ReactionHud {
     this.spawnChip(text);
   }
 
-  /** Preferred: from a world point (e.g., pinch position), project onto panel plane, require proximity. */
-  projectHitFromPoint(worldPoint: THREE.Vector3, maxPlaneDistance = 0.12): Hit {
-    // build panel plane
+  /**
+   * Robust world-point → panel hit with forgiving distance and cursor margin.
+   * Defaults: up to 0.30m away from plane, 14px canvas margin on targets.
+   */
+  projectHitFromPoint(
+    worldPoint: THREE.Vector3,
+    opts?: { maxPlaneDistance?: number; marginPx?: number }
+  ): Hit {
+    const maxPlaneDistance = opts?.maxPlaneDistance ?? 0.30; // was 0.12
+    const marginPx = opts?.marginPx ?? 14;
+
+    // Build panel plane
     const normal = new THREE.Vector3(0,0,1).applyQuaternion(
       this.panel.getWorldQuaternion(new THREE.Quaternion())
     ).normalize();
     const pointOnPlane = new THREE.Vector3().setFromMatrixPosition(this.panel.matrixWorld);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, pointOnPlane);
 
-    // distance to plane
+    // Distance to plane
     const dist = plane.distanceToPoint(worldPoint);
     if (Math.abs(dist) > maxPlaneDistance) return null;
 
-    // orthogonal projection onto plane
+    // Orthogonal projection
     const projected = worldPoint.clone().addScaledVector(normal, -dist);
 
-    // world -> local (panel space)
+    // World → local (panel)
     const inv = new THREE.Matrix4().copy(this.panel.matrixWorld).invert();
     const local = projected.applyMatrix4(inv);
 
-    // bounds
+    // Within panel bounds?
     if (Math.abs(local.x) > this.PANEL_W * 0.5 || Math.abs(local.y) > this.PANEL_H * 0.5) return null;
 
-    // map to canvas and test rects
-    return this.hitCanvas(local);
+    // Convert to canvas px and hit-test with margin
+    return this.hitCanvas(local, marginPx);
   }
 
-  /** Full raycast (kept for completeness) */
-  raycastHit(ray: THREE.Ray): Hit {
+  /** Raycast alternative (still uses inflated hit rects). */
+  raycastHit(ray: THREE.Ray, marginPx = 14): Hit {
     const normal = new THREE.Vector3(0,0,1).applyQuaternion(this.panel.getWorldQuaternion(new THREE.Quaternion())).normalize();
     const pointOnPlane = new THREE.Vector3().setFromMatrixPosition(this.panel.matrixWorld);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, pointOnPlane);
@@ -170,7 +179,7 @@ export class ReactionHud {
     const local = hit.applyMatrix4(inv);
     if (Math.abs(local.x) > this.PANEL_W * 0.5 || Math.abs(local.y) > this.PANEL_H * 0.5) return null;
 
-    return this.hitCanvas(local);
+    return this.hitCanvas(local, marginPx);
   }
 
   getPanelCenterWorld(): THREE.Vector3 {
@@ -178,13 +187,15 @@ export class ReactionHud {
   }
 
   // ---------- internal mapping ----------
-  private hitCanvas(local: THREE.Vector3): Hit {
+  private hitCanvas(local: THREE.Vector3, marginPx = 0): Hit {
     const u = (local.x / this.PANEL_W) + 0.5;
     const v = 0.5 - (local.y / this.PANEL_H);
     const px = u * this.CANVAS_W;
     const py = v * this.CANVAS_H;
 
-    const inRect = (r:{x:number;y:number;w:number;h:number}) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+    const inRect = (r:{x:number;y:number;w:number;h:number}) =>
+      px >= (r.x - marginPx) && px <= (r.x + r.w + marginPx) &&
+      py >= (r.y - marginPx) && py <= (r.y + r.h + marginPx);
 
     if (inRect(this.heartRect))  return { kind: 'heart' };
     if (inRect(this.likeRect))   return { kind: 'like' };
