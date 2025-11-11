@@ -6,36 +6,36 @@ import { FeedStore } from '../feed/FeedStore';
 import { ReactionHudManager } from '../ui/ReactionHudManager';
 
 export class FeedControls {
-  // ===== Scroll (feed) =====  (unchanged gating)
+  // ===== Scroll (1-hand vertical) =====
   private lastPinchY: number | null = null;
   private filtPinchY: number | null = null;
   private scrollAccum = 0;
   private scrollCooldownUntil = 0;
   private pinchStartAt: number | null = null;
 
-  private scrollArmed = false;
-  private scrollDisarmedThisPinch = false;
-  private startDistSurf: number | null = null;
-  private startDistCenter: number | null = null;
+  // Scroll arming/disarm so drag doesn't scroll content
+  private scrollArmed = false;              // becomes true only if pinch starts FAR from the object
+  private scrollDisarmedThisPinch = false;  // set true if this pinch should never scroll feed
 
-  private readonly SCROLL_MIN_HOLD_MS = 160;
-  private readonly SCROLL_DISP = 0.03;
-  private readonly SCROLL_COOLDOWN_MS = 380;
-  private readonly SCROLL_VEL_MIN = 0.012;
-
-  private readonly SCROLL_IN_AIR_DIST = 0.28;
-  private readonly SCROLL_START_FAR_SURF = 0.40;
-  private readonly SCROLL_START_FAR_CENTER = 0.35;
-
+  private readonly SCROLL_MIN_HOLD_MS = 140;
+  private readonly SCROLL_DISP = 0.028;
+  private readonly SCROLL_COOLDOWN_MS = 330;
+  private readonly SCROLL_VEL_MIN = 0.010;
+  private readonly SCROLL_IN_AIR_DIST = 0.24;   // "near object" if < this
+  private readonly SCROLL_START_FAR = 0.28;     // must start >= this far to arm scrolling
   private readonly LPF_SCROLL_ALPHA = 0.22;
 
-  // ===== Comments-scrolling mode =====
-  private commentsScrollMode = false;
-  private readonly PANEL_INTERACT_RADIUS = 0.25; // 25cm from panel center
-  private readonly COMMENTS_SCROLL_GAIN = 1.0;   // multiplier for steps
+  // ===== Panel scroll (1-hand vertical near the panel) =====
+  private panelScrollMode = false;
+  private readonly PANEL_W_M = 0.50;        // must match ReactionHud panel width (meters)
+  private readonly PANEL_H_M = 0.30;        // must match ReactionHud panel height (meters)
+  private readonly PANEL_OFFSET_Y = 0.22;   // must match ReactionHud offset.y
+  private readonly PANEL_SCROLL_STEP_MULT = 1.0; // 1 step per SCROLL_DISP reached
 
-  // ===== Two-hand transform =====
+  // ===== Two-hand transform (scale + rotation) =====
   private twoHandActive = false;
+
+  // scale state
   private baseDist = 0;
   private baseScale = 1;
   private filtDist = 0;
@@ -61,7 +61,7 @@ export class FeedControls {
   private lastR = new THREE.Vector3();
   private readonly MOVE_EPS = 0.006;
 
-  // ===== Grab =====
+  // ===== Grab (one hand hold) =====
   private grabbing = false;
   private grabSide: 'left'|'right' | null = null;
   private grabOffset = new THREE.Vector3();
@@ -72,7 +72,7 @@ export class FeedControls {
 
   private readonly HOLD_MS = 150;
   private readonly PENDING_CANCEL_MOVE = 0.06;
-  private readonly INSTANT_GRAB_DIST = 0.14;
+  private readonly INSTANT_GRAB_DIST = 0.14; // slightly more forgiving
 
   // ===== Rays =====
   private rayGroup = new THREE.Group();
@@ -84,11 +84,13 @@ export class FeedControls {
   // ===== Reactions =====
   private lastLikeAt = 0;
   private lastHeartAt = 0;
+  private lastRepostAt = 0;
   private readonly REACT_COOLDOWN_MS = 800;
 
+  // HUD (panel always visible, position-anchored)
   private hudMgr: ReactionHudManager;
 
-  // quick-pinch (optional)
+  // Quick pinch ("tap") to show HUD (kept for compatibility; panel is always shown anyway)
   private tapStartTime: number | null = null;
   private tapStartPos: THREE.Vector3 | null = null;
   private lastTapAt = 0;
@@ -97,33 +99,36 @@ export class FeedControls {
   private readonly TAP_OBJ_DIST = 0.30;
   private readonly TAP_COOLDOWN_MS = 500;
 
-  // panel geometry helpers
-  private readonly PANEL_OFFSET = new THREE.Vector3(0, 0.22, 0); // must match ReactionHud
-  private getPanelCenter = () => {
-    const pos = this.store.getObjectWorldPos();
-    return pos ? pos.clone().add(this.PANEL_OFFSET) : null;
-  };
-
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
     this.app.scene.add(this.rayGroup);
     this.initRay('left'); this.initRay('right');
     this.setRayVisible('left', false); this.setRayVisible('right', false);
 
-    // HUD: always-on MR window
+    // HUD manager — position-anchored; always visible
     this.hudMgr = new ReactionHudManager(
       this.app.scene,
       this.app.camera,
       () => this.store.getObjectWorldPos()
     );
-    this.hudMgr.enableAlwaysVisible(true);
-    this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png');
+    // Provide icons (ensure files exist)
+    this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png', '/assets/ui/repost.png');
+    // Always show panel for current model and attach the DOM overlay comment bar
     this.hudMgr.showFor(this.currentModelKey());
+    this.hudMgr.attachCommentOverlay();
 
     // Hand lifecycle
     this.hands.on('leftpinchstart',  () => this.onPinchStart('left'));
     this.hands.on('rightpinchstart', () => this.onPinchStart('right'));
     this.hands.on('leftpinchend',    () => this.onPinchEnd('left'));
     this.hands.on('rightpinchend',   () => this.onPinchEnd('right'));
+
+    // (Optional) L gesture → force-show panel for current item
+    const onL = () => {
+      this.store.notify('L gesture detected → showing UI');
+      this.hudMgr.showFor(this.currentModelKey());
+    };
+    this.hands.on('leftlshapestart',  onL);
+    this.hands.on('rightlshapestart', onL);
 
     // Reactions
     this.hands.on('thumbsupstart', (d:any) => {
@@ -149,15 +154,17 @@ export class FeedControls {
       this.hudMgr.bump(this.currentModelKey(), 'heart');
     });
 
-    // Peace sign → repost
-    const onRepost = (d:any) => {
+    // Peace sign → Repost
+    this.hands.on('peacesignstart', (d:any) => {
+      const now = performance.now();
+      if (now - this.lastRepostAt < this.REACT_COOLDOWN_MS) return;
+      this.lastRepostAt = now;
+
       const side: 'left'|'right' = d?.side === 'left' ? 'left' : 'right';
-      const start = this.hands.indexTip(side) ?? this.hands.pinchMid(side) ?? undefined;
+      const start = this.hands.indexTip(side) ?? this.hands.pinchMid(side) ?? this.hands.thumbTip(side) ?? undefined;
       this.store.repostCurrent(start ?? undefined);
-      this.hudMgr.flashRepost();
-    };
-    this.hands.on('leftpeacestart',  onRepost);
-    this.hands.on('rightpeacestart', onRepost);
+      this.hudMgr.bump(this.currentModelKey(), 'repost');
+    });
 
     // frame loop
     let last = performance.now();
@@ -166,11 +173,8 @@ export class FeedControls {
       const dt = Math.max(0, (now - last) / 1000);
       last = now;
 
-      // world-locked UI yaw should follow model yaw
-      this.hudMgr.setYaw(this.store.rotationY);
-
       this.updateAutoAcquirePending();
-      this.updateScrollOrComments(now);
+      this.updateScroll(now);
       this.updateTwoHandTransform(dt);
       this.updateGrabDrag();
       this.updateGrabPendingGuard();
@@ -218,25 +222,26 @@ export class FeedControls {
     update('right', this.rightRay);
   }
 
-  // ---------- Pinch lifecycle - decide: feed scroll vs comments scroll ----------
+  // ---------- Pinch lifecycle (with scroll arming/disarm + instant grab + panel scroll detection) ----------
   private onPinchStart(side:'left'|'right'){
     this.setRayVisible(side, true);
 
     this.pinchStartAt = performance.now();
-    const mid = this.hands.pinchMid(side);
-    const y = mid?.y ?? null;
+    const y = this.hands.pinchMid(side)?.y ?? null;
     if (y != null) {
       this.lastPinchY = y;
       this.filtPinchY = y;
       this.scrollAccum = 0;
     }
 
+    // reset per-pinch gating
     this.scrollDisarmedThisPinch = false;
     this.scrollArmed = false;
-    this.commentsScrollMode = false;
+    this.panelScrollMode = false;
 
+    // quick pinch baseline
     this.tapStartTime = performance.now();
-    this.tapStartPos  = mid?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
+    this.tapStartPos = this.hands.pinchMid(side)?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
 
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) {
@@ -244,43 +249,36 @@ export class FeedControls {
       return;
     }
 
-    // Measure distances
-    const center = this.store.getObjectWorldPos();
-    const panel = this.getPanelCenter();
-    if (center && mid) {
-      this.startDistCenter = mid.distanceTo(center);
-      const surf = this.distanceToObjectSurface(mid);
-      this.startDistSurf = surf == null ? null : surf;
+    const pinch = this.hands.pinchMid(side);
+    const d = pinch ? this.distanceToObjectSurface(pinch) : null;
 
-      // If pinch starts near the panel → comments scroll mode
-      if (panel && mid.distanceTo(panel) <= this.PANEL_INTERACT_RADIUS) {
-        this.commentsScrollMode = true;
-        this.scrollArmed = false;
-        this.scrollDisarmedThisPinch = false;
-        return;
-      }
-    } else {
-      this.startDistCenter = null;
-      this.startDistSurf = null;
+    // If near panel center → enable panel scroll mode immediately
+    if (pinch && this.isNearPanel(pinch)) {
+      this.panelScrollMode = true;
+      this.scrollDisarmedThisPinch = true; // don't let feed scroll on this pinch
+      return;
     }
 
-    // Instant grab if very near the model surface
-    if (this.startDistSurf != null && this.startDistSurf <= this.INSTANT_GRAB_DIST) {
+    // if we start very close to the model → instant grab
+    if (d != null && d <= this.INSTANT_GRAB_DIST) {
       const objPosNow = this.store.getObjectWorldPos();
-      if (objPosNow && mid) {
+      if (objPosNow && pinch) {
         this.grabbing = true; this.grabSide = side;
-        this.grabOffset.copy(objPosNow).sub(mid);
-        this.scrollDisarmedThisPinch = true;
+        this.grabOffset.copy(objPosNow).sub(pinch);
+        this.store.notify('Grabbed');
+        this.scrollDisarmedThisPinch = true; // dragging should never scroll
         return;
       }
     }
 
-    // Otherwise: arm feed scrolling only if far from model
-    const farSurf = (this.startDistSurf ?? 1e9) >= this.SCROLL_START_FAR_SURF;
-    const farCtr  = (this.startDistCenter ?? 1e9) >= this.SCROLL_START_FAR_CENTER;
-    this.scrollArmed = farSurf && farCtr;
-
-    if (!this.scrollArmed) this.tryStartGrabPending(side);
+    // not close enough to grab → only arm scrolling if we started FAR from object
+    if (d != null && d >= this.SCROLL_START_FAR) {
+      this.scrollArmed = true;
+    } else {
+      // started somewhat near → do NOT allow scrolling this pinch
+      this.scrollDisarmedThisPinch = true;
+      this.tryStartGrabPending(side);
+    }
   }
 
   private onPinchEnd(side:'left'|'right'){
@@ -292,85 +290,94 @@ export class FeedControls {
 
     if (this.tapStartPos && endPos && duration <= this.TAP_MAX_MS && (now - this.lastTapAt) >= this.TAP_COOLDOWN_MS) {
       const travel = this.tapStartPos.distanceTo(endPos);
-      if (travel <= this.TAP_MOVE_MAX && this.isNearModel(endPos)) {
-        this.lastTapAt = now;
-        this.hudMgr.showFor(this.currentModelKey());
+      if (travel <= this.TAP_MOVE_MAX) {
+        if (this.isNearModel(endPos)) {
+          this.lastTapAt = now;
+          // Panel is always shown, but keep notify for user feedback
+          this.store.notify('UI: quick pinch');
+          this.hudMgr.showFor(this.currentModelKey());
+        }
       }
     }
     this.tapStartTime = null; this.tapStartPos = null;
 
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
-    if (this.grabbing && this.grabSide === side) { this.grabbing = false; this.grabSide = null; }
+    if (this.grabbing && this.grabSide === side) { this.grabbing = false; this.grabSide = null; this.store.notify('Placed'); }
 
     const other = side === 'left' ? 'right' : 'left';
     if (!this.hands.state[other].pinch) { this.twoHandActive = false; this.rotVel = 0; }
 
+    // reset gating at end of pinch
     this.scrollArmed = false;
     this.scrollDisarmedThisPinch = false;
-    this.commentsScrollMode = false;
-    this.startDistSurf = null; this.startDistCenter = null;
+    this.panelScrollMode = false;
 
     this.lastPinchY = null; this.filtPinchY = null; this.scrollAccum = 0; this.pinchStartAt = null;
   }
 
-  // ---------- Decide between feed scroll and comments scroll ----------
-  private updateScrollOrComments(now:number){
-    if (this.commentsScrollMode) { this.updateCommentsScroll(now); }
-    else { this.updateFeedScroll(now); }
-  }
-
-  private updateCommentsScroll(now:number){
-    if (this.grabPending || this.grabbing) return;
-
-    const lp = this.hands.state.left.pinch;
-    const rp = this.hands.state.right.pinch;
-    if ((lp && rp) || (!lp && !rp)) return;
-    const side: 'left'|'right' = lp ? 'left' : 'right';
-
-    if (this.pinchStartAt && (now - this.pinchStartAt) < this.SCROLL_MIN_HOLD_MS) return;
-
-    const y = this.hands.pinchMid(side)?.y ?? null;
-    if (y == null) return;
-
-    if (this.filtPinchY == null) this.filtPinchY = y;
-    this.filtPinchY = this.filtPinchY + (y - this.filtPinchY) * this.LPF_SCROLL_ALPHA;
-
-    if (this.lastPinchY == null) { this.lastPinchY = this.filtPinchY; return; }
-
-    const dy = this.filtPinchY - this.lastPinchY;
-    this.lastPinchY = this.filtPinchY;
-
-    if (Math.abs(dy) < this.SCROLL_VEL_MIN) return;
-
-    // translate dy meters → steps
-    const steps = Math.sign(-dy) * Math.max(1, Math.round(Math.abs(dy) * 140 * this.COMMENTS_SCROLL_GAIN));
-    this.hudMgr.scrollComments(steps);
-  }
-
-  private updateFeedScroll(now:number){
+  // ---------- Scroll (ONE hand, vertical) + Panel comment scroll ----------
+  private updateScroll(now:number){
     if (now < this.scrollCooldownUntil) return;
     if (this.grabPending || this.grabbing) return;
 
     const lp = this.hands.state.left.pinch;
     const rp = this.hands.state.right.pinch;
-    if ((lp && rp) || (!lp && !rp)) return;
+    if ((lp && rp) || (!lp && !rp)) return; // exactly one hand
     const side: 'left'|'right' = lp ? 'left' : 'right';
 
+    const mid = this.hands.pinchMid(side);
+    if (!mid) return;
+
+    // If near panel during this pinch → treat vertical motion as comments scroll
+    if (this.panelScrollMode || this.isNearPanel(mid)) {
+      // enter mode if not yet
+      this.panelScrollMode = true;
+
+      const y = mid.y;
+      if (y == null) return;
+
+      if (this.filtPinchY == null) this.filtPinchY = y;
+      this.filtPinchY = this.filtPinchY + (y - this.filtPinchY) * this.LPF_SCROLL_ALPHA;
+
+      if (this.lastPinchY == null) { this.lastPinchY = this.filtPinchY; return; }
+
+      const dy = this.filtPinchY - this.lastPinchY;
+      this.lastPinchY = this.filtPinchY;
+
+      if (Math.abs(dy) < this.SCROLL_VEL_MIN) return;
+
+      this.scrollAccum += dy;
+
+      if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP){
+        // negative dy (move down) → next comments (scroll down)
+        const steps = (this.scrollAccum < 0 ? +1 : -1) * this.PANEL_SCROLL_STEP_MULT;
+        this.hudMgr.scrollComments(steps);
+        this.scrollAccum = 0;
+        this.scrollCooldownUntil = now + 140; // snappier for comments
+      }
+      return; // never fall through to feed scroll while in panel scroll mode
+    }
+
+    // ---- FEED SCROLL ----
+
+    // disarmed pinch should never scroll feed
     if (this.scrollDisarmedThisPinch) return;
+
+    // Require that this pinch started FAR from the object to be able to scroll at all
     if (!this.scrollArmed) return;
+
     if (this.pinchStartAt && (now - this.pinchStartAt) < this.SCROLL_MIN_HOLD_MS) return;
 
-    const mid = this.hands.pinchMid(side);
     if (mid){
+      // If during the pinch we come close to the object, permanently disarm scrolling for this pinch
       const distSurf = this.distanceToObjectSurface(mid);
-      const distCtr = this.store.getObjectWorldPos()?.distanceTo(mid) ?? 1e9;
-      if ((distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) || distCtr < this.SCROLL_START_FAR_CENTER) {
-        this.scrollDisarmedThisPinch = true;
+      if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) {
+        this.scrollDisarmedThisPinch = true; // turn off scrolling until pinch end
         return;
       }
     }
 
-    const y = this.hands.pinchMid(side)?.y ?? null;
+    const y = mid.y ?? null;
     if (y == null) return;
 
     if (this.filtPinchY == null) this.filtPinchY = y;
@@ -388,7 +395,6 @@ export class FeedControls {
     if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP){
       const dir = this.scrollAccum < 0 ? +1 : -1;
       this.store.next(dir);
-      this.hudMgr.showFor(this.currentModelKey()); // update counts/comments for new model
       this.scrollAccum = 0;
       this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
     }
@@ -399,16 +405,16 @@ export class FeedControls {
     const lp = this.hands.state.left.pinch;
     const rp = this.hands.state.right.pinch;
     if (this.grabPending || this.grabbing) return;
-    if (!(lp && rp)) {
+    if (!(lp && rp)) { 
       if (this.twoHandActive) { this.twoHandActive = false; this.rotVel = 0; }
-      return;
+      return; 
     }
 
     const Lp = this.hands.pinchMid('left')  ?? this.hands.thumbTip('left');
     const Rp = this.hands.pinchMid('right') ?? this.hands.thumbTip('right');
-    if (!(Lp && Rp)) {
+    if (!(Lp && Rp)) { 
       if (this.twoHandActive) { this.twoHandActive = false; this.rotVel = 0; }
-      return;
+      return; 
     }
 
     this.lastL.copy(Lp); this.lastR.copy(Rp);
@@ -437,7 +443,7 @@ export class FeedControls {
     let newScale = this.store.scale;
     if (Math.abs(scaleRaw - this.store.scale) > this.SCALE_DEADBAND) newScale = scaleRaw;
 
-    // ROTATION
+    // ROTATION — yaw in XZ plane
     const lMove = this.lastL.distanceTo(this.LStart);
     const rMove = this.lastR.distanceTo(this.RStart);
     const movedEnough = (lMove + rMove) >= (this.MOVE_EPS * 2);
@@ -541,6 +547,7 @@ export class FeedControls {
       this.grabOffset.copy(objPosNow).sub(mid);
       this.grabPending = false; this.grabPendingSide = null; this.grabPendingStartY = null;
       this.grabbing = true; this.grabSide = side;
+      this.store.notify('Grabbed – move your hand to place');
     }, this.HOLD_MS);
   }
   private cancelGrabPending(){
@@ -560,10 +567,10 @@ export class FeedControls {
     if (!this.grabbing || !this.grabSide) return;
     const other = this.grabSide === 'left' ? 'right' : 'left';
     if (this.hands.state[this.grabSide].pinch && this.hands.state[other].pinch){
-      this.grabbing = false; this.grabSide = null; return;
+      this.grabbing = false; this.grabSide = null; this.store.notify('Grab canceled (two-hand mode)'); return;
     }
     if (!this.hands.state[this.grabSide].pinch){
-      this.grabbing = false; this.grabSide = null; return;
+      this.grabbing = false; this.grabSide = null; this.store.notify('Placed'); return;
     }
     const mid = this.hands.pinchMid(this.grabSide); if (!mid) return;
     const target = mid.clone().add(this.grabOffset);
@@ -583,6 +590,23 @@ export class FeedControls {
     const center = this.store.getObjectWorldPos();
     if (!center) return false;
     return point.distanceTo(center) <= (this.TAP_OBJ_DIST + 0.08);
+  }
+
+  /** Check if the hand point is within the panel's 2D footprint (world space AABB around anchor). */
+  private isNearPanel(point: THREE.Vector3): boolean {
+    const center = this.store.getObjectWorldPos();
+    if (!center) return false;
+    const panelCenter = center.clone().add(new THREE.Vector3(0, this.PANEL_OFFSET_Y, 0));
+    // Treat panel as axis-aligned box in world (no rotation): small padding
+    const halfW = this.PANEL_W_M * 0.55;
+    const halfH = this.PANEL_H_M * 0.55;
+    const dx = Math.abs(point.x - panelCenter.x);
+    const dy = Math.abs(point.y - panelCenter.y);
+    const dz = Math.abs(point.z - panelCenter.z);
+    // Panel faces the user, but we model an area in XZ with some thickness
+    const withinXZ = (dx <= halfW) && (Math.abs(point.z - panelCenter.z) <= halfW);
+    const withinY  = (dy <= halfH);
+    return withinXZ && withinY;
   }
 
   private currentModelKey(): string {
