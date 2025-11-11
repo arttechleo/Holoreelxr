@@ -26,7 +26,6 @@ export class FeedControls {
 
   // ===== UI interaction state =====
   private uiPinchActive: boolean = false;
-  private uiWasOverComments: boolean = false;
 
   // ===== Two-hand transform =====
   private twoHandActive = false;
@@ -208,18 +207,14 @@ export class FeedControls {
     this.scrollDisarmedThisPinch = false;
     this.scrollArmed = false;
     this.uiPinchActive = false;
-    this.uiWasOverComments = false;
 
-    // If pinch starts near/over the panel -> UI mode
     const p = this.hands.pinchMid(side) ?? this.hands.thumbTip(side) ?? this.hands.indexTip(side);
-    if (p) {
-      const hit = this.hudMgr.hitTestWorld(p);
-      if (hit) {
-        this.uiPinchActive = true;
-        this.uiWasOverComments = hit.kind === 'comments';
-        this.scrollDisarmedThisPinch = true; // never scroll feed while manipulating UI
-        return;
-      }
+
+    // If pinch starts near/over the panel -> UI mode (more forgiving distance & margin)
+    if (p && this.hudMgr.hitTestWorld(p)) {
+      this.uiPinchActive = true;
+      this.scrollDisarmedThisPinch = true; // never scroll feed while manipulating UI
+      return;
     }
 
     // quick-pinch baseline
@@ -229,7 +224,7 @@ export class FeedControls {
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) { this.twoHandActive = false; return; }
 
-    // near model? -> either instant grab or disarm scrolling
+    // near model? -> instant grab or disarm scrolling
     const distSurf = p ? this.distanceToObjectSurface(p) : null;
     if (distSurf != null && distSurf <= this.INSTANT_GRAB_DIST) {
       const objPosNow = this.store.getObjectWorldPos();
@@ -249,33 +244,37 @@ export class FeedControls {
   private onPinchEnd(side:'left'|'right'){
     this.setRayVisible(side, false);
 
-    // If we were in UI mode, treat this as a click on release
-    if (this.uiPinchActive) {
-      const p = this.hands.pinchMid(side) ?? this.hands.thumbTip(side) ?? this.hands.indexTip(side);
-      if (p) {
-        const hit = this.hudMgr.hitTestWorld(p);
-        if (hit) {
-          if (hit.kind === 'like')       { this.store.likeCurrent();  this.hudMgr.bump(this.currentModelKey(), 'like'); }
-          else if (hit.kind === 'heart') { this.store.saveCurrent();  this.hudMgr.bump(this.currentModelKey(), 'heart'); }
-          else if (hit.kind === 'repost'){ this.store.repostCurrent?.(); this.hudMgr.bump(this.currentModelKey(), 'repost'); }
-          else if (hit.kind === 'post')  { this.hudMgr.openTextInput(); }
-        }
-      }
-      this.uiPinchActive = false;
-      this.uiWasOverComments = false;
-    } else {
-      // Legacy quick pinch -> show UI
-      const endPos = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
-      const now = performance.now();
-      const duration = this.tapStartTime ? (now - this.tapStartTime) : Infinity;
-      if (this.tapStartPos && endPos && duration <= this.TAP_MAX_MS && (now - this.lastTapAt) >= this.TAP_COOLDOWN_MS) {
-        const travel = this.tapStartPos.distanceTo(endPos);
-        if (travel <= this.TAP_MOVE_MAX && this.isNearModel(endPos)) {
-          this.lastTapAt = now; this.hudMgr.showFor(this.currentModelKey());
-        }
+    const p = this.hands.pinchMid(side) ?? this.hands.thumbTip(side) ?? this.hands.indexTip(side);
+
+    // NEW: Release-to-click (even if pinch didn't start on the panel)
+    if (p) {
+      const hit = this.hudMgr.hitTestWorld(p);
+      if (hit) {
+        if (hit.kind === 'like')       { this.store.likeCurrent();  this.hudMgr.bump(this.currentModelKey(), 'like'); }
+        else if (hit.kind === 'heart') { this.store.saveCurrent();  this.hudMgr.bump(this.currentModelKey(), 'heart'); }
+        else if (hit.kind === 'repost'){ this.store.repostCurrent?.(); this.hudMgr.bump(this.currentModelKey(), 'repost'); }
+        else if (hit.kind === 'post')  { this.hudMgr.openTextInput(); }
+        // treat as UI click; don't run quick-pinch UI toggle below
+        this.cleanupAfterPinch(side);
+        return;
       }
     }
 
+    // Legacy quick pinch -> show UI
+    const endPos = p;
+    const now = performance.now();
+    const duration = this.tapStartTime ? (now - this.tapStartTime) : Infinity;
+    if (this.tapStartPos && endPos && duration <= this.TAP_MAX_MS && (now - this.lastTapAt) >= this.TAP_COOLDOWN_MS) {
+      const travel = this.tapStartPos.distanceTo(endPos);
+      if (travel <= this.TAP_MOVE_MAX && this.isNearModel(endPos)) {
+        this.lastTapAt = now; this.hudMgr.showFor(this.currentModelKey());
+      }
+    }
+
+    this.cleanupAfterPinch(side);
+  }
+
+  private cleanupAfterPinch(side:'left'|'right'){
     // release/cancel grab
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
     if (this.grabbing && this.grabSide === side) { this.grabbing = false; this.grabSide = null; this.store.notify('Placed'); }
@@ -284,6 +283,7 @@ export class FeedControls {
     if (!this.hands.state[other].pinch) { this.twoHandActive = false; this.rotVel = 0; }
 
     // reset
+    this.uiPinchActive = false;
     this.scrollArmed = false;
     this.scrollDisarmedThisPinch = false;
     this.lastPinchY = null; this.filtPinchY = null; this.scrollAccum = 0; this.pinchStartAt = null;
@@ -301,6 +301,13 @@ export class FeedControls {
     const side: 'left'|'right' = lp ? 'left' : 'right';
 
     const pos = this.hands.pinchMid(side) ?? this.hands.thumbTip(side) ?? this.hands.indexTip(side);
+
+    // If we slide into comments while holding, promote to UI-scroll
+    if (!this.uiPinchActive && pos && this.hudMgr.hitTestWorld(pos)?.kind === 'comments') {
+      this.uiPinchActive = true;
+      this.scrollDisarmedThisPinch = true;
+      this.lastPinchY = null; this.filtPinchY = null;
+    }
 
     // UI comments scrolling
     if (this.uiPinchActive && pos) {
