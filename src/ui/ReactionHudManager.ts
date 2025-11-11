@@ -1,3 +1,4 @@
+// src/ui/ReactionHudManager.ts
 import * as THREE from 'three';
 import { ReactionHud, ReactionKind } from './ReactionHud';
 
@@ -43,6 +44,13 @@ export class ReactionHudManager {
   }
 
   tick(dt: number) { this.hud.tick(dt); }
+
   setAvatars(userUrl?: string, commenterUrl?: string) { this.hud.setAvatars(userUrl, commenterUrl); }
-  getCounts(modelKey: string) { return this.counts.get(modelKey) ?? { like: 0, heart: 0 }; }
+
+  /** New: provide icon URLs (e.g., '/assets/ui/heart.png', '/assets/ui/like.png') */
+  setIcons(heartUrl?: string, likeUrl?: string) { this.hud.setIcons(heartUrl, likeUrl); }
+
+  getCounts(modelKey: string) {
+    return this.counts.get(modelKey) ?? { like: 0, heart: 0 };
+  }
 }

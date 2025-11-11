@@ -18,16 +18,30 @@ export class ReactionHud {
 
   private visible = false;
   private hideAt = 0;
-  private readonly AUTO_HIDE_MS = 2000;
+  private readonly AUTO_HIDE_MS = 2200;
 
   // layout
-  private readonly PANEL_W = 0.46;   // made a bit wider to fit prototype
-  private readonly PANEL_H = 0.26;
-  private readonly OFFSET = new THREE.Vector3(0, 0.18, 0);
+  private readonly PANEL_W = 0.42;
+  private readonly PANEL_H = 0.24;
 
-  // avatar placeholders
+  // base offset from object center
+  private readonly BASE_OFFSET = new THREE.Vector3(0, 0.18, 0);
+
+  // orbiting UI around the object
+  private orbitEnabled = true;
+  private orbitRadius = 0.18;     // meters, around object center
+  private orbitSpeed = 0.6;       // radians per second
+  private theta = 0;              // current orbit angle
+  private bobAmp = 0.02;          // up/down bob
+  private bobSpeed = 1.4;
+
+  // optional avatars (kept, but not required)
   private userAvatar?: HTMLImageElement;
   private commenterAvatar?: HTMLImageElement;
+
+  // icons
+  private heartIcon?: HTMLImageElement;
+  private likeIcon?: HTMLImageElement;
 
   constructor(
     private scene: THREE.Scene,
@@ -35,8 +49,8 @@ export class ReactionHud {
     private getObjectWorldPos: () => THREE.Vector3 | null
   ) {
     this.panelCanvas = document.createElement('canvas');
-    this.panelCanvas.width = 1024;  // higher res for crisp text
-    this.panelCanvas.height = 576;
+    this.panelCanvas.width = 1024;
+    this.panelCanvas.height = 512;
     const ctx = this.panelCanvas.getContext('2d');
     if (!ctx) throw new Error('ReactionHud: cannot get 2D context');
     this.ctx = ctx;
@@ -57,14 +71,29 @@ export class ReactionHud {
     this.redraw();
   }
 
-  /** No math here — just copy counts and rerender */
   setCounts(like: number, heart: number) {
     this.likeCount = Math.max(0, Math.floor(like));
     this.heartCount = Math.max(0, Math.floor(heart));
     this.redraw();
   }
 
-  /** Optional avatars (URLs); call any time before/after show */
+  /** Provide icon URLs (e.g. '/assets/ui/heart.png', '/assets/ui/like.png') */
+  setIcons(heartUrl?: string, likeUrl?: string) {
+    const load = (url?: string) => {
+      if (!url) return undefined;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = url;
+      return img;
+    };
+    this.heartIcon = load(heartUrl);
+    this.likeIcon = load(likeUrl);
+    const onload = () => this.redraw();
+    if (this.heartIcon) this.heartIcon.onload = onload;
+    if (this.likeIcon) this.likeIcon.onload = onload;
+  }
+
+  /** (Optional) avatars retained for future use */
   setAvatars(userUrl?: string, commenterUrl?: string) {
     const load = (url?: string) => {
       if (!url) return undefined;
@@ -72,7 +101,6 @@ export class ReactionHud {
     };
     this.userAvatar = load(userUrl);
     this.commenterAvatar = load(commenterUrl);
-    // re-render once they load
     const onload = () => this.redraw();
     if (this.userAvatar) this.userAvatar.onload = onload;
     if (this.commenterAvatar) this.commenterAvatar.onload = onload;
@@ -91,8 +119,20 @@ export class ReactionHud {
   hide() { if (this.visible) { this.visible = false; this.fadeTo(0.0, 140); } }
 
   tick(dt: number) {
-    const pos = this.getObjectWorldPos?.();
-    if (pos) this.anchor.position.copy(pos).add(this.OFFSET);
+    // anchor pose: orbit around object, always face camera
+    const center = this.getObjectWorldPos?.();
+    if (center) {
+      if (this.orbitEnabled) {
+        this.theta += this.orbitSpeed * dt;
+        const ox = Math.cos(this.theta) * this.orbitRadius;
+        const oz = Math.sin(this.theta) * this.orbitRadius;
+        const yBob = Math.sin(this.theta * this.bobSpeed) * this.bobAmp;
+        const offset = new THREE.Vector3(ox, this.BASE_OFFSET.y + yBob, oz);
+        this.anchor.position.copy(center).add(offset);
+      } else {
+        this.anchor.position.copy(center).add(this.BASE_OFFSET);
+      }
+    }
     this.anchor.quaternion.copy(this.camera.quaternion);
 
     if (this.visible && performance.now() >= this.hideAt) this.hide();
@@ -115,88 +155,58 @@ export class ReactionHud {
     this.rounded(ctx, 0, 0, c.width, c.height, 36);
     ctx.fillStyle = 'rgba(18,18,28,0.85)'; ctx.fill();
 
-    // --- Left column (profile + reactions) ---
-    const pad = 32;
-    const leftW = Math.floor(c.width * 0.38);
-    const leftX = pad;
-    const centerY = c.height * 0.52;
-
-    // user avatar circle
-    const avatarR = 60;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(leftX + avatarR, centerY - 110, avatarR, 0, Math.PI * 2);
-    ctx.closePath();
-    ctx.clip();
-    if (this.userAvatar && this.userAvatar.complete) {
-      ctx.drawImage(this.userAvatar, leftX, centerY - 110 - avatarR, avatarR * 2, avatarR * 2);
-    } else {
-      ctx.fillStyle = 'rgba(255,255,255,0.06)';
-      ctx.fillRect(leftX, centerY - 110 - avatarR, avatarR * 2, avatarR * 2);
-    }
-    ctx.restore();
-    // circle stroke
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(leftX + avatarR, centerY - 110, avatarR, 0, Math.PI * 2); ctx.stroke();
-
-    // hearts row
-    ctx.font = '700 54px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
-    ctx.fillStyle = '#FF476F';
-    ctx.fillText('❤️', leftX, centerY + 10);
+    // title
     ctx.fillStyle = '#fff';
-    ctx.font = '700 36px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
-    ctx.fillText(String(this.heartCount), leftX + 84, centerY + 10);
+    ctx.font = '700 34px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Reactions', c.width / 2, 64);
 
-    // likes row
-    ctx.font = '700 54px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
-    ctx.fillStyle = '#FFC04D';
-    ctx.fillText('👍', leftX, centerY + 90);
-    ctx.fillStyle = '#fff';
-    ctx.font = '700 36px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
-    ctx.fillText(String(this.likeCount), leftX + 84, centerY + 90);
+    // icons row
+    const rowY = 180;
+    const gap = 140;
+    const iconSize = 110;
 
-    // --- Right column (comments) ---
-    const rightX = leftW + pad;
-    const rightW = c.width - rightX - pad;
+    // HEART (left)
+    const heartX = c.width / 2 - gap;
+    this.drawIconWithCounter(
+      this.heartIcon, '❤️', heartX, rowY, iconSize, this.heartCount
+    );
 
-    // header with tiny avatar on right
-    ctx.fillStyle = '#fff';
-    ctx.font = '700 28px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
-    ctx.fillText('Comments', rightX, pad + 24);
-    // tiny avatar circle
-    const tinyR = 18;
-    const tinyCx = rightX + 160;
-    const tinyCy = pad + 16;
-    ctx.save();
-    ctx.beginPath(); ctx.arc(tinyCx, tinyCy, tinyR, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
-    if (this.commenterAvatar && this.commenterAvatar.complete) {
-      ctx.drawImage(this.commenterAvatar, tinyCx - tinyR, tinyCy - tinyR, tinyR * 2, tinyR * 2);
-    } else {
-      ctx.fillStyle = 'rgba(255,255,255,0.2)';
-      ctx.fillRect(tinyCx - tinyR, tinyCy - tinyR, tinyR * 2, tinyR * 2);
-    }
-    ctx.restore();
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(tinyCx, tinyCy, tinyR, 0, Math.PI * 2); ctx.stroke();
-
-    // comment box
-    const boxY = pad + 44;
-    const boxH = c.height - boxY - pad;
-    this.rounded(ctx, rightX, boxY, rightW, boxH, 18);
-    ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fill();
-
-    // lorem
-    ctx.fillStyle = '#EDEDED';
-    ctx.font = '400 22px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
-    const innerPad = 18;
-    const textX = rightX + innerPad;
-    const textY = boxY + innerPad + 8;
-    const textW = rightW - innerPad * 2;
-    this.wrap(ctx,
-      'It is a long established fact that a reader will be distracted by the readable content when looking at its layout. The point of using Lorem Ipsum is that it has a more-or-less normal distribution of letters, as opposed to using “Content here, content here”.',
-      textX, textY, textW, 28);
+    // LIKE (right)
+    const likeX = c.width / 2 + gap;
+    this.drawIconWithCounter(
+      this.likeIcon, '👍', likeX, rowY, iconSize, this.likeCount
+    );
 
     this.panelTex.needsUpdate = true;
+  }
+
+  private drawIconWithCounter(img: HTMLImageElement | undefined, fallbackEmoji: string, cx: number, cy: number, size: number, count: number) {
+    const ctx = this.ctx;
+    const half = size / 2;
+
+    // icon circle bg
+    this.rounded(ctx, cx - half, cy - half, size, size, size * 0.24);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fill();
+
+    if (img && img.complete) {
+      ctx.drawImage(img, cx - half, cy - half, size, size);
+    } else {
+      // fallback emoji
+      ctx.fillStyle = '#fff';
+      ctx.font = `900 ${Math.floor(size * 0.78)}px system-ui,emoji`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(fallbackEmoji, cx, cy + 8);
+    }
+
+    // counter (below)
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 36px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(String(count), cx, cy + half + 48);
   }
 
   private spawnChip(kind: 'like'|'heart') {
@@ -232,15 +242,7 @@ export class ReactionHud {
     ctx.arcTo(x, y, x + w, y, rr);
     ctx.closePath();
   }
-  private wrap(ctx: CanvasRenderingContext2D, text:string, x:number, y:number, maxWidth:number, lh:number){
-    const words = text.split(' '); let line=''; let cy=y;
-    for (let i=0;i<words.length;i++){
-      const test=line+words[i]+' '; const w=ctx.measureText(test).width;
-      if (w>maxWidth && i>0){ ctx.fillText(line, x, cy); line=words[i]+' '; cy+=lh; }
-      else line=test;
-    }
-    ctx.fillText(line, x, cy);
-  }
+
   private fadeTo(target:number, ms:number){
     const mat = this.panel.material; const start = mat.opacity; const t0 = performance.now();
     const step=()=>{ const t=(performance.now()-t0)/ms; const k=Math.min(1,Math.max(0,t)); mat.opacity=start+(target-start)*k; if(k<1) requestAnimationFrame(step); };
