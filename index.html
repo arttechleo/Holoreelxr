@@ -7,20 +7,24 @@
     <style>
       html,body { margin:0; height:100%; background:#111; color:#eee; font-family: system-ui, Arial }
       canvas { display:block }
-      /* start-xr button */
-      #start-xr {
+      #xr-bar {
         position: fixed; left: 12px; bottom: 12px; z-index: 100;
+        display: flex; gap: 8px; flex-wrap: wrap;
+      }
+      #xr-bar button {
         padding: 10px 14px; border-radius: 10px; border: 0;
         background: #1e222d; color: #fff; font-weight: 600; cursor: pointer;
         box-shadow: 0 6px 18px rgba(0,0,0,0.35);
       }
-      #start-xr[disabled] { opacity: .5; cursor: not-allowed; }
-      /* helpful when DOM overlay is active */
-      .xr-overlay * { pointer-events: auto; }
+      #xr-bar button[disabled] { opacity: .5; cursor: not-allowed; }
+      .xr-overlay * { pointer-events: auto; } /* keep DOM HUD clickable in AR overlay */
     </style>
   </head>
   <body>
-    <button id="start-xr">Start XR</button>
+    <div id="xr-bar">
+      <button id="enter-ar">Enter AR</button>
+      <button id="enter-vr">Enter VR</button>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
