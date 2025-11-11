@@ -38,7 +38,7 @@ export class FeedStore {
     transparent: true,
     opacity: 0.0,
     roughness: 1,
-    metalness: 0
+    metalness: 0,
   });
 
   constructor(parent: THREE.Object3D, onHud?: (text: string) => void) {
@@ -64,15 +64,19 @@ export class FeedStore {
     const item = this.items[this.index];
     if (!item) {
       this.toast('No items in feed');
-      // hide platform if it exists
-      this.parent.children.forEach(c => { if (c.name === 'content-platform') c.visible = false; });
+      this.parent.children.forEach((c) => {
+        if (c.name === 'content-platform') c.visible = false;
+      });
       return;
     }
 
-    if (this.seq) { this.seq.dispose(); this.seq = undefined; }
+    if (this.seq) {
+      this.seq.dispose();
+      this.seq = undefined;
+    }
 
     // remove prior content meshes
-    this.parent.children.slice().forEach(child => {
+    this.parent.children.slice().forEach((child) => {
       if (child.name === 'content-shape' || child.name === 'content-mesh') {
         this.parent.remove(child);
         (child as any).geometry?.dispose?.();
@@ -80,7 +84,7 @@ export class FeedStore {
       }
     });
 
-    // spawn at lastPlaced (if any) otherwise at origin (caller may reposition on session start)
+    // spawn at lastPlaced (if any) otherwise at origin
     const spawnPos = this.lastPlaced ? this.lastPlaced.clone() : new THREE.Vector3(0, 0, 0);
 
     if (item.type === 'shape') {
@@ -127,11 +131,15 @@ export class FeedStore {
     this.targetScale = THREE.MathUtils.clamp(scale, 0.15, 8);
     this.targetRotY = rotY;
   }
+
   setTransform(scale: number, rotY: number) {
     this._scale = THREE.MathUtils.clamp(scale, 0.15, 8);
     this._rotY = rotY;
     const obj = this.getObject();
-    if (obj) { obj.scale.setScalar(this._scale); obj.rotation.y = this._rotY; }
+    if (obj) {
+      obj.scale.setScalar(this._scale);
+      obj.rotation.y = this._rotY;
+    }
     if (this.seq) this.seq.setTransform(this._scale, this._rotY);
     this.updatePlatformPose();
   }
@@ -142,7 +150,10 @@ export class FeedStore {
     this._rotY += (this.targetRotY - this._rotY) * k;
 
     const obj = this.getObject();
-    if (obj) { obj.scale.setScalar(this._scale); obj.rotation.y = this._rotY; }
+    if (obj) {
+      obj.scale.setScalar(this._scale);
+      obj.rotation.y = this._rotY;
+    }
     if (this.seq) this.seq.setTransform(this._scale, this._rotY);
 
     // update transient effects
@@ -166,7 +177,8 @@ export class FeedStore {
           const msm = m as unknown as THREE.MeshStandardMaterial;
           if (typeof msm.emissiveIntensity === 'number') msm.emissiveIntensity = 3.2 * t;
         };
-        if (Array.isArray(matAny)) matAny.forEach(setMat); else setMat(matAny);
+        if (Array.isArray(matAny)) matAny.forEach(setMat);
+        else setMat(matAny);
       }
 
       if (e.life <= 0) {
@@ -179,7 +191,7 @@ export class FeedStore {
           this.parent.remove(e.mesh);
           (e.mesh.geometry as any).dispose?.();
           const matAny = e.mesh.material as THREE.Material | THREE.Material[];
-          if (Array.isArray(matAny)) matAny.forEach(m => (m as any).dispose?.());
+          if (Array.isArray(matAny)) matAny.forEach((m) => (m as any).dispose?.());
           else (matAny as any).dispose?.();
         }
         this.effects.splice(i, 1);
@@ -188,7 +200,6 @@ export class FeedStore {
   }
 
   setPosition(worldPos: THREE.Vector3) {
-    // set position for whatever is currently displayed
     const obj = this.getObject();
     if (obj) obj.position.copy(worldPos);
     if (this.seq) this.seq.setPosition(worldPos);
@@ -197,14 +208,12 @@ export class FeedStore {
   }
 
   getObject(): THREE.Object3D | undefined {
-    // Prefer explicit content meshes
-    const found = this.parent.children.find(c =>
-      c.name === 'content-shape' || c.name === 'content-mesh'
+    const found = this.parent.children.find(
+      (c) => c.name === 'content-shape' || c.name === 'content-mesh'
     );
     if (found) return found;
 
-    // Fallback: platform (exists for splats/ply too)
-    const plat = this.parent.children.find(c => c.name === 'content-platform');
+    const plat = this.parent.children.find((c) => c.name === 'content-platform');
     if (plat) return plat;
 
     return undefined;
@@ -222,7 +231,8 @@ export class FeedStore {
     if (!obj || !obj.visible) return null;
     const box = new THREE.Box3().setFromObject(obj);
     const center = box.getCenter(new THREE.Vector3());
-    const radius = box.getSize(new THREE.Vector3()).length() * 0.5;
+    const size = box.getSize(new THREE.Vector3());
+    const radius = size.length() * 0.5;
     return { center, radius, box };
   }
 
@@ -234,6 +244,7 @@ export class FeedStore {
     }
     this.platformPulse(0xffff00);
   }
+
   saveCurrent(fromHand?: THREE.Vector3) {
     this.toast('❤️ Saved');
     if (fromHand instanceof THREE.Vector3) {
@@ -264,33 +275,43 @@ export class FeedStore {
     this.platform.name = 'content-platform';
     this.parent.add(this.platform);
   }
-private updatePlatformPose() {
-  if (!this.platform) return;
-  const info = this.getObjectBounds();
-  if (!info) { this.platform.visible = false; return; }
 
-  const { box } = info;
-  const center = box.getCenter(new THREE.Vector3());
-  const size   = box.getSize(new THREE.Vector3()); // ✅ fixed: no stray '>'
+  private updatePlatformPose() {
+    if (!this.platform) return;
+    const info = this.getObjectBounds();
+    if (!info) {
+      this.platform.visible = false;
+      return;
+    }
+    const { box } = info;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    this.platform.position.set(center.x, box.min.y - 0.02, center.z);
+    const r = Math.max(size.x, size.z) * 0.35;
+    this.platform.scale.setScalar(Math.max(0.2, r));
+    this.platform.visible = true;
+  }
 
-  this.platform.position.set(center.x, box.min.y - 0.02, center.z);
-  const r = Math.max(size.x, size.z) * 0.35;
-  this.platform.scale.setScalar(Math.max(0.2, r));
-  this.platform.visible = true;
-}
-
-  private platformPulse(color:number){
+  // ---------- Platform pulse ----------
+  private platformPulse(color: number) {
     this.ensurePlatform();
     if (!this.platform) return;
 
-    const mat = (this.platform.material as THREE.MeshStandardMaterial);
-    const base = { color: 0x111111, emissive: 0x000000, opacity: 0.15, emissiveIntensity: 0.0 };
+    const mat = this.platform.material as THREE.MeshStandardMaterial;
+    const base = {
+      color: 0x111111,
+      emissive: 0x000000,
+      opacity: 0.15,
+      emissiveIntensity: 0.0,
+    };
 
+    // brief highlight on the platform
     mat.color.set(0x111111);
     mat.emissive.setHex(color);
     mat.emissiveIntensity = 3.2;
     mat.opacity = 0.5;
 
+    // expanding ring effect
     const ringGeo = new THREE.RingGeometry(0.18, 0.20, 56);
     const ringMat = new THREE.MeshStandardMaterial({
       color: 0x0,
@@ -300,17 +321,18 @@ private updatePlatformPose() {
       transparent: true,
       opacity: 0.55,
       roughness: 0.9,
-      metalness: 0.0
+      metalness: 0.0,
     });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.rotation.x = -Math.PI * 0.5;
     ring.position.copy(this.platform.position);
     this.parent.add(ring);
 
+    // fade/cleanup handled by tick()
     this.effects.push({ mesh: ring, life: 0.7 });
 
-    // Reset back to neutral after a short delay (prevents “stuck” highlight)
-    setTimeout(()=> {
+    // restore base look shortly after
+    setTimeout(() => {
       mat.opacity = base.opacity;
       mat.emissiveIntensity = base.emissiveIntensity;
       mat.emissive.setHex(base.emissive);
@@ -321,7 +343,8 @@ private updatePlatformPose() {
   // ---------- Emoji projectile ----------
   private launchEmoji(start: THREE.Vector3, emoji: string, fill: string) {
     const canvas = document.createElement('canvas');
-    canvas.width = 256; canvas.height = 256;
+    canvas.width = 256;
+    canvas.height = 256;
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, 256, 256);
     ctx.textAlign = 'center';
@@ -331,7 +354,9 @@ private updatePlatformPose() {
     ctx.fillText(emoji, 128, 138);
 
     const tex = new THREE.CanvasTexture(canvas);
-    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, opacity: 1 }));
+    const spr = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, opacity: 1 })
+    );
     spr.scale.set(0.3, 0.3, 0.3);
     spr.position.copy(start);
     this.parent.add(spr);
@@ -349,9 +374,13 @@ private updatePlatformPose() {
   // ---------- Shapes ----------
   private makeShape(kind: ShapeKind, colorHex?: string) {
     const color = new THREE.Color(colorHex ?? '#66ccff');
-    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.0, emissive: 0x000000 });
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.4,
+      metalness: 0.0,
+      emissive: 0x000000,
+    });
     let geo: THREE.BufferGeometry;
-    // ✅ FIX: use the variable, not a type annotation
     switch (kind) {
       case 'box':
         geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);

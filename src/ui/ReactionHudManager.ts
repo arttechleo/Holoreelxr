@@ -1,4 +1,3 @@
-// src/ui/ReactionHudManager.ts
 import * as THREE from 'three';
 import { ReactionHud, ReactionKind, Comment, HudHit } from './ReactionHud';
 
@@ -44,6 +43,11 @@ export class ReactionHudManager {
     this.hud.setIcons(heartUrl, likeUrl, repostUrl);
   }
 
+  /** Position offsets for icons (left) and comments panel (right) */
+  setOffsets(iconsOffset: THREE.Vector3, panelOffset: THREE.Vector3) {
+    (this.hud as any).setOffsets?.(iconsOffset, panelOffset);
+  }
+
   // comments
   setComments(modelKey: string, list: Comment[]) {
     this.comments.set(modelKey, list.slice());
@@ -57,12 +61,20 @@ export class ReactionHudManager {
     this.comments.set(this.currentKey, list);
     this.hud.appendComment(c);
   }
-  scrollComments(steps: number) { this.hud.scrollComments(steps); }
+  scrollComments(steps: number) {
+    this.hud.scrollComments(steps);
+  }
 
   // compose
-  beginCommentEntry(prefill = '') { this.hud.beginCommentEntry(prefill); }
-  cancelCommentEntry() { this.hud.cancelCommentEntry(); }
-  isComposing() { return this.hud.isComposing(); }
+  beginCommentEntry(prefill = '') {
+    this.hud.beginCommentEntry(prefill);
+  }
+  cancelCommentEntry() {
+    this.hud.cancelCommentEntry();
+  }
+  isComposing() {
+    return this.hud.isComposing();
+  }
 
   // show/bind
   showFor(modelKey: string) {
@@ -104,10 +116,8 @@ export class ReactionHudManager {
   projectHitFromPoint(p: THREE.Vector3): HudHit { return this.hud.projectHitFromPoint(p); }
   postQuickComment() { this.hud.postQuickComment(); }
 
-  // expose panel center so controls can aim rays
   getPanelCenterWorld(): THREE.Vector3 { return this.hud.getPanelCenterWorld(); }
 
-  // tick
   tick(dt: number) { this.hud.tick(dt); }
 }
 
