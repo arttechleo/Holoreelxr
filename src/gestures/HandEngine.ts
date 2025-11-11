@@ -24,8 +24,8 @@ export class HandEngine {
   private lastMap = new Map<string,{val:boolean; changeAt:number}>();
 
   public state = {
-    left:  { pinch:false, thumbsup:false },
-    right: { pinch:false, thumbsup:false },
+    left:  { pinch:false, thumbsup:false, peace:false },
+    right: { pinch:false, thumbsup:false, peace:false },
     heart:false
   };
 
@@ -63,13 +63,10 @@ export class HandEngine {
     const inputSources = Array.from(session.inputSources || []).filter((s:any)=> !!s.hand);
     if (!inputSources.length) return;
 
-    // clear both hands every frame
     this.lastPos.left = {}; this.lastPos.right = {};
-
-    // >>> FIX: do NOT default to 'left' if handedness is missing; skip that source.
     for (const src of inputSources) {
       const handed = (src as any).handedness;
-      if (handed !== 'left' && handed !== 'right') continue; // skip ambiguous sources
+      if (handed !== 'left' && handed !== 'right') continue; // skip ambiguous
       const side: Side = handed;
 
       const hand = src.hand as XRHand;
@@ -86,7 +83,7 @@ export class HandEngine {
     const J = (side:Side, name:XRHandJointName) => this.lastPos[side]?.[name] ?? null;
     const dist = (a:THREE.Vector3|null, b:THREE.Vector3|null) => (a&&b)? a.distanceTo(b) : 1e9;
 
-    // Pinch (per hand)
+    // Pinch
     const leftPinch  = dist(J('left','thumb-tip'),  J('left','index-finger-tip'))  < 0.035;
     const rightPinch = dist(J('right','thumb-tip'), J('right','index-finger-tip')) < 0.035;
     this.state.left.pinch  = leftPinch;
@@ -94,7 +91,7 @@ export class HandEngine {
     this.updateFlag('left.pinch', leftPinch, {side:'left'});
     this.updateFlag('right.pinch', rightPinch, {side:'right'});
 
-    // Thumbs-up (kept simple)
+    // Thumbs-up
     const thumbUp = (side:Side) => {
       const W = J(side,'wrist'), T = J(side,'thumb-tip');
       if (!W || !T) return false;
@@ -106,17 +103,38 @@ export class HandEngine {
     if (thumbUp('left'))  this.emit('thumbsupstart',{side:'left'});
     if (thumbUp('right')) this.emit('thumbsupstart',{side:'right'});
 
-    // HEART: both index tips close AND both thumb tips close
+    // HEART (both hands together)
     const L_i = J('left','index-finger-tip');
     const R_i = J('right','index-finger-tip');
     const L_t = J('left','thumb-tip');
     const R_t = J('right','thumb-tip');
-
-    const NEAR = 0.045; // ~4.5 cm
+    const NEAR = 0.045;
     const heartNow = dist(L_i, R_i) < NEAR && dist(L_t, R_t) < NEAR;
-
     this.state.heart = heartNow;
     this.updateFlag('heart', heartNow);
+
+    // PEACE: index+middle extended, ring+pinky curled (thumb free)
+    const isExtended = (side:Side, tip:XRHandJointName, wrist='wrist') => {
+      const W = J(side, wrist as XRHandJointName), T = J(side, tip);
+      return (W && T) ? T.distanceTo(W) > 0.085 : false;
+    };
+    const isCurled = (side:Side, tip:XRHandJointName, wrist='wrist') => {
+      const W = J(side, wrist as XRHandJointName), T = J(side, tip);
+      return (W && T) ? T.distanceTo(W) < 0.070 : false;
+    };
+
+    const peace = (side:Side) =>
+      isExtended(side,'index-finger-tip') &&
+      isExtended(side,'middle-finger-tip') &&
+      isCurled(side,'ring-finger-tip') &&
+      isCurled(side,'pinky-finger-tip');
+
+    const leftPeace  = peace('left');
+    const rightPeace = peace('right');
+    this.state.left.peace  = leftPeace;
+    this.state.right.peace = rightPeace;
+    this.updateFlag('left.peace', leftPeace, {side:'left'});
+    this.updateFlag('right.peace', rightPeace, {side:'right'});
   }
 
   wristY(side: Side){ const J = this.lastPos[side]['wrist']; return J ? J.y : null; }

@@ -1,13 +1,14 @@
+// src/feed/FeedStore.ts
 import * as THREE from 'three';
 import { SplatSequence } from './loaders/SplatSequence';
 
 type ShapeKind = 'box' | 'sphere' | 'pyramid';
 
 type Item =
-  | { id:string; title:string; author:string; type:'shape'; shape: ShapeKind; color?: string }
-  | { id:string; title:string; author:string; type:'splat4d'; fps:number; frames:string[] }
-  | { id:string; title:string; author:string; type:'ply'; src:string }
-  | { id:string; title:string; author:string; type:'mesh'; src:string };
+  | { id: string; title: string; author: string; type: 'shape'; shape: ShapeKind; color?: string }
+  | { id: string; title: string; author: string; type: 'splat4d'; fps: number; frames: string[] }
+  | { id: string; title: string; author: string; type: 'ply'; src: string }
+  | { id: string; title: string; author: string; type: 'mesh'; src: string };
 
 export class FeedStore {
   items: Item[] = [];
@@ -20,34 +21,53 @@ export class FeedStore {
   private lastPlaced?: THREE.Vector3;
 
   private seq?: SplatSequence;
-  private onHud?: (t:string)=>void;
+  private onHud?: (t: string) => void;
   private parent: THREE.Object3D;
 
-  private effects: { sprite?: THREE.Sprite; vel?: THREE.Vector3; life: number; tex?: THREE.Texture; mesh?: THREE.Mesh }[] = [];
+  private effects: {
+    sprite?: THREE.Sprite;
+    vel?: THREE.Vector3;
+    life: number;
+    tex?: THREE.Texture;
+    mesh?: THREE.Mesh;
+  }[] = [];
 
   private platform?: THREE.Mesh;
   private platformMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff, emissive: 0x000000, transparent: true, opacity: 0.0, roughness: 1, metalness: 0
+    color: 0xffffff,
+    emissive: 0x000000,
+    transparent: true,
+    opacity: 0.0,
+    roughness: 1,
+    metalness: 0
   });
 
-  constructor(parent: THREE.Object3D, onHud?: (text:string)=>void) {
+  constructor(parent: THREE.Object3D, onHud?: (text: string) => void) {
     this.parent = parent;
     this.onHud = onHud;
   }
 
-  get scale(){ return this._scale; }
-  get rotationY(){ return this._rotY; }
+  get scale() { return this._scale; }
+  get rotationY() { return this._rotY; }
 
-  async loadFeed(url = '/feed.json'){
+  /** Stable key for the currently shown item (used for per-model UI state). */
+  getCurrentKey(): string {
+    const item = this.items[this.index];
+    return item?.id ?? `item-${this.index}`;
+  }
+
+  async loadFeed(url = '/feed.json') {
     const res = await fetch(url);
     this.items = await res.json();
   }
 
-  async showCurrent(){
+  async showCurrent() {
     const item = this.items[this.index];
     if (!item) return;
 
     if (this.seq) { this.seq.dispose(); this.seq = undefined; }
+
+    // remove prior content meshes
     this.parent.children.slice().forEach(child => {
       if (child.name === 'content-shape' || child.name === 'content-mesh') {
         this.parent.remove(child);
@@ -56,8 +76,8 @@ export class FeedStore {
       }
     });
 
-    // spawn at lastPlaced (if any) otherwise at origin — main.ts will relocate on session start
-    const spawnPos = this.lastPlaced ? this.lastPlaced.clone() : new THREE.Vector3(0,0,0);
+    // spawn at lastPlaced (if any) otherwise at origin (caller may reposition on session start)
+    const spawnPos = this.lastPlaced ? this.lastPlaced.clone() : new THREE.Vector3(0, 0, 0);
 
     if (item.type === 'shape') {
       const obj = this.makeShape(item.shape, item.color);
@@ -66,18 +86,19 @@ export class FeedStore {
       obj.rotation.y = this._rotY;
       obj.scale.setScalar(this._scale);
       this.parent.add(obj);
-    } else if (item.type === 'splat4d'){
+    } else if (item.type === 'splat4d') {
       this.seq = new SplatSequence(this.parent, item.frames, item.fps);
       await this.seq.ready;
       this.seq.setTransform(this._scale, this._rotY);
       this.seq.setPosition(spawnPos);
-    } else if (item.type === 'ply'){
+    } else if (item.type === 'ply') {
       this.seq = new SplatSequence(this.parent, [item.src], 0);
       await this.seq.ready;
       this.seq.setTransform(this._scale, this._rotY);
       this.seq.setPosition(spawnPos);
     } else {
-      const geo = new THREE.BoxGeometry(0.4,0.4,0.4);
+      // generic mesh fallback
+      const geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
       const mat = new THREE.MeshStandardMaterial({ color: 0x66ccff });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.name = 'content-mesh';
@@ -91,18 +112,18 @@ export class FeedStore {
     this.toast(`${item.title} — @${item.author}`);
   }
 
-  next(delta:number){
+  next(delta: number) {
     if (!this.items.length) return;
     this.index = (this.index + delta + this.items.length) % this.items.length;
     this.setTargetTransform(1, 0);
     this.showCurrent();
   }
 
-  setTargetTransform(scale:number, rotY:number){
+  setTargetTransform(scale: number, rotY: number) {
     this.targetScale = THREE.MathUtils.clamp(scale, 0.15, 8);
     this.targetRotY = rotY;
   }
-  setTransform(scale:number, rotY:number){
+  setTransform(scale: number, rotY: number) {
     this._scale = THREE.MathUtils.clamp(scale, 0.15, 8);
     this._rotY = rotY;
     const obj = this.getObject();
@@ -111,16 +132,17 @@ export class FeedStore {
     this.updatePlatformPose();
   }
 
-  tick(dt:number){
+  tick(dt: number) {
     const k = 1 - Math.pow(0.02, dt);
     this._scale += (this.targetScale - this._scale) * k;
-    this._rotY  += (this.targetRotY  - this._rotY)  * k;
+    this._rotY += (this.targetRotY - this._rotY) * k;
 
     const obj = this.getObject();
     if (obj) { obj.scale.setScalar(this._scale); obj.rotation.y = this._rotY; }
     if (this.seq) this.seq.setTransform(this._scale, this._rotY);
 
-    for (let i=this.effects.length-1; i>=0; --i){
+    // update transient effects
+    for (let i = this.effects.length - 1; i >= 0; --i) {
       const e = this.effects[i];
       e.life -= dt;
 
@@ -143,25 +165,25 @@ export class FeedStore {
         if (Array.isArray(matAny)) matAny.forEach(setMat); else setMat(matAny);
       }
 
-      if (e.life <= 0){
-        if (e.sprite){
+      if (e.life <= 0) {
+        if (e.sprite) {
           this.parent.remove(e.sprite);
           e.tex?.dispose();
           (e.sprite.material as any).dispose?.();
         }
-        if (e.mesh){
+        if (e.mesh) {
           this.parent.remove(e.mesh);
           (e.mesh.geometry as any).dispose?.();
           const matAny = e.mesh.material as THREE.Material | THREE.Material[];
           if (Array.isArray(matAny)) matAny.forEach(m => (m as any).dispose?.());
           else (matAny as any).dispose?.();
         }
-        this.effects.splice(i,1);
+        this.effects.splice(i, 1);
       }
     }
   }
 
-  setPosition(worldPos: THREE.Vector3){
+  setPosition(worldPos: THREE.Vector3) {
     // set position for whatever is currently displayed
     const obj = this.getObject();
     if (obj) obj.position.copy(worldPos);
@@ -191,7 +213,7 @@ export class FeedStore {
     return null;
   }
 
-  getObjectBounds(): { center: THREE.Vector3; radius: number, box: THREE.Box3 } | null {
+  getObjectBounds(): { center: THREE.Vector3; radius: number; box: THREE.Box3 } | null {
     const obj = this.getObject();
     if (!obj) return null;
     const box = new THREE.Box3().setFromObject(obj);
@@ -201,14 +223,14 @@ export class FeedStore {
   }
 
   // ---------- Reactions ----------
-  likeCurrent(fromHand?: THREE.Vector3, _side: 'left'|'right' = 'right'){
+  likeCurrent(fromHand?: THREE.Vector3, _side: 'left' | 'right' = 'right') {
     this.toast('👍 Liked');
     if (fromHand instanceof THREE.Vector3) {
       this.launchEmoji(fromHand, '👍', '#ffd400');
     }
     this.platformPulse(0xffff00);
   }
-  saveCurrent(fromHand?: THREE.Vector3){
+  saveCurrent(fromHand?: THREE.Vector3) {
     this.toast('❤️ Saved');
     if (fromHand instanceof THREE.Vector3) {
       this.launchEmoji(fromHand, '❤️', '#ff3355');
@@ -216,11 +238,20 @@ export class FeedStore {
     this.platformPulse(0xff3344);
   }
 
-  public notify(msg:string){ this.onHud?.(msg); }
-  private toast(msg:string){ this.onHud?.(msg); }
+  /** Peace-sign gesture action → show repost feedback. */
+  repostCurrent(fromHand?: THREE.Vector3) {
+    this.toast('🔁 Reposted');
+    if (fromHand instanceof THREE.Vector3) {
+      this.launchEmoji(fromHand, '🔁', '#66e0ff');
+    }
+    this.platformPulse(0x66e0ff);
+  }
+
+  public notify(msg: string) { this.onHud?.(msg); }
+  private toast(msg: string) { this.onHud?.(msg); }
 
   // ---------- Platform ----------
-  private ensurePlatform(){
+  private ensurePlatform() {
     if (this.platform) return;
     const geo = new THREE.CircleGeometry(0.45, 56);
     this.platform = new THREE.Mesh(geo, this.platformMat.clone());
@@ -229,7 +260,7 @@ export class FeedStore {
     this.platform.name = 'content-platform';
     this.parent.add(this.platform);
   }
-  private updatePlatformPose(){
+  private updatePlatformPose() {
     if (!this.platform) return;
     const info = this.getObjectBounds();
     if (!info) { this.platform.visible = false; return; }
@@ -241,7 +272,7 @@ export class FeedStore {
     this.platform.scale.setScalar(Math.max(0.2, r));
     this.platform.visible = true;
   }
-  private platformPulse(color:number){
+  private platformPulse(color: number) {
     this.ensurePlatform();
     if (!this.platform) return;
 
@@ -268,15 +299,15 @@ export class FeedStore {
     this.parent.add(ring);
 
     this.effects.push({ mesh: ring, life: 0.7 });
-    setTimeout(()=> { mat.opacity = 0.15; mat.emissiveIntensity = 0.8; }, 400);
+    setTimeout(() => { mat.opacity = 0.15; mat.emissiveIntensity = 0.8; }, 400);
   }
 
   // ---------- Emoji projectile ----------
-  private launchEmoji(start: THREE.Vector3, emoji:string, fill:string){
+  private launchEmoji(start: THREE.Vector3, emoji: string, fill: string) {
     const canvas = document.createElement('canvas');
     canvas.width = 256; canvas.height = 256;
     const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0,0,256,256);
+    ctx.clearRect(0, 0, 256, 256);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = '200px sans-serif';
@@ -285,7 +316,7 @@ export class FeedStore {
 
     const tex = new THREE.CanvasTexture(canvas);
     const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, opacity: 1 }));
-    spr.scale.set(0.3,0.3,0.3);
+    spr.scale.set(0.3, 0.3, 0.3);
     spr.position.copy(start);
     this.parent.add(spr);
 
@@ -300,15 +331,15 @@ export class FeedStore {
   }
 
   // ---------- Shapes ----------
-  private makeShape(kind: ShapeKind, colorHex?: string){
+  private makeShape(kind: ShapeKind, colorHex?: string) {
     const color = new THREE.Color(colorHex ?? '#66ccff');
     const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.0, emissive: 0x000000 });
     let geo: THREE.BufferGeometry;
     switch (kind) {
-      case 'box':     geo = new THREE.BoxGeometry(0.4,0.4,0.4); break;
+      case 'box':     geo = new THREE.BoxGeometry(0.4, 0.4, 0.4); break;
       case 'sphere':  geo = new THREE.SphereGeometry(0.25, 32, 16); break;
       case 'pyramid': geo = new THREE.ConeGeometry(0.28, 0.5, 4); break;
-      default:        geo = new THREE.BoxGeometry(0.4,0.4,0.4);
+      default:        geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
     }
     return new THREE.Mesh(geo, mat);
   }
