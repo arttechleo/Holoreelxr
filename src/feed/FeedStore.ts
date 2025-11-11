@@ -56,6 +56,7 @@ export class FeedStore {
       }
     });
 
+    // spawn at lastPlaced (if any) otherwise at origin — main.ts will relocate on session start
     const spawnPos = this.lastPlaced ? this.lastPlaced.clone() : new THREE.Vector3(0,0,0);
 
     if (item.type === 'shape') {
@@ -161,24 +162,35 @@ export class FeedStore {
   }
 
   setPosition(worldPos: THREE.Vector3){
+    // set position for whatever is currently displayed
     const obj = this.getObject();
-    if (!obj) return;
-    obj.position.copy(worldPos);
+    if (obj) obj.position.copy(worldPos);
     if (this.seq) this.seq.setPosition(worldPos);
     this.lastPlaced = worldPos.clone();
     this.updatePlatformPose();
   }
 
   getObject(): THREE.Object3D | undefined {
-    return this.parent.children.find(c =>
+    // Prefer explicit content meshes
+    const found = this.parent.children.find(c =>
       c.name === 'content-shape' || c.name === 'content-mesh'
     );
+    if (found) return found;
+
+    // Fallback: platform (exists for splats/ply too)
+    const plat = this.parent.children.find(c => c.name === 'content-platform');
+    if (plat) return plat;
+
+    return undefined;
   }
+
   getObjectWorldPos(): THREE.Vector3 | null {
     const obj = this.getObject();
-    if (!obj) return null;
-    return new THREE.Vector3().setFromMatrixPosition(obj.matrixWorld);
+    if (obj) return new THREE.Vector3().setFromMatrixPosition(obj.matrixWorld);
+    if (this.lastPlaced) return this.lastPlaced.clone();
+    return null;
   }
+
   getObjectBounds(): { center: THREE.Vector3; radius: number, box: THREE.Box3 } | null {
     const obj = this.getObject();
     if (!obj) return null;
