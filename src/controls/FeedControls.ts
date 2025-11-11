@@ -56,8 +56,11 @@ export class FeedControls {
   private grabPendingSide: 'left'|'right' | null = null;
   private grabPendingStartY: number | null = null;
   private grabTimer: number | null = null;
-  private readonly HOLD_MS = 240;
-  private readonly PENDING_CANCEL_MOVE = 0.03;
+
+  // Tweaks to make grabbing easier
+  private readonly HOLD_MS = 150;           // was 240 — more responsive
+  private readonly PENDING_CANCEL_MOVE = 0.06; // allow a little more hand drift
+  private readonly INSTANT_GRAB_DIST = 0.12;   // if pinch starts within 12cm of surface, start grabbing immediately
 
   // ===== Rays =====
   private rayGroup = new THREE.Group();
@@ -101,12 +104,12 @@ export class FeedControls {
     this.hands.on('leftpinchend',    () => this.onPinchEnd('left'));
     this.hands.on('rightpinchend',   () => this.onPinchEnd('right'));
 
-    // L-gesture toggle for HUD (either hand)
-    const toggleHUD = () => this.hudMgr.toggleFor(this.currentModelKey());
-    this.hands.on('leftlshapestart',  toggleHUD);
-    this.hands.on('rightlshapestart', toggleHUD);
+    // L-gesture toggle for HUD (either hand) + debug toast
+    const onL = () => { this.store.notify('L gesture: toggle UI'); this.hudMgr.toggleFor(this.currentModelKey()); };
+    this.hands.on('leftlshapestart',  onL);
+    this.hands.on('rightlshapestart', onL);
 
-    // Reactions -> count + HUD flash
+    // Reactions
     this.hands.on('thumbsupstart', (d:any) => {
       const now = performance.now();
       if (now - this.lastLikeAt < this.REACT_COOLDOWN_MS) return;
@@ -118,7 +121,6 @@ export class FeedControls {
       this.hudMgr.bump(this.currentModelKey(), 'like');
     });
 
-    // Heart (disabled in two-hand)
     this.hands.on('heartstart', () => {
       if (this.twoHandActive || (this.hands.state.left.pinch && this.hands.state.right.pinch)) return;
       const now = performance.now();
@@ -187,7 +189,7 @@ export class FeedControls {
     update('right', this.rightRay);
   }
 
-  // ---------- Pinch lifecycle + QUICK PINCH to show HUD ----------
+  // ---------- Pinch lifecycle + QUICK PINCH + INSTANT GRAB ----------
   private onPinchStart(side:'left'|'right'){
     this.setRayVisible(side, true);
 
@@ -199,15 +201,25 @@ export class FeedControls {
       this.scrollAccum = 0;
     }
 
-    // record quick-pinch start
     this.tapStartTime = performance.now();
     this.tapStartPos = this.hands.pinchMid(side)?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
 
-    // If the other hand is already pinching, we'll (re)arm two-hand transform baseline
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) {
       this.twoHandActive = false;
     } else {
+      // INSTANT GRAB if very close to surface
+      const pinch = this.hands.pinchMid(side);
+      const d = pinch ? this.distanceToObjectSurface(pinch) : null;
+      if (d != null && d <= this.INSTANT_GRAB_DIST) {
+        const objPosNow = this.store.getObjectWorldPos();
+        if (objPosNow && pinch) {
+          this.grabbing = true; this.grabSide = side;
+          this.grabOffset.copy(objPosNow).sub(pinch);
+          this.store.notify('Grabbed');
+          return; // no pending timer
+        }
+      }
       this.tryStartGrabPending(side);
     }
   }
@@ -215,7 +227,6 @@ export class FeedControls {
   private onPinchEnd(side:'left'|'right'){
     this.setRayVisible(side, false);
 
-    // ---- QUICK PINCH detection (primary UI trigger) ----
     const now = performance.now();
     const duration = this.tapStartTime ? (now - this.tapStartTime) : Infinity;
     const endPos = this.hands.pinchMid(side)?.clone() ?? this.hands.thumbTip(side)?.clone() ?? null;
@@ -232,19 +243,16 @@ export class FeedControls {
     }
     this.tapStartTime = null; this.tapStartPos = null;
 
-    // end grab if the grabbing hand releases
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
     if (this.grabbing && this.grabSide === side) { this.grabbing = false; this.grabSide = null; this.store.notify('Placed'); }
 
-    // leaving two-hand mode if one hand releases
     const other = side === 'left' ? 'right' : 'left';
     if (!this.hands.state[other].pinch) { this.twoHandActive = false; this.rotVel = 0; }
 
-    // reset scroll trackers
     this.lastPinchY = null; this.filtPinchY = null; this.scrollAccum = 0; this.pinchStartAt = null;
   }
 
-  // ---------- Scroll (ONE hand, vertical, deliberate) ----------
+  // ---------- Scroll (ONE hand, vertical) ----------
   private updateScroll(now:number){
     if (now < this.scrollCooldownUntil) return;
     if (this.grabPending || this.grabbing) return;
