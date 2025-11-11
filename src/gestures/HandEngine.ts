@@ -65,10 +65,7 @@ export class HandEngine {
 
     this.lastPos.left = {}; this.lastPos.right = {};
     for (const src of inputSources) {
-      const handed = (src as any).handedness;
-      if (handed !== 'left' && handed !== 'right') continue; // skip ambiguous
-      const side: Side = handed;
-
+      const side = (src.handedness === 'left' || src.handedness === 'right') ? src.handedness : 'left';
       const hand = src.hand as XRHand;
       for (const name of XR_HAND_JOINTS) {
         const js = (hand as any).get?.(name as string) as XRJointSpace | undefined;
@@ -83,7 +80,7 @@ export class HandEngine {
     const J = (side:Side, name:XRHandJointName) => this.lastPos[side]?.[name] ?? null;
     const dist = (a:THREE.Vector3|null, b:THREE.Vector3|null) => (a&&b)? a.distanceTo(b) : 1e9;
 
-    // Pinch
+    // Pinch (per hand)
     const leftPinch  = dist(J('left','thumb-tip'),  J('left','index-finger-tip'))  < 0.035;
     const rightPinch = dist(J('right','thumb-tip'), J('right','index-finger-tip')) < 0.035;
     this.state.left.pinch  = leftPinch;
@@ -91,7 +88,7 @@ export class HandEngine {
     this.updateFlag('left.pinch', leftPinch, {side:'left'});
     this.updateFlag('right.pinch', rightPinch, {side:'right'});
 
-    // Thumbs-up
+    // Thumbs-up (simple heuristic)
     const thumbUp = (side:Side) => {
       const W = J(side,'wrist'), T = J(side,'thumb-tip');
       if (!W || !T) return false;
@@ -103,7 +100,7 @@ export class HandEngine {
     if (thumbUp('left'))  this.emit('thumbsupstart',{side:'left'});
     if (thumbUp('right')) this.emit('thumbsupstart',{side:'right'});
 
-    // HEART (both hands together)
+    // HEART: both index tips close AND both thumb tips close
     const L_i = J('left','index-finger-tip');
     const R_i = J('right','index-finger-tip');
     const L_t = J('left','thumb-tip');
@@ -113,31 +110,29 @@ export class HandEngine {
     this.state.heart = heartNow;
     this.updateFlag('heart', heartNow);
 
-    // PEACE: index+middle extended, ring+pinky curled (thumb free)
-    const isExtended = (side:Side, tip:XRHandJointName, wrist='wrist') => {
-      const W = J(side, wrist as XRHandJointName), T = J(side, tip);
-      return (W && T) ? T.distanceTo(W) > 0.085 : false;
+    // ===== Peace ✌️ detection (either hand) =====
+    const isExtended = (side:Side, tip:XRHandJointName, thresh=0.085) => {
+      const W = J(side,'wrist'), T = J(side, tip);
+      return !!(W && T && T.distanceTo(W) > thresh);
     };
-    const isCurled = (side:Side, tip:XRHandJointName, wrist='wrist') => {
-      const W = J(side, wrist as XRHandJointName), T = J(side, tip);
-      return (W && T) ? T.distanceTo(W) < 0.070 : false;
+    const isCurled = (side:Side, tip:XRHandJointName, thresh=0.075) => {
+      const W = J(side,'wrist'), T = J(side, tip);
+      return !!(W && T && T.distanceTo(W) < thresh);
     };
 
     const peace = (side:Side) =>
       isExtended(side,'index-finger-tip') &&
       isExtended(side,'middle-finger-tip') &&
       isCurled(side,'ring-finger-tip') &&
-      isCurled(side,'pinky-finger-tip');
+      isCurled(side,'pinky-finger-tip'); // thumb free/ignored
 
-    const leftPeace  = peace('left');
-    const rightPeace = peace('right');
-    this.state.left.peace  = leftPeace;
-    this.state.right.peace = rightPeace;
-    this.updateFlag('left.peace', leftPeace, {side:'left'});
-    this.updateFlag('right.peace', rightPeace, {side:'right'});
+    this.state.left.peace  = peace('left');
+    this.state.right.peace = peace('right');
+    this.updateFlag('left.peace',  this.state.left.peace,  {side:'left'});
+    this.updateFlag('right.peace', this.state.right.peace, {side:'right'});
   }
 
-  wristY(side: Side){ const J = this.lastPos[side]['wrist']; return J ? J.y : null; }
+  wristY(side: Side){ const Jp = this.lastPos[side]['wrist']; return Jp ? Jp.y : null; }
   thumbTip(side: Side){ const p = this.lastPos[side]['thumb-tip']; return p ? p.clone() : null; }
   indexTip(side: Side){ const p = this.lastPos[side]['index-finger-tip']; return p ? p.clone() : null; }
   pinchMid(side: Side){
