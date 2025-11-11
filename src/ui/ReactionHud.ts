@@ -4,19 +4,13 @@ import * as THREE from 'three';
 export type ReactionKind = 'like' | 'heart' | 'repost';
 export type Comment = { id: string; author?: string; text: string };
 
-/** Public hit type (always includes the element kind; point is optional) */
+/** Which thing on the HUD was hit. */
 export type HudHit =
-  | { kind: 'like' | 'heart' | 'repost'; point?: THREE.Vector3 }
-  | { kind: 'post'; point?: THREE.Vector3 }
-  | { kind: 'comments'; point?: THREE.Vector3 }
-  | { kind: 'compose'; point?: THREE.Vector3 };
+  | { kind: 'like' | 'heart' | 'repost' | 'post' | 'compose' | 'comments'; point?: THREE.Vector3 }
+  | null;
 
-/** Internal hit type used by the canvas mapper */
-type HitCore =
-  | { kind: 'like' | 'heart' | 'repost' }
-  | { kind: 'post' }
-  | { kind: 'comments' }
-  | { kind: 'compose' }
+type Hit =
+  | { kind: 'like' | 'heart' | 'repost' | 'post' | 'comments' }
   | null;
 
 export class ReactionHud {
@@ -36,11 +30,9 @@ export class ReactionHud {
   private scrollY = 0;                 // pixels
   private readonly SCROLL_STEP = 42;
 
-  // compose (in-panel) state
+  // compose
   private composing = false;
   private composeText = '';
-  private composeCaretBlink = 0;
-  private composeTimer?: number;
   private onComposeSubmit?: (text: string) => void;
 
   // particles (chips)
@@ -68,14 +60,13 @@ export class ReactionHud {
   private repostRect!: {x:number;y:number;w:number;h:number};
   private commentsRect!: {x:number;y:number;w:number;h:number};
   private postBtnRect!: {x:number;y:number;w:number;h:number};
-  private composeRect!: {x:number;y:number;w:number;h:number};
 
-  // plane hit tolerance along Z (meters)
+  // small thickness to consider Z proximity for hits (meters)
   private readonly HIT_THICKNESS = 0.08;
 
   constructor(
     private scene: THREE.Scene,
-    _camera: THREE.Camera, // kept for signature compatibility; not used for rotation
+    _camera: THREE.Camera, // not used for rotation – panel doesn't follow head
     private getObjectWorldPos: () => THREE.Vector3 | null
   ) {
     this.panelCanvas = document.createElement('canvas');
@@ -93,8 +84,8 @@ export class ReactionHud {
     const mat = new THREE.MeshBasicMaterial({
       map: this.panelTex,
       transparent: true,
-      opacity: 1.0,             // panel transparency is drawn in the canvas
-      depthTest: false,
+      opacity: 1.0,             // transparency drawn in canvas
+      depthTest: true,
       depthWrite: false
     });
     this.panel = new THREE.Mesh(geo, mat);
@@ -102,20 +93,10 @@ export class ReactionHud {
     this.anchor.add(this.panel);
     this.scene.add(this.anchor);
 
-    // keyboard capture (XR DOM Overlay/hardware keyboard)
-    window.addEventListener('keydown', this.onKeyDown, { passive: false });
-
     this.redraw();
   }
 
-  dispose(){
-    window.removeEventListener('keydown', this.onKeyDown as any);
-    if (this.composeTimer) clearInterval(this.composeTimer);
-  }
-
-  // ---------- public API ----------
-
-  /** Provide icon URLs (heart/like/repost). */
+  // ----------------- Public API -----------------
   setIcons(heartUrl?: string, likeUrl?: string, repostUrl?: string) {
     const load = (url?: string) => {
       if (!url) return undefined;
@@ -130,7 +111,6 @@ export class ReactionHud {
     this.repostIcon = load(repostUrl);
   }
 
-  /** Counters */
   setCounts(like: number, heart: number, repost: number) {
     this.likeCount   = Math.max(0, Math.floor(like));
     this.heartCount  = Math.max(0, Math.floor(heart));
@@ -138,29 +118,101 @@ export class ReactionHud {
     this.redraw();
   }
 
-  /** Comments (replace full list) */
   setComments(list: Comment[]) {
     this.comments = Array.isArray(list) ? list.slice() : [];
     this.scrollY = 0;
     this.redraw();
   }
-
-  /** Scroll comments (positive = down) */
   scrollComments(steps: number) {
     const maxScroll = Math.max(0, this.contentHeight() - this.commentsViewportH());
     this.scrollY = THREE.MathUtils.clamp(this.scrollY + steps * this.SCROLL_STEP, 0, maxScroll);
     this.redraw();
   }
-
-  /** Append a comment visually (manager should own persistence). */
   appendComment(c: Comment) {
     this.comments.push(c);
     this.redraw();
   }
-
-  /** Quick post: add a canned comment (used by MR "Post" button) */
   postQuickComment(text = 'Posted from MR ✍️') {
-    if (this.onComposeSubmit) this.onComposeSubmit(text);
+    this.appendComment({ id: `c-${Date.now()}`, author: 'You', text });
+  }
+
+  setOnComposeSubmit(cb: (text: string)=>void) { this.onComposeSubmit = cb; }
+  beginCommentEntry(prefill = '') {
+    this.composing = true;
+    this.composeText = prefill;
+    this.redraw();
+
+    // HOOK: let host attach a WebXR keyboard.
+    // Implement this to open your MR keyboard and call window.dispatchEvent(new CustomEvent('holoreel:keyboardSubmit',{detail:text}))
+    (window as any).dispatchEvent?.(new CustomEvent('holoreel:keyboardOpen'));
+
+    // Minimal fallback so you can test immediately:
+    setTimeout(async () => {
+      if (!this.composing) return;
+      // If your runtime injects text via event, we'll capture it below; otherwise prompt:
+      const handler = (e: any) => {
+        if (!this.composing) return;
+        const val = String(e?.detail ?? '').trim();
+        if (!val) return;
+        this.finishCompose(val);
+      };
+      window.addEventListener('holoreel:keyboardSubmit', handler, { once: true });
+
+      // Fallback prompt (kept non-blocking to avoid XR issues)
+      setTimeout(() => {
+        if (!this.composing) return;
+        const v = window.prompt('Type your comment:') ?? '';
+        if (v.trim()) this.finishCompose(v.trim());
+        else this.cancelCommentEntry();
+        window.removeEventListener('holoreel:keyboardSubmit', handler);
+      }, 10);
+    }, 0);
+  }
+  cancelCommentEntry() { this.composing = false; this.composeText = ''; this.redraw(); }
+  isComposing() { return this.composing; }
+
+  /** Panel center in world coordinates (for aiming rays) */
+  getPanelCenterWorld(): THREE.Vector3 {
+    return this.anchor.position.clone();
+  }
+
+  /** Raycast in world space against the panel. */
+  raycastHit(ray: THREE.Ray, thickness = 10): HudHit {
+    // build plane for panel (facing camera-ish, but we keep it axis-aligned)
+    const normal = new THREE.Vector3(0, 0, 1);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, this.anchor.position);
+    const hitPoint = new THREE.Vector3();
+    const ok = ray.intersectPlane(plane, hitPoint);
+    if (!ok) return null;
+
+    // reject if too far from center in Z
+    if (Math.abs(hitPoint.z - this.anchor.position.z) > (this.HIT_THICKNESS * (thickness/10))) return null;
+
+    // Convert world point to panel space, then to canvas px
+    const dx = hitPoint.x - this.anchor.position.x;
+    const dy = hitPoint.y - this.anchor.position.y;
+    if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) return null;
+
+    const u = (dx / this.PANEL_W) + 0.5;
+    const v = 0.5 - (dy / this.PANEL_H);
+    const px = u * this.CANVAS_W;
+    const py = v * this.CANVAS_H;
+
+    const inRect = (r:{x:number;y:number;w:number;h:number}) =>
+      px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+
+    if (inRect(this.heartRect))  return { kind: 'heart', point: hitPoint.clone() };
+    if (inRect(this.likeRect))   return { kind: 'like', point: hitPoint.clone() };
+    if (inRect(this.repostRect)) return { kind: 'repost', point: hitPoint.clone() };
+    if (inRect(this.postBtnRect)) return { kind: 'post', point: hitPoint.clone() };
+    if (inRect(this.commentsRect)) return { kind: (this.composing ? 'compose' : 'comments'), point: hitPoint.clone() };
+    return null;
+  }
+
+  /** Older helper if you only have a world point (not a ray). */
+  projectHitFromPoint(p: THREE.Vector3): HudHit {
+    const ray = new THREE.Ray(p.clone(), this.anchor.position.clone().sub(p).normalize());
+    return this.raycastHit(ray, 10);
   }
 
   /** Visual chip for any reaction. */
@@ -172,10 +224,9 @@ export class ReactionHud {
   /** Follow object position only (NO rotation/scale updates). */
   tick(dt: number) {
     const center = this.getObjectWorldPos?.();
-    if (center) this.anchor.position.copy(center).add(this.OFFSET);
-
-    // caret blink
-    if (this.composing) this.composeCaretBlink = (this.composeCaretBlink + dt) % 1.0;
+    if (center) {
+      this.anchor.position.copy(center).add(this.OFFSET);
+    }
 
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
@@ -186,78 +237,38 @@ export class ReactionHud {
     }
   }
 
-  /** Raycast-style hit test. Provide a THREE.Ray in world space. Returns element or null. */
-  raycastHit(ray: THREE.Ray, marginPx = 12): HudHit | null {
-    // Panel is an XY plane centered at anchor.position with normal +Z.
-    const planeZ = this.anchor.position.z;
-    const denom = ray.direction.z;
-    if (Math.abs(denom) < 1e-5) return null; // nearly parallel
-
-    const t = (planeZ - ray.origin.z) / denom;
-    if (t < 0) return null;
-
-    const p = ray.at(t, new THREE.Vector3());
-    if (Math.abs(p.z - planeZ) > this.HIT_THICKNESS) return null;
-
-    // Inside quad in meters?
-    const localX = p.x - this.anchor.position.x;
-    const localY = p.y - this.anchor.position.y;
-    if (Math.abs(localX) > this.PANEL_W * 0.5 || Math.abs(localY) > this.PANEL_H * 0.5) return null;
-
-    // Convert to canvas pixel coords
-    const u = (localX / this.PANEL_W) + 0.5;
-    const v = 0.5 - (localY / this.PANEL_H);
-    const px = u * this.CANVAS_W;
-    const py = v * this.CANVAS_H;
-
-    const hitCore = this.uiHitAt(px, py, marginPx);
-    if (!hitCore) return null;
-    return { ...hitCore, point: p };
-  }
-
-  /** Legacy helper: world point projected straight onto panel. */
-  projectHitFromPoint(worldPoint: THREE.Vector3, opts?:{maxPlaneDistance?:number;marginPx?:number}): HudHit | null {
-    const planeZ = this.anchor.position.z;
-    const maxZ = opts?.maxPlaneDistance ?? this.HIT_THICKNESS;
-    if (Math.abs(worldPoint.z - planeZ) > maxZ) return null;
-
-    const localX = worldPoint.x - this.anchor.position.x;
-    const localY = worldPoint.y - this.anchor.position.y;
-    if (Math.abs(localX) > this.PANEL_W * 0.5 || Math.abs(localY) > this.PANEL_H * 0.5) return null;
-
-    const u = (localX / this.PANEL_W) + 0.5;
-    const v = 0.5 - (localY / this.PANEL_H);
-    const px = u * this.CANVAS_W;
-    const py = v * this.CANVAS_H;
-
-    const hitCore = this.uiHitAt(px, py, opts?.marginPx ?? 12);
-    if (!hitCore) return null;
-    return { ...hitCore, point: worldPoint.clone() };
-  }
-
-  /** Expose panel center (world) */
-  getPanelCenterWorld(): THREE.Vector3 {
-    return this.anchor.position.clone();
-  }
-
-  /** Begin in-panel compose mode; optional prefill. */
-  beginCommentEntry(prefill = '') {
-    this.composing = true;
-    this.composeText = prefill;
-    this.composeCaretBlink = 0;
-    if (this.composeTimer) clearInterval(this.composeTimer);
-    this.composeTimer = window.setInterval(() => this.redraw(), 120);
-    this.redraw();
-  }
-  cancelCommentEntry() {
+  // ----------------- internals -----------------
+  private finishCompose(text: string) {
     this.composing = false;
-    if (this.composeTimer) { clearInterval(this.composeTimer); this.composeTimer = undefined; }
+    this.composeText = '';
+    this.onComposeSubmit?.(text);
     this.redraw();
   }
-  isComposing(){ return this.composing; }
-  setOnComposeSubmit(fn: (text: string)=>void){ this.onComposeSubmit = fn; }
 
-  // ---------- drawing ----------
+  private hitTestWorld(worldPoint: THREE.Vector3): Hit {
+    // (kept for compatibility; raycastHit() is preferred)
+    const center = this.anchor.position.clone();
+    const dx = worldPoint.x - center.x;
+    const dy = worldPoint.y - center.y;
+    const dz = worldPoint.z - center.z;
+    if (Math.abs(dz) > this.HIT_THICKNESS) return null;
+    if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) return null;
+
+    const u = (dx / this.PANEL_W) + 0.5;
+    const v = 0.5 - (dy / this.PANEL_H);
+    const px = u * this.CANVAS_W;
+    const py = v * this.CANVAS_H;
+
+    const inRect = (r:{x:number;y:number;w:number;h:number}) =>
+      px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+
+    if (inRect(this.heartRect))  return { kind: 'heart' };
+    if (inRect(this.likeRect))   return { kind: 'like' };
+    if (inRect(this.repostRect)) return { kind: 'repost' };
+    if (inRect(this.postBtnRect)) return { kind: 'post' };
+    if (inRect(this.commentsRect)) return { kind: 'comments' };
+    return null;
+  }
 
   private redraw() {
     const c = this.panelCanvas, ctx = this.ctx;
@@ -272,18 +283,22 @@ export class ReactionHud {
     ctx.fillStyle = '#fff';
     ctx.font = '700 34px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('Reactions', 36, 62);
+    ctx.fillText(this.composing ? 'Compose Comment' : 'Reactions', 36, 62);
 
-    // Icons row
+    // Icons row (hide when composing to focus UI)
     const iconSize = 112;
     const baseX = 36;
     const gap = 36 + iconSize;
     const tileY = 62 + 32;
 
-    // tiles
-    this.heartRect  = this.drawIconWithCounter(this.heartIcon, '❤️', baseX,          tileY, iconSize, this.heartCount);
-    this.likeRect   = this.drawIconWithCounter(this.likeIcon,  '👍', baseX + gap,    tileY, iconSize, this.likeCount);
-    this.repostRect = this.drawIconWithCounter(this.repostIcon,'🔁', baseX + gap*2,  tileY, iconSize, this.repostCount);
+    if (!this.composing) {
+      this.heartRect  = this.drawIconWithCounter(this.heartIcon, '❤️', baseX,          tileY, iconSize, this.heartCount);
+      this.likeRect   = this.drawIconWithCounter(this.likeIcon,  '👍', baseX + gap,    tileY, iconSize, this.likeCount);
+      this.repostRect = this.drawIconWithCounter(this.repostIcon,'🔁', baseX + gap*2,  tileY, iconSize, this.repostCount);
+    } else {
+      // reserve rects to something empty so hit tests don't collide
+      this.heartRect = this.likeRect = this.repostRect = { x:-1, y:-1, w:1, h:1 };
+    }
 
     // Comments box (right side)
     const boxX = baseX + gap * 2 + iconSize + 48;
@@ -296,15 +311,50 @@ export class ReactionHud {
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
     ctx.fill();
 
-    // Comments clipped region
+    // Compose mode (draw text box + hint)
+    if (this.composing) {
+      const pad = 12;
+      const inputH = 56;
+      const inputRect = { x: this.commentsRect.x, y: this.commentsRect.y, w: this.commentsRect.w, h: inputH };
+      this.rounded(ctx, inputRect.x, inputRect.y, inputRect.w, inputRect.h, 10);
+      ctx.fillStyle = 'rgba(255,255,255,0.14)';
+      ctx.fill();
+
+      ctx.fillStyle = '#fff';
+      ctx.font = '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const shown = this.composeText || 'Type with your XR keyboard…';
+      ctx.fillText(shown, inputRect.x + pad, inputRect.y + inputH/2);
+
+      // Post button (reused spot)
+      const btnW = 160, btnH = 44;
+      this.postBtnRect = {
+        x: this.commentsRect.x + this.commentsRect.w - btnW,
+        y: this.commentsRect.y + this.commentsRect.h - btnH,
+        w: btnW, h: btnH
+      };
+      this.rounded(ctx, this.postBtnRect.x, this.postBtnRect.y, this.postBtnRect.w, this.postBtnRect.h, 12);
+      ctx.fillStyle = '#4b83ff';
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = '700 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Submit', this.postBtnRect.x + btnW/2, this.postBtnRect.y + btnH/2 + 2);
+
+      this.panelTex.needsUpdate = true;
+      return;
+    }
+
+    // Comments clipped region (when not composing)
     ctx.save();
     ctx.beginPath();
-    // leave 80px at bottom for compose + Post
-    ctx.rect(this.commentsRect.x, this.commentsRect.y, this.commentsRect.w, this.commentsRect.h - 84);
+    ctx.rect(this.commentsRect.x, this.commentsRect.y, this.commentsRect.w, this.commentsRect.h - 64);
     ctx.clip();
     ctx.translate(0, -this.scrollY);
 
-    // Render each comment as its own “bubble”
+    // Render each comment bubble
     let cy = this.commentsRect.y + 8;
     for (const cmt of this.comments) {
       const bubbleW = this.commentsRect.w;
@@ -326,43 +376,7 @@ export class ReactionHud {
     }
     ctx.restore();
 
-    // Compose area (inside comments, bottom-left)
-    const composeH = 44;
-    const composePad = 12;
-    this.composeRect = {
-      x: this.commentsRect.x + 8,
-      y: this.commentsRect.y + this.commentsRect.h - composeH - 12,
-      w: this.commentsRect.w - 8 - 168, // leave room for Post button
-      h: composeH
-    };
-    this.rounded(ctx, this.composeRect.x, this.composeRect.y, this.composeRect.w, this.composeRect.h, 10);
-    ctx.fillStyle = 'rgba(255,255,255,0.14)';
-    ctx.fill();
-
-    // Compose text + caret
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(this.composeRect.x + composePad, this.composeRect.y + 6, this.composeRect.w - composePad*2, this.composeRect.h - 12);
-    ctx.clip();
-    ctx.fillStyle = '#fff';
-    ctx.font = '500 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    const text = this.composing ? this.composeText : (this.composeText || 'Type a comment…');
-    const placeholder = !this.composing && !this.composeText;
-    ctx.globalAlpha = placeholder ? 0.7 : 1.0;
-    ctx.fillText(text, this.composeRect.x + composePad, this.composeRect.y + composeH/2 + 1);
-
-    // caret blink
-    if (this.composing && (this.composeCaretBlink < 0.5)) {
-      const preW = ctx.measureText(this.composeText).width;
-      const cx = this.composeRect.x + composePad + preW + 2;
-      ctx.globalAlpha = 1;
-      ctx.fillRect(cx, this.composeRect.y + 8, 2, composeH - 16);
-    }
-    ctx.restore();
-
-    // "Post" button (bottom-right inside comments area)
+    // "Post" button (inside comments area, bottom-right)
     const btnW = 160, btnH = 44;
     this.postBtnRect = {
       x: this.commentsRect.x + this.commentsRect.w - btnW,
@@ -402,31 +416,11 @@ export class ReactionHud {
     }
   }
 
-  // ---------- mapping / helpers ----------
-
-  /** Decide which UI rect (if any) a pixel hits. */
-  private uiHitAt(px: number, py: number, marginPx = 12): HitCore {
-    const expand = (r:{x:number;y:number;w:number;h:number}) =>
-      ({x:r.x - marginPx, y:r.y - marginPx, w:r.w + 2*marginPx, h:r.h + 2*marginPx});
-    const inRect = (r:{x:number;y:number;w:number;h:number}) =>
-      px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
-
-    if (inRect(expand(this.heartRect)))  return { kind: 'heart' };
-    if (inRect(expand(this.likeRect)))   return { kind: 'like' };
-    if (inRect(expand(this.repostRect))) return { kind: 'repost' };
-    if (inRect(expand(this.postBtnRect))) return { kind: 'post' };
-    if (inRect(expand(this.composeRect))) return { kind: 'compose' };
-    if (inRect(expand(this.commentsRect))) return { kind: 'comments' };
-    return null;
-  }
-
   private commentsViewportH(): number {
-    // clipped to commentsRect minus bottom area where the Post button sits (≈84px reserved)
-    return this.commentsRect.h - 84;
+    return this.commentsRect.h - 64; // space for Post
   }
 
   private contentHeight(): number {
-    // recompute layout height similar to redraw (bubbles)
     let total = 8;
     for (const cmt of this.comments) {
       const linesH = this.measureWrappedHeight(
@@ -528,34 +522,4 @@ export class ReactionHud {
     h += lh;
     return h;
   }
-
-  // ---------- keyboard handling ----------
-
-  private onKeyDown = (e: KeyboardEvent) => {
-    if (!this.composing) return;
-
-    // Avoid scrolling page / AR button focus
-    e.preventDefault();
-
-    if (e.key === 'Escape') {
-      this.cancelCommentEntry();
-      return;
-    }
-    if (e.key === 'Enter') {
-      const text = this.composeText.trim();
-      if (text.length && this.onComposeSubmit) this.onComposeSubmit(text);
-      this.composeText = '';
-      this.cancelCommentEntry();
-      return;
-    }
-    if (e.key === 'Backspace') {
-      this.composeText = this.composeText.slice(0, -1);
-      this.redraw();
-      return;
-    }
-    if (e.key.length === 1) {
-      this.composeText += e.key;
-      this.redraw();
-    }
-  };
 }

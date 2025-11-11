@@ -15,12 +15,13 @@ export class FeedControls {
   private scrollArmed = false;
   private scrollDisarmedThisPinch = false;
 
-  private readonly SCROLL_MIN_HOLD_MS = 140;
-  private readonly SCROLL_DISP = 0.028;
-  private readonly SCROLL_COOLDOWN_MS = 330;
-  private readonly SCROLL_VEL_MIN = 0.010;
-  private readonly SCROLL_IN_AIR_DIST = 0.24;
-  private readonly SCROLL_START_FAR = 0.28;
+  // Tuned to make scrolling easier again
+  private readonly SCROLL_MIN_HOLD_MS = 120;
+  private readonly SCROLL_DISP = 0.026;
+  private readonly SCROLL_COOLDOWN_MS = 300;
+  private readonly SCROLL_VEL_MIN = 0.008;
+  private readonly SCROLL_IN_AIR_DIST = 0.20;
+  private readonly SCROLL_START_FAR = 0.20;
   private readonly LPF_SCROLL_ALPHA = 0.22;
 
   // transform / grab
@@ -36,13 +37,14 @@ export class FeedControls {
   private grabPending = false; private grabPendingSide: 'left'|'right' | null = null; private grabPendingStartY: number | null = null; private grabTimer: number | null = null;
   private readonly HOLD_MS = 150; private readonly PENDING_CANCEL_MOVE = 0.06; private readonly INSTANT_GRAB_DIST = 0.14;
 
-  // rays
+  // rays (visual helpers only; kept off while UI is hit)
   private rayGroup = new THREE.Group();
   private leftRay?: THREE.Line;  private rightRay?: THREE.Line;
   private rayMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.03, gapSize: 0.02, transparent: true, opacity: 0.9, depthTest: false });
 
-  // reaction throttles
-  private lastLikeAt = 0; private lastHeartAt = 0; private readonly REACT_COOLDOWN_MS = 800;
+  // reaction throttles (incl. repost – fixes spam)
+  private lastLikeAt = 0; private lastHeartAt = 0; private lastRepostAt = 0;
+  private readonly REACT_COOLDOWN_MS = 800;
 
   // UI dwell assist (camera→index finger)
   private readonly DWELL_MS = 350;
@@ -73,11 +75,14 @@ export class FeedControls {
       this.store.saveCurrent(); this.hudMgr.bump(this.currentModelKey(),'heart');
     });
 
-    // NEW: ILY opens comment entry (XR keyboard)
+    // ILY → open compose (keyboard hook)
     this.hands.on('ilystart', () => { this.hudMgr.beginCommentEntry(); });
 
-    // Peace = repost
-    this.hands.on('peacestart', () => { this.hudMgr.bump(this.currentModelKey(),'repost'); });
+    // Peace → repost (debounced to fix spam)
+    this.hands.on('peacestart', () => {
+      const now=performance.now(); if(now-this.lastRepostAt<this.REACT_COOLDOWN_MS) return; this.lastRepostAt=now;
+      this.hudMgr.bump(this.currentModelKey(),'repost');
+    });
 
     // WebXR select: pinch-click on UI panel
     this.installSelectHandlers();
@@ -87,7 +92,7 @@ export class FeedControls {
     this.app.onFrame(() => {
       const now = performance.now(); const dt = Math.max(0,(now-last)/1000); last = now;
 
-      // camera→index dwell ray (extra help on runtimes that don’t send select)
+      // dwell ray (extra help on runtimes that don’t send select)
       this.updateUiRayAndDwell(now);
 
       this.updateAutoAcquirePending();
@@ -103,40 +108,35 @@ export class FeedControls {
   }
 
   // ---------- Try to click HUD directly from pinch start ----------
-  // Try to click the MR HUD panel from a given hand. Returns true if the HUD handled it.
   private tryClickHud(side: 'left'|'right'): boolean {
     const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
     if (!from) return false;
 
-    // Aim the ray from the hand to the panel center
     const panelCenter = this.hudMgr.getPanelCenterWorld();
-    if (!panelCenter) return false;
-
     const dir = panelCenter.clone().sub(from).normalize();
     const ray = new THREE.Ray(from.clone(), dir);
 
     const hit = this.hudMgr.raycastHit(ray);
     if (!hit) return false;
 
-    // A HUD widget was hit — handle it and swallow the pinch so it doesn't scroll/grab
-    const key = this.currentModelKey();
-    switch (hit.kind) {
-      case 'like':   this.store.likeCurrent(from.clone(), side); this.hudMgr.bump(key,'like'); break;
-      case 'heart':  this.store.saveCurrent(from.clone());        this.hudMgr.bump(key,'heart'); break;
-      case 'repost': this.hudMgr.bump(key,'repost'); break;
-      case 'post':   this.hudMgr.beginCommentEntry(''); break;
-      case 'compose': this.hudMgr.beginCommentEntry(''); break;
-      case 'comments': /* you can start a comment-scroll mode here if desired */ break;
-    }
+    // Hide helper ray for this pinch — user clicked UI, not content
+    this.setRayVisible(side, false);
 
-    // prevent this pinch from triggering scroll/drag
+    // Handle HUD hit
+    const key = this.currentModelKey();
+    if (hit.kind === 'like')       { this.store.likeCurrent(from.clone(), side); this.hudMgr.bump(key,'like'); }
+    else if (hit.kind === 'heart') { this.store.saveCurrent(from.clone());        this.hudMgr.bump(key,'heart'); }
+    else if (hit.kind === 'repost'){ const now=performance.now(); if(now-this.lastRepostAt>=this.REACT_COOLDOWN_MS){ this.lastRepostAt=now; this.hudMgr.bump(key,'repost'); } }
+    else if (hit.kind === 'post' || hit.kind === 'compose')  { this.hudMgr.beginCommentEntry(''); }
+
+    // swallow pinch so it doesn't scroll/grab this time
     this.scrollDisarmedThisPinch = true;
     this.grabPending = false;
     this.grabbing = false;
     return true;
   }
 
-  // ---------- WebXR select to click the panel ----------
+  // ---------- WebXR select → click HUD ----------
   private installSelectHandlers(){
     const xr = (this.app.renderer.xr as any);
     const ensure = () => {
@@ -160,16 +160,14 @@ export class FeedControls {
         const key = this.currentModelKey();
         if (hit.kind === 'like')       { this.store.likeCurrent();   this.hudMgr.bump(key,'like'); }
         else if (hit.kind === 'heart') { this.store.saveCurrent();   this.hudMgr.bump(key,'heart'); }
-        else if (hit.kind === 'repost'){ this.hudMgr.bump(key,'repost'); }
+        else if (hit.kind === 'repost'){ const now=performance.now(); if(now-this.lastRepostAt>=this.REACT_COOLDOWN_MS){ this.lastRepostAt=now; this.hudMgr.bump(key,'repost'); } }
         else if (hit.kind === 'post' || hit.kind === 'compose')  { this.hudMgr.beginCommentEntry(); }
       };
 
-      // avoid duplicate listeners
-      sess.removeEventListener?.('select', clickFromEvent as any);
+      // avoid duplicates
       sess.addEventListener('select', clickFromEvent);
     };
 
-    // bind now (if session already running) and on future sessions
     ensure();
     xr.addEventListener?.('sessionstart', ensure);
   }
@@ -199,12 +197,12 @@ export class FeedControls {
       const key = this.currentModelKey();
       if (hitKind === 'like')       { this.store.likeCurrent(); this.hudMgr.bump(key,'like'); }
       else if (hitKind === 'heart') { this.store.saveCurrent(); this.hudMgr.bump(key,'heart'); }
-      else if (hitKind === 'repost'){ this.hudMgr.bump(key,'repost'); }
+      else if (hitKind === 'repost'){ const n=performance.now(); if(n-this.lastRepostAt>=this.REACT_COOLDOWN_MS){ this.lastRepostAt=n; this.hudMgr.bump(key,'repost'); } }
       else if (hitKind === 'post' || hitKind === 'compose')  { this.hudMgr.beginCommentEntry(); }
     }
   }
 
-  // ---------- rays (visual) ----------
+  // ---------- rays (visual helpers only) ----------
   private initRay(side:'left'|'right'){
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(6), 3));
@@ -219,7 +217,7 @@ export class FeedControls {
     const update = (side:'left'|'right', line?:THREE.Line) => {
       if (!line) return;
       const pinching = this.hands.state[side].pinch;
-      const show = pinching || (this.grabbing && this.grabSide === side);
+      const show = pinching && !this.scrollDisarmedThisPinch && !this.grabbing; // keep off while UI is active
       if (!show){ line.visible = false; return; }
 
       const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
@@ -238,11 +236,10 @@ export class FeedControls {
 
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side:'left'|'right'){
-    this.setRayVisible(side, true);
-
-    // NEW: first try clicking the floating HUD. If it handled the pinch, stop here.
+    // First, try clicking the MR HUD; if it handled, do not show dotted ray.
     if (this.tryClickHud(side)) return;
 
+    this.setRayVisible(side, true);
     this.pinchStartAt = performance.now();
     const y = this.hands.pinchMid(side)?.y ?? null;
     if (y != null) { this.lastPinchY=y; this.filtPinchY=y; this.scrollAccum=0; }
