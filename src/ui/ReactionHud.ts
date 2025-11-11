@@ -17,21 +17,16 @@ export class ReactionHud {
 
   private visible = false;
   private hideAt = Infinity; // persistent by default => never hides
-  private readonly AUTO_HIDE_MS = 4000;
 
-  private readonly PANEL_W = 0.42;
-  private readonly PANEL_H = 0.24;
+  // panel size
+  private readonly PANEL_W = 0.46;
+  private readonly PANEL_H = 0.26;
 
-  private readonly BASE_OFFSET = new THREE.Vector3(0, 0.18, 0);
+  // Position offset (slightly above the model, no orbit)
+  private readonly OFFSET = new THREE.Vector3(0, 0.22, 0); // raise a bit above
+  private persistent = true; // MR panel always visible (can be toggled via setPersistent)
 
-  private orbitEnabled = true;
-  private orbitRadius = 0.18;
-  private orbitSpeed = 0.6;
-  private theta = 0;
-  private bobAmp = 0.02;
-  private bobSpeed = 1.4;
-
-  private persistent = true; // <<< MR panel always visible (can be toggled via setPersistent)
+  // icons (optional)
   private heartIcon?: HTMLImageElement;
   private likeIcon?: HTMLImageElement;
 
@@ -40,9 +35,10 @@ export class ReactionHud {
     private camera: THREE.Camera,
     private getObjectWorldPos: () => THREE.Vector3 | null
   ) {
+    // canvas used as panel texture
     this.panelCanvas = document.createElement('canvas');
     this.panelCanvas.width = 1024;
-    this.panelCanvas.height = 512;
+    this.panelCanvas.height = 576;
     const ctx = this.panelCanvas.getContext('2d');
     if (!ctx) throw new Error('ReactionHud: cannot get 2D context');
     this.ctx = ctx;
@@ -51,12 +47,15 @@ export class ReactionHud {
     this.panelTex.minFilter = THREE.LinearFilter;
     this.panelTex.magFilter = THREE.LinearFilter;
 
+    // plane in 3D (mixed reality)
     const geo = new THREE.PlaneGeometry(this.PANEL_W, this.PANEL_H);
     const mat = new THREE.MeshBasicMaterial({
       map: this.panelTex,
       transparent: true,
-      opacity: 0.0,
-      depthTest: false,   // always on top of real-world passthrough/meshes
+      // leave material fully opaque; the canvas we draw has alpha in its pixels.
+      // If you want global panel fade, set opacity to < 1.0.
+      opacity: 1.0,
+      depthTest: false,   // always draw on top of scene passthrough/meshes
       depthWrite: false
     });
     this.panel = new THREE.Mesh(geo, mat);
@@ -97,13 +96,13 @@ export class ReactionHud {
   }
 
   show(autoHide = true) {
-    if (!this.visible) { this.visible = true; this.fadeTo(1.0, 160); }
-    this.hideAt = autoHide && !this.persistent ? (performance.now() + this.AUTO_HIDE_MS) : Infinity;
+    if (!this.visible) { this.visible = true; this.fadeTo(1.0, 140); }
+    this.hideAt = this.persistent ? Infinity : (performance.now() + 4000);
   }
   hide() {
     if (!this.persistent && this.visible) {
       this.visible = false;
-      this.fadeTo(0.0, 160);
+      this.fadeTo(0.0, 140);
     }
   }
 
@@ -113,24 +112,15 @@ export class ReactionHud {
   }
 
   tick(dt: number) {
-    // follow object in MR space
+    // follow object in MR space (NO ORBIT — just stick slightly above)
     const center = this.getObjectWorldPos?.();
-    if (center) {
-      if (this.orbitEnabled) {
-        this.theta += this.orbitSpeed * dt;
-        const ox = Math.cos(this.theta) * this.orbitRadius;
-        const oz = Math.sin(this.theta) * this.orbitRadius;
-        const yBob = Math.sin(this.theta * this.bobSpeed) * this.bobAmp;
-        const offset = new THREE.Vector3(ox, this.BASE_OFFSET.y + yBob, oz);
-        this.anchor.position.copy(center).add(offset);
-      } else {
-        this.anchor.position.copy(center).add(this.BASE_OFFSET);
-      }
-    }
+    if (center) this.anchor.position.copy(center).add(this.OFFSET);
+    // face the camera
     this.anchor.quaternion.copy(this.camera.quaternion);
 
     if (!this.persistent && this.visible && performance.now() >= this.hideAt) this.hide();
 
+    // chips
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.ttl -= dt;
@@ -145,17 +135,21 @@ export class ReactionHud {
     const c = this.panelCanvas, ctx = this.ctx;
     ctx.clearRect(0, 0, c.width, c.height);
 
+    // translucent card background (slight transparency as requested)
     this.rounded(ctx, 0, 0, c.width, c.height, 36);
-    ctx.fillStyle = 'rgba(18,18,28,0.92)'; ctx.fill();
+    ctx.fillStyle = 'rgba(18,18,28,0.82)'; // <— tweak this alpha (0.7–0.9) for more/less transparency
+    ctx.fill();
 
+    // title
     ctx.fillStyle = '#fff';
     ctx.font = '700 34px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Reactions', c.width / 2, 64);
 
-    const rowY = 180;
-    const gap = 140;
-    const iconSize = 110;
+    // icons + counters row
+    const rowY = 190;
+    const gap = 160;
+    const iconSize = 120;
 
     const heartX = c.width / 2 - gap;
     this.drawIconWithCounter(this.heartIcon, '❤️', heartX, rowY, iconSize, this.heartCount);
@@ -170,8 +164,9 @@ export class ReactionHud {
     const ctx = this.ctx;
     const half = size / 2;
 
+    // soft tile behind icons (with some transparency)
     this.rounded(ctx, cx - half, cy - half, size, size, size * 0.24);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
     ctx.fill();
 
     if (img && img.complete && img.naturalWidth > 0) {
@@ -188,7 +183,7 @@ export class ReactionHud {
     ctx.font = '700 36px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(String(count), cx, cy + half + 48);
+    ctx.fillText(String(count), cx, cy + half + 50);
   }
 
   private spawnChip(kind: 'like'|'heart') {
