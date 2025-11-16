@@ -4,6 +4,7 @@ import { HandEngine } from '../gestures/HandEngine';
 import { ThreeXRApp } from '../app/ThreeXRApp';
 import { FeedStore } from '../feed/FeedStore';
 import ReactionHudManager from '../ui/ReactionHudManager';
+import { VirtualKeyboard } from '../ui/VirtualKeyboard';
 import { CONTROLS, TRANSFORM, REACTIONS, HUD } from '../config/constants';
 
 export class FeedControls {
@@ -87,8 +88,9 @@ export class FeedControls {
   private hudMgr: ReactionHudManager;
   private selectBoundForSession: XRSession | null = null;
 
-  // DOM composer input (safer keyboard path)
-  private composer?: HTMLInputElement;
+  // Virtual keyboard for in-VR typing
+  private virtualKeyboard: VirtualKeyboard;
+  private keyboardActive = false;
 
   // ---- anti-burst (close-hands) gating ----
   private readonly CLUSTER_DIST = REACTIONS.CLUSTER_DISTANCE;
@@ -105,6 +107,10 @@ export class FeedControls {
     this.initRay('right');
     this.setRayVisible('left', false);
     this.setRayVisible('right', false);
+
+    // Virtual keyboard for typing comments in VR
+    this.virtualKeyboard = new VirtualKeyboard();
+    this.app.scene.add(this.virtualKeyboard.getGroup());
 
     this.hudMgr = new ReactionHudManager(this.app.scene, this.app.camera, () =>
       this.store.getObjectWorldPos()
@@ -143,8 +149,10 @@ export class FeedControls {
       this.hudMgr.bump(this.currentModelKey(), 'heart');
     });
 
-    // ILY → open compose (DOM input – safe keyboard)
-this.hands.on('ilystart', () => this.openExternalComposer(''));
+    // ILY → open in-VR compose with virtual keyboard
+    this.hands.on('ilystart', () => {
+      this.showVirtualKeyboard();
+    });
 
 
     // Peace → repost (debounced + visual)
@@ -179,7 +187,68 @@ this.hands.on('ilystart', () => this.openExternalComposer(''));
 
       this.hudMgr.tick(dt);
       this.store.tick(dt);
+
+      // Update keyboard position to face camera
+      if (this.keyboardActive && this.virtualKeyboard.isVisible()) {
+        const camPos = new THREE.Vector3();
+        this.app.camera.getWorldPosition(camPos);
+        this.virtualKeyboard.lookAt(camPos);
+      }
     });
+  }
+
+  // ========== VIRTUAL KEYBOARD ==========
+  private showVirtualKeyboard() {
+    // Position keyboard in front of camera, slightly below eye level
+    const camPos = new THREE.Vector3();
+    const camDir = new THREE.Vector3();
+    this.app.camera.getWorldPosition(camPos);
+    this.app.camera.getWorldDirection(camDir);
+    
+    const keyboardPos = camPos.clone().add(camDir.multiplyScalar(0.6));
+    keyboardPos.y -= 0.2; // Lower for comfortable typing
+    
+    this.virtualKeyboard.show(
+      keyboardPos,
+      (text: string) => {
+        // On submit
+        this.hudMgr.addCommentForCurrent(text);
+        this.hideVirtualKeyboard();
+        this.store.notify('✅ Comment posted!');
+      },
+      (text: string) => {
+        // On text change (optional feedback)
+        // Could show preview on HUD
+      }
+    );
+    
+    this.keyboardActive = true;
+    this.store.notify('✍️ Keyboard ready - pinch keys to type!');
+  }
+
+  private hideVirtualKeyboard() {
+    this.virtualKeyboard.hide();
+    this.keyboardActive = false;
+  }
+
+  private handleKeyboardInput(side: 'left' | 'right') {
+    if (!this.keyboardActive || !this.virtualKeyboard.isVisible()) return;
+    
+    const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
+    if (!from) return;
+    
+    const camPos = new THREE.Vector3();
+    this.app.camera.getWorldPosition(camPos);
+    const dir = this.virtualKeyboard.getGroup().position.clone().sub(from).normalize();
+    const ray = new THREE.Ray(from, dir);
+    
+    const hit = this.virtualKeyboard.raycast(ray);
+    if (hit) {
+      this.virtualKeyboard.pressKey(hit.key);
+      return true;
+    }
+    
+    return false;
   }
 
   // ---------- anti-burst helpers ----------
@@ -221,18 +290,8 @@ this.hands.on('ilystart', () => this.openExternalComposer(''));
     return true;
   }
 
-  // --- OPEN EXTERNAL COMPOSER (new tab → native keyboard) ---
-private openExternalComposer(prefill = '') {
-  try {
-    const key = this.currentModelKey();
-    const u = new URL('/compose.html', location.origin); // same-origin page
-    u.searchParams.set('k', key);
-    if (prefill) u.searchParams.set('t', prefill);
-    window.open(u.toString(), '_blank', 'noopener,noreferrer');
-  } catch (e) {
-    console.warn('Failed to open compose tab:', e);
-  }
-}
+  // NOTE: External composer removed - was freezing XR session
+  // Now using built-in ReactionHud compose mode (stays in VR)
 
   // ---------- Try to click HUD directly from pinch start ----------
   private tryClickHud(side: 'left' | 'right'): boolean {
@@ -330,7 +389,7 @@ private openExternalComposer(prefill = '') {
             this.hudMgr.bump(key, 'repost');
           }
         } else if (hit.kind === 'post' || hit.kind === 'compose') {
-          if (hit.kind === 'post' || hit.kind === 'compose') this.openExternalComposer('');
+          this.showVirtualKeyboard();
         }
       };
 
@@ -399,7 +458,7 @@ private openExternalComposer(prefill = '') {
           this.hudMgr.bump(key, 'repost');
         }
       } else if (hitKind === 'post' || hitKind === 'compose') {
-         this.openExternalComposer('');
+        this.showVirtualKeyboard();
       }
     }
   }
@@ -456,7 +515,14 @@ private openExternalComposer(prefill = '') {
 
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
-    // First, try clicking the MR HUD; if it handled, do not show dotted ray.
+    // First, check if keyboard is active
+    if (this.keyboardActive) {
+      if (this.handleKeyboardInput(side)) {
+        return; // Key press handled
+      }
+    }
+
+    // Try clicking the MR HUD; if it handled, do not show dotted ray.
     if (this.tryClickHud(side)) return;
 
     this.setRayVisible(side, true);
