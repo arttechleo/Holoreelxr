@@ -1,6 +1,7 @@
 // src/gestures/HandEngine.ts
 import * as THREE from 'three';
 import type { XRFrameInfo } from '../app/ThreeXRApp';
+import { GESTURE } from '../config/constants';
 
 type Side = 'left'|'right';
 type Listener = (detail?: any) => void;
@@ -18,8 +19,8 @@ type XRHandJointName = typeof XR_HAND_JOINTS[number];
 export class HandEngine {
   constructor(public renderer: THREE.WebGLRenderer) {}
 
-  private settleMs = 100;
-  private smoothFrames = 4;
+  private settleMs = GESTURE.SETTLE_TIME_MS;
+  private smoothFrames = GESTURE.SMOOTH_FRAMES;
   private history: Record<string, boolean[]> = {};
   private lastMap = new Map<string,{val:boolean; changeAt:number}>();
 
@@ -81,24 +82,24 @@ export class HandEngine {
     const dist = (a:THREE.Vector3|null, b:THREE.Vector3|null) => (a&&b)? a.distanceTo(b) : 1e9;
 
     // pinch
-    const leftPinch  = dist(J('left','thumb-tip'),  J('left','index-finger-tip'))  < 0.035;
-    const rightPinch = dist(J('right','thumb-tip'), J('right','index-finger-tip')) < 0.035;
+    const leftPinch  = dist(J('left','thumb-tip'),  J('left','index-finger-tip'))  < GESTURE.PINCH_THRESHOLD;
+    const rightPinch = dist(J('right','thumb-tip'), J('right','index-finger-tip')) < GESTURE.PINCH_THRESHOLD;
     this.state.left.pinch  = leftPinch;  this.updateFlag('left.pinch', leftPinch, {side:'left'});
     this.state.right.pinch = rightPinch; this.updateFlag('right.pinch', rightPinch, {side:'right'});
 
     // heart (two-hands close)
     const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
     const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
-    const heartNow = dist(L_i, R_i) < 0.045 && dist(L_t, R_t) < 0.045;
+    const heartNow = dist(L_i, R_i) < GESTURE.HEART_THRESHOLD && dist(L_t, R_t) < GESTURE.HEART_THRESHOLD;
     this.state.heart = heartNow; this.updateFlag('heart', heartNow);
 
     // thumbs up (like)
     const thumbUp = (side:Side) => {
       const W = J(side,'wrist'), T = J(side,'thumb-tip');
       if (!W || !T) return false;
-      const thumbExtended = T.distanceTo(W) > 0.085;
+      const thumbExtended = T.distanceTo(W) > GESTURE.FINGER_EXTENDED_THRESHOLD;
       const curled = ['index-finger-tip','middle-finger-tip','ring-finger-tip','pinky-finger-tip']
-        .every(n => { const P=J(side, n as XRHandJointName); return P && P.distanceTo(W) < 0.075; });
+        .every(n => { const P=J(side, n as XRHandJointName); return P && P.distanceTo(W) < GESTURE.FINGER_CURLED_THRESHOLD; });
       return thumbExtended && curled;
     };
     if (thumbUp('left'))  this.emit('thumbsupstart',{side:'left'});
@@ -115,7 +116,7 @@ export class HandEngine {
       if (!(W && IT && PT && TT && MT && RT)) return false;
       const ext = (p:THREE.Vector3|null, thr:number)=> p ? p.distanceTo(W!) > thr : false;
       const cur = (p:THREE.Vector3|null, thr:number)=> p ? p.distanceTo(W!) < thr : false;
-      return ext(IT,0.085) && ext(PT,0.085) && ext(TT,0.080) && cur(MT,0.075) && cur(RT,0.075);
+      return ext(IT,GESTURE.FINGER_EXTENDED_THRESHOLD) && ext(PT,GESTURE.FINGER_EXTENDED_THRESHOLD) && ext(TT,GESTURE.THUMB_EXTENDED_THRESHOLD) && cur(MT,GESTURE.FINGER_CURLED_THRESHOLD) && cur(RT,GESTURE.FINGER_CURLED_THRESHOLD);
     };
     if (ily('left'))  this.emit('ilystart', {side:'left'});
     if (ily('right')) this.emit('ilystart', {side:'right'});
@@ -128,7 +129,7 @@ export class HandEngine {
       if (!(W && IT && MT && RT && PT)) return false;
       const ext = (p:THREE.Vector3|null, thr:number)=> p ? p.distanceTo(W!) > thr : false;
       const cur = (p:THREE.Vector3|null, thr:number)=> p ? p.distanceTo(W!) < thr : false;
-      return ext(IT,0.085) && ext(MT,0.085) && cur(RT,0.075) && cur(PT,0.075);
+      return ext(IT,GESTURE.FINGER_EXTENDED_THRESHOLD) && ext(MT,GESTURE.FINGER_EXTENDED_THRESHOLD) && cur(RT,GESTURE.FINGER_CURLED_THRESHOLD) && cur(PT,GESTURE.FINGER_CURLED_THRESHOLD);
     };
     if (peace('left'))  this.emit('peacestart',{side:'left'});
     if (peace('right')) this.emit('peacestart',{side:'right'});

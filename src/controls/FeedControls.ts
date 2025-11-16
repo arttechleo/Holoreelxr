@@ -4,6 +4,7 @@ import { HandEngine } from '../gestures/HandEngine';
 import { ThreeXRApp } from '../app/ThreeXRApp';
 import { FeedStore } from '../feed/FeedStore';
 import ReactionHudManager from '../ui/ReactionHudManager';
+import { CONTROLS, TRANSFORM, REACTIONS, HUD } from '../config/constants';
 
 export class FeedControls {
   // ----- feed scroll -----
@@ -15,37 +16,37 @@ export class FeedControls {
   private scrollArmed = false;
   private scrollDisarmedThisPinch = false;
 
-  // Tuned to make scrolling easier again
-  private readonly SCROLL_MIN_HOLD_MS = 120;
-  private readonly SCROLL_DISP = 0.026;
-  private readonly SCROLL_COOLDOWN_MS = 300;
-  private readonly SCROLL_VEL_MIN = 0.008;
-  private readonly SCROLL_IN_AIR_DIST = 0.2;
-  private readonly SCROLL_START_FAR = 0.2;
-  private readonly LPF_SCROLL_ALPHA = 0.22;
+  // Scroll control constants
+  private readonly SCROLL_MIN_HOLD_MS = CONTROLS.SCROLL_MIN_HOLD_MS;
+  private readonly SCROLL_DISP = CONTROLS.SCROLL_DISPLACEMENT;
+  private readonly SCROLL_COOLDOWN_MS = CONTROLS.SCROLL_COOLDOWN_MS;
+  private readonly SCROLL_VEL_MIN = CONTROLS.SCROLL_MIN_VELOCITY;
+  private readonly SCROLL_IN_AIR_DIST = CONTROLS.SCROLL_IN_AIR_DISTANCE;
+  private readonly SCROLL_START_FAR = CONTROLS.SCROLL_START_DISTANCE;
+  private readonly LPF_SCROLL_ALPHA = CONTROLS.SCROLL_LPF_ALPHA;
 
   // transform / grab
   private twoHandActive = false;
   private baseDist = 0;
   private baseScale = 1;
   private filtDist = 0;
-  private readonly LPF_ALPHA = 0.28;
-  private readonly SCALE_GAIN = 2.2;
-  private readonly SCALE_DEADBAND = 0.004;
-  private readonly SCALE_MIN = 0.15;
-  private readonly SCALE_MAX = 8;
+  private readonly LPF_ALPHA = TRANSFORM.TWO_HAND_LPF_ALPHA;
+  private readonly SCALE_GAIN = TRANSFORM.SCALE_GAIN;
+  private readonly SCALE_DEADBAND = TRANSFORM.SCALE_DEADBAND;
+  private readonly SCALE_MIN = TRANSFORM.SCALE_MIN;
+  private readonly SCALE_MAX = TRANSFORM.SCALE_MAX;
   private rotTarget = 0;
   private rotVel = 0;
-  private readonly ROT_GAIN = 0.9;
-  private readonly ROT_DEADZONE = THREE.MathUtils.degToRad(1.0);
-  private readonly ROT_MAX_DELTA = THREE.MathUtils.degToRad(60);
-  private readonly ROT_SMOOTH_TIME = 0.12;
-  private readonly ROT_MAX_SPEED = THREE.MathUtils.degToRad(360);
+  private readonly ROT_GAIN = TRANSFORM.ROTATION_GAIN;
+  private readonly ROT_DEADZONE = TRANSFORM.ROTATION_DEADZONE_RAD;
+  private readonly ROT_MAX_DELTA = TRANSFORM.ROTATION_MAX_DELTA_RAD;
+  private readonly ROT_SMOOTH_TIME = TRANSFORM.ROTATION_SMOOTH_TIME;
+  private readonly ROT_MAX_SPEED = TRANSFORM.ROTATION_MAX_SPEED_RAD;
   private LStart = new THREE.Vector3();
   private RStart = new THREE.Vector3();
   private lastL = new THREE.Vector3();
   private lastR = new THREE.Vector3();
-  private readonly MOVE_EPS = 0.006;
+  private readonly MOVE_EPS = TRANSFORM.MIN_MOVEMENT_FOR_ROTATION;
   private grabbing = false;
   private grabSide: 'left' | 'right' | null = null;
   private grabOffset = new THREE.Vector3();
@@ -53,9 +54,9 @@ export class FeedControls {
   private grabPendingSide: 'left' | 'right' | null = null;
   private grabPendingStartY: number | null = null;
   private grabTimer: number | null = null;
-  private readonly HOLD_MS = 150;
-  private readonly PENDING_CANCEL_MOVE = 0.06;
-  private readonly INSTANT_GRAB_DIST = 0.14;
+  private readonly HOLD_MS = TRANSFORM.GRAB_HOLD_MS;
+  private readonly PENDING_CANCEL_MOVE = TRANSFORM.GRAB_CANCEL_MOVEMENT;
+  private readonly INSTANT_GRAB_DIST = TRANSFORM.INSTANT_GRAB_DISTANCE;
 
   // rays (visual helpers only; kept off while UI is hit)
   private rayGroup = new THREE.Group();
@@ -75,10 +76,10 @@ export class FeedControls {
   private lastLikeAt = 0;
   private lastHeartAt = 0;
   private lastRepostAt = 0;
-  private readonly REACT_COOLDOWN_MS = 800;
+  private readonly REACT_COOLDOWN_MS = REACTIONS.COOLDOWN_MS;
 
   // UI dwell assist (camera→index finger)
-  private readonly DWELL_MS = 350;
+  private readonly DWELL_MS = HUD.DWELL_TIME_MS;
   private uiHoverKind: string | null = null;
   private uiHoverBeganAt = 0;
   private uiLastY: number | null = null;
@@ -90,10 +91,10 @@ export class FeedControls {
   private composer?: HTMLInputElement;
 
   // ---- anti-burst (close-hands) gating ----
-  private readonly CLUSTER_DIST = 0.11;         // m: consider hands "together" below this
-  private readonly CLUSTER_Y_OFFSET = -0.06;    // m: hands must be below object center by this
-  private readonly CLUSTER_COOLDOWN_MS = 450;   // collapse rapid repeats into one
-  private readonly GESTURE_HOLD_MS = 120;       // gesture must be stable this long
+  private readonly CLUSTER_DIST = REACTIONS.CLUSTER_DISTANCE;
+  private readonly CLUSTER_Y_OFFSET = REACTIONS.CLUSTER_Y_OFFSET;
+  private readonly CLUSTER_COOLDOWN_MS = REACTIONS.CLUSTER_COOLDOWN_MS;
+  private readonly GESTURE_HOLD_MS = REACTIONS.GESTURE_STABLE_MS;
   private clusterCooldownUntil = 0;
   private lastStableCheckAt = 0;
   private lastStableKind: 'like' | 'heart' | 'repost' | null = null;
@@ -686,7 +687,7 @@ private openExternalComposer(prefill = '') {
     const pinch = this.hands.pinchMid(side);
     if (!pinch) return;
     const distSurf = this.distanceToObjectSurface(pinch);
-    if (distSurf != null && distSurf <= 0.18) this.tryStartGrabPending(side);
+    if (distSurf != null && distSurf <= TRANSFORM.GRAB_MAX_DISTANCE) this.tryStartGrabPending(side);
   }
   private tryStartGrabPending(side: 'left' | 'right') {
     if (this.grabbing || this.grabPending) return;
@@ -695,7 +696,7 @@ private openExternalComposer(prefill = '') {
     const pinch = this.hands.pinchMid(side);
     if (!pinch) return;
     const distSurf = this.distanceToObjectSurface(pinch);
-    if (distSurf == null || distSurf > 0.18) return;
+    if (distSurf == null || distSurf > TRANSFORM.GRAB_MAX_DISTANCE) return;
     this.grabPending = true;
     this.grabPendingSide = side;
     this.grabPendingStartY = this.hands.pinchMid(side)?.y ?? null;
