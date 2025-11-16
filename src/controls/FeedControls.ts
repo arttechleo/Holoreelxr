@@ -131,8 +131,9 @@ export class FeedControls {
     this.hands.on('leftpinchend', () => this.onPinchEnd('left'));
     this.hands.on('rightpinchend', () => this.onPinchEnd('right'));
 
-    // Like / Heart
+    // Like / Heart (BLOCKED when keyboard active)
     this.hands.on('thumbsupstart', () => {
+      if (this.keyboardActive) return; // BLOCK when typing
       if (!this.acceptGesture('like')) return;
       const now = performance.now();
       if (now - this.lastLikeAt < this.REACT_COOLDOWN_MS) return;
@@ -141,6 +142,7 @@ export class FeedControls {
       this.hudMgr.bump(this.currentModelKey(), 'like');
     });
     this.hands.on('heartstart', () => {
+      if (this.keyboardActive) return; // BLOCK when typing
       if (!this.acceptGesture('heart')) return;
       const now = performance.now();
       if (now - this.lastHeartAt < this.REACT_COOLDOWN_MS) return;
@@ -149,14 +151,16 @@ export class FeedControls {
       this.hudMgr.bump(this.currentModelKey(), 'heart');
     });
 
-    // ILY → open in-VR compose with virtual keyboard
+    // ILY → open in-VR compose with virtual keyboard (ONLY if not already active)
     this.hands.on('ilystart', () => {
+      if (this.keyboardActive) return; // Don't re-open if already open
       this.showVirtualKeyboard();
     });
 
 
-    // Peace → repost (debounced + visual)
+    // Peace → repost (BLOCKED when keyboard active)
     this.hands.on('peacestart', () => {
+      if (this.keyboardActive) return; // BLOCK when typing
       if (!this.acceptGesture('repost')) return;
       const now = performance.now();
       if (now - this.lastRepostAt < this.REACT_COOLDOWN_MS) return;
@@ -216,6 +220,11 @@ export class FeedControls {
         this.hideVirtualKeyboard();
         this.store.notify('✅ Comment posted!');
       },
+      () => {
+        // On cancel
+        this.hideVirtualKeyboard();
+        this.store.notify('Cancelled');
+      },
       (text: string) => {
         // On text change (optional feedback)
         // Could show preview on HUD
@@ -235,20 +244,34 @@ export class FeedControls {
     if (!this.keyboardActive || !this.virtualKeyboard.isVisible()) return false;
     
     const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
-    if (!from) return false;
+    if (!from) {
+      // Even if no hand position, keyboard is active so block other interactions
+      return true;
+    }
     
     // Create ray from hand toward keyboard
     const keyboardCenter = this.virtualKeyboard.getGroup().position.clone();
     const dir = keyboardCenter.sub(from).normalize();
     const ray = new THREE.Ray(from, dir);
     
+    // Debug: log ray info (can be removed later)
+    if (Math.random() < 0.1) { // Only log 10% of frames to avoid spam
+      console.log('Keyboard ray:', {
+        from: `${from.x.toFixed(2)}, ${from.y.toFixed(2)}, ${from.z.toFixed(2)}`,
+        dir: `${dir.x.toFixed(2)}, ${dir.y.toFixed(2)}, ${dir.z.toFixed(2)}`,
+        keyboardPos: `${keyboardCenter.x.toFixed(2)}, ${keyboardCenter.y.toFixed(2)}, ${keyboardCenter.z.toFixed(2)}`
+      });
+    }
+    
     const hit = this.virtualKeyboard.raycast(ray);
     if (hit) {
       this.virtualKeyboard.pressKey(hit.key);
+      console.log('Key pressed:', hit.key);
       return true; // Block all other interactions
     }
     
-    return false; // No key hit, but keyboard is still active
+    // No key hit, but keyboard is still active - still block other interactions
+    return true;
   }
 
   // ---------- anti-burst helpers ----------
