@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { SplatSequence } from './loaders/SplatSequence';
+import { logError } from '../utils/errors';
 
 type ShapeKind = 'box' | 'sphere' | 'pyramid';
 
@@ -56,8 +57,20 @@ export class FeedStore {
   }
 
   async loadFeed(url = '/feed.json') {
-    const res = await fetch(url);
-    this.items = await res.json();
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+      this.items = await res.json();
+      if (!Array.isArray(this.items)) {
+        throw new Error('Feed JSON is not an array');
+      }
+    } catch (error) {
+      logError(error, 'FeedStore.loadFeed');
+      this.toast('Failed to load feed - using empty feed');
+      this.items = [];
+    }
   }
 
   async showCurrent() {
@@ -87,29 +100,42 @@ export class FeedStore {
     // spawn at lastPlaced (if any) otherwise at origin
     const spawnPos = this.lastPlaced ? this.lastPlaced.clone() : new THREE.Vector3(0, 0, 0);
 
-    if (item.type === 'shape') {
-      const obj = this.makeShape(item.shape, item.color);
-      obj.name = 'content-shape';
-      obj.position.copy(spawnPos);
-      obj.rotation.y = this._rotY;
-      obj.scale.setScalar(this._scale);
-      this.parent.add(obj);
-    } else if (item.type === 'splat4d') {
-      this.seq = new SplatSequence(this.parent, item.frames, item.fps);
-      await this.seq.ready;
-      this.seq.setTransform(this._scale, this._rotY);
-      this.seq.setPosition(spawnPos);
-    } else if (item.type === 'ply') {
-      this.seq = new SplatSequence(this.parent, [item.src], 0);
-      await this.seq.ready;
-      this.seq.setTransform(this._scale, this._rotY);
-      this.seq.setPosition(spawnPos);
-    } else {
-      // generic mesh fallback
+    try {
+      if (item.type === 'shape') {
+        const obj = this.makeShape(item.shape, item.color);
+        obj.name = 'content-shape';
+        obj.position.copy(spawnPos);
+        obj.rotation.y = this._rotY;
+        obj.scale.setScalar(this._scale);
+        this.parent.add(obj);
+      } else if (item.type === 'splat4d') {
+        this.seq = new SplatSequence(this.parent, item.frames, item.fps);
+        await this.seq.ready;
+        this.seq.setTransform(this._scale, this._rotY);
+        this.seq.setPosition(spawnPos);
+      } else if (item.type === 'ply') {
+        this.seq = new SplatSequence(this.parent, [item.src], 0);
+        await this.seq.ready;
+        this.seq.setTransform(this._scale, this._rotY);
+        this.seq.setPosition(spawnPos);
+      } else {
+        // generic mesh fallback
+        const geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+        const mat = new THREE.MeshStandardMaterial({ color: 0x66ccff });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.name = 'content-mesh';
+        mesh.position.copy(spawnPos);
+        this.parent.add(mesh);
+      }
+    } catch (error) {
+      logError(error, 'FeedStore.showCurrent');
+      this.toast('❌ Failed to load content');
+      
+      // Show error placeholder
       const geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
-      const mat = new THREE.MeshStandardMaterial({ color: 0x66ccff });
+      const mat = new THREE.MeshStandardMaterial({ color: 0xff3344, wireframe: true });
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.name = 'content-mesh';
+      mesh.name = 'content-error';
       mesh.position.copy(spawnPos);
       this.parent.add(mesh);
     }

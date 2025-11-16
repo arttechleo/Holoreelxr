@@ -4,8 +4,10 @@ import { FeedControls } from './controls/FeedControls';
 import { FeedStore } from './feed/FeedStore';
 import { Hud } from './ui/Hud';
 import { GlobalPlayer } from './integrations/player';
+import { checkWebXRSupport, logError } from './utils/errors';
 import * as THREE from 'three';
 
+// ========== INITIALIZATION ==========
 const app = new ThreeXRApp();
 const hands = new HandEngine(app.renderer);
 const hud = new Hud();
@@ -14,9 +16,35 @@ const player = new GlobalPlayer();
 
 hud.mountPlayer(()=> player.play(), ()=> player.pause());
 
+// Check WebXR support and show status
 (async () => {
-  await store.loadFeed();
-  await store.showCurrent();
+  const support = await checkWebXRSupport();
+  console.log('WebXR Support:', support);
+  
+  if (!support.supported) {
+    hud.toast('⚠️ WebXR not supported in this browser');
+  } else {
+    const modes: string[] = [];
+    if (support.ar) modes.push('AR');
+    if (support.vr) modes.push('VR');
+    hud.toast(`✅ WebXR ready: ${modes.join(', ')}`);
+  }
+})().catch(err => logError(err, 'WebXR check'));
+
+// ========== LOAD FEED ==========
+(async () => {
+  try {
+    hud.toast('Loading feed...');
+    await store.loadFeed();
+    
+    if (store.items.length === 0) {
+      hud.toast('⚠️ Feed is empty');
+      return;
+    }
+    
+    hud.toast('Loading content...');
+    await store.showCurrent();
+    hud.toast('✅ Ready! Use gestures or keyboard shortcuts');
 
   // Keep joints flowing
   app.onFrame((info) => { hands.update(info); });
@@ -38,6 +66,125 @@ hud.mountPlayer(()=> player.play(), ()=> player.pause());
     hud.toast('Placed model in front of you');
   });
 
-  new FeedControls(app, hands, store);
-  app.start();
+    new FeedControls(app, hands, store);
+    app.start();
+  } catch (error) {
+    logError(error, 'Main initialization');
+    hud.toast('❌ Failed to initialize app');
+  }
 })();
+
+// ========== KEYBOARD SHORTCUTS (Desktop Testing) ==========
+document.addEventListener('keydown', (e) => {
+  // Don't interfere with typing in input fields
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+    return;
+  }
+
+  switch (e.key) {
+    case 'ArrowLeft':
+    case 'a':
+      store.next(-1);
+      hud.toast('⬅️ Previous item');
+      break;
+    
+    case 'ArrowRight':
+    case 'd':
+      store.next(+1);
+      hud.toast('➡️ Next item');
+      break;
+    
+    case 'ArrowUp':
+    case 'w':
+      store.setTargetTransform(store.scale * 1.2, store.rotationY);
+      hud.toast('🔍 Zoom in');
+      break;
+    
+    case 'ArrowDown':
+    case 's':
+      store.setTargetTransform(store.scale / 1.2, store.rotationY);
+      hud.toast('🔍 Zoom out');
+      break;
+    
+    case 'q':
+      store.setTargetTransform(store.scale, store.rotationY - Math.PI / 4);
+      hud.toast('🔄 Rotate left');
+      break;
+    
+    case 'e':
+      store.setTargetTransform(store.scale, store.rotationY + Math.PI / 4);
+      hud.toast('🔄 Rotate right');
+      break;
+    
+    case 'l':
+      store.likeCurrent();
+      hud.toast('👍 Liked!');
+      break;
+    
+    case 'h':
+      store.saveCurrent();
+      hud.toast('❤️ Saved!');
+      break;
+    
+    case 'r':
+      store.repostCurrent();
+      hud.toast('🔁 Reposted!');
+      break;
+    
+    case 'p':
+      if (player.isAvailable()) {
+        player.play();
+        hud.toast('▶️ Playing audio');
+      }
+      break;
+    
+    case '?':
+    case 'h' + 'Shift': // Shift+H for help
+      if (e.shiftKey) {
+        showKeyboardHelp();
+      }
+      break;
+    
+    case 'r' + 'Control': // Ctrl+R already reloads page
+      // Reserved
+      break;
+  }
+});
+
+// Display keyboard shortcuts help
+function showKeyboardHelp() {
+  const help = `
+╔════════════════════════════════════╗
+║    HOLOREELXR KEYBOARD SHORTCUTS    ║
+╠════════════════════════════════════╣
+║  Navigation:                        ║
+║    ← / A  : Previous item          ║
+║    → / D  : Next item              ║
+║                                    ║
+║  Transform:                        ║
+║    ↑ / W  : Zoom in                ║
+║    ↓ / S  : Zoom out               ║
+║    Q      : Rotate left            ║
+║    E      : Rotate right           ║
+║                                    ║
+║  Reactions:                        ║
+║    L      : Like                   ║
+║    H      : Heart/Save             ║
+║    R      : Repost                 ║
+║                                    ║
+║  Media:                            ║
+║    P      : Play audio             ║
+║                                    ║
+║  XR Mode:                          ║
+║    Use Enter AR/VR buttons →      ║
+╚════════════════════════════════════╝
+  `;
+  console.log(help);
+  hud.toast('📖 Keyboard shortcuts logged to console');
+}
+
+// Show welcome message with keyboard hint
+setTimeout(() => {
+  console.log('%c🎮 Holoreelxr Alpha v1.0.0', 'font-size: 16px; font-weight: bold; color: #667eea;');
+  console.log('%cPress Shift+H for keyboard shortcuts', 'color: #999;');
+}, 1000);

@@ -1,6 +1,7 @@
 // src/feed/loaders/SplatSequence.ts
 import * as THREE from 'three';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
+import { retry, logError, AssetLoadError } from '../../utils/errors';
 
 export class SplatSequence {
   public ready: Promise<void>;
@@ -92,24 +93,57 @@ export class SplatSequence {
     // Load serially to keep memory sane (change to Promise.all if you prefer)
     for (const url of this.framesUrls) {
       if (this.disposed) break;
-      const obj = await this.loadPLYAsPoints(url);
-      obj.visible = false;
-      this.root.add(obj);
-      this.frames.push(obj);
+      try {
+        const obj = await retry(
+          () => this.loadPLYAsPoints(url),
+          {
+            maxAttempts: 3,
+            delayMs: 500,
+            onRetry: (attempt, error) => {
+              console.warn(`Retry ${attempt}/3 loading ${url}:`, error);
+            }
+          }
+        );
+        obj.visible = false;
+        this.root.add(obj);
+        this.frames.push(obj);
+      } catch (error) {
+        logError(error, `SplatSequence.loadAll: ${url}`);
+        // Continue loading other frames even if one fails
+        console.warn(`Skipping failed frame: ${url}`);
+      }
+    }
+
+    if (this.frames.length === 0) {
+      throw new AssetLoadError('Failed to load any frames', this.framesUrls[0] || 'unknown');
     }
   }
 
   private loadPLYAsPoints(url: string): Promise<THREE.Object3D> {
     return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new AssetLoadError(`Load timeout after 30s`, url));
+      }, 30000);
+
       this.loader.load(
         url,
         (geom) => {
+          clearTimeout(timeoutId);
           try {
+            // Validate geometry
+            if (!geom || !geom.getAttribute('position')) {
+              throw new AssetLoadError('Invalid PLY geometry - missing position attribute', url);
+            }
+
+            const posCount = geom.getAttribute('position').count;
+            if (posCount === 0) {
+              throw new AssetLoadError('Empty PLY geometry', url);
+            }
+
             // Normalize geometry if needed
             if (!geom.hasAttribute('color')) {
-              const count = geom.getAttribute('position').count;
-              const colors = new Float32Array(count * 3);
-              for (let i = 0; i < count; i++) {
+              const colors = new Float32Array(posCount * 3);
+              for (let i = 0; i < posCount; i++) {
                 colors[i * 3 + 0] = 0.9;
                 colors[i * 3 + 1] = 0.9;
                 colors[i * 3 + 2] = 0.9;
@@ -129,11 +163,14 @@ export class SplatSequence {
             pts.name = 'splat-seq-frame';
             resolve(pts);
           } catch (e) {
-            reject(e);
+            reject(new AssetLoadError('Failed to create point cloud', url, e));
           }
         },
         undefined,
-        (err) => reject(err)
+        (err) => {
+          clearTimeout(timeoutId);
+          reject(new AssetLoadError('PLY load error', url, err));
+        }
       );
     });
   }
