@@ -12,7 +12,7 @@ const QWERTY_LAYOUT: KeyboardLayout = [
   ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
   ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
   ['z', 'x', 'c', 'v', 'b', 'n', 'm', '⌫'],
-  ['Space', 'Submit']
+  ['Space', 'Enter', 'Post']
 ];
 
 export class VirtualKeyboard {
@@ -49,15 +49,18 @@ export class VirtualKeyboard {
       let xOffset = -rowWidth / 2;
       
       row.forEach((keyLabel) => {
-        const keyWidth = keyLabel === 'Space' ? this.KEY_SIZE * 4 : 
-                        keyLabel === 'Submit' ? this.KEY_SIZE * 2 : 
+        const keyWidth = keyLabel === 'Space' ? this.KEY_SIZE * 3 : 
+                        keyLabel === 'Post' ? this.KEY_SIZE * 2 : 
+                        keyLabel === 'Enter' ? this.KEY_SIZE * 1.5 : 
                         this.KEY_SIZE;
         
         const geometry = new THREE.BoxGeometry(keyWidth, this.KEY_SIZE, this.KEY_DEPTH);
         const material = new THREE.MeshStandardMaterial({
-          color: keyLabel === 'Submit' ? 0x4b83ff : 0x2a2a3a,
+          color: keyLabel === 'Post' ? 0x4b83ff : 0x2a2a3a,
           roughness: 0.7,
           metalness: 0.1,
+          emissive: keyLabel === 'Post' ? 0x2a4080 : 0x000000,
+          emissiveIntensity: 0.3,
         });
         
         const keyMesh = new THREE.Mesh(geometry, material);
@@ -79,52 +82,90 @@ export class VirtualKeyboard {
       yOffset -= this.KEY_SIZE + this.KEY_GAP;
     });
     
-    // Add text display above keyboard
+    // Add text display above keyboard with better antialiasing
     const displayGeo = new THREE.PlaneGeometry(0.5, 0.08);
     const displayMat = new THREE.MeshBasicMaterial({
       map: this.texture,
       transparent: true,
+      depthWrite: false,
     });
     const display = new THREE.Mesh(displayGeo, displayMat);
     display.position.set(0, 0.15, 0);
+    display.renderOrder = 1000; // Render on top
     this.group.add(display);
+    
+    // Set texture filtering for better antialiasing
+    this.texture.minFilter = THREE.LinearFilter;
+    this.texture.magFilter = THREE.LinearFilter;
+    this.texture.anisotropy = 16; // Max anisotropy for crisp text
     
     this.updateDisplay();
   }
 
   private createTextSprite(text: string): THREE.Sprite {
     const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 128;
-    const ctx = canvas.getContext('2d')!;
+    canvas.width = 256; // Higher res for antialiasing
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d', { alpha: true })!;
+    
+    // Enable antialiasing
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
+    // Clear with transparency
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     ctx.fillStyle = '#ffffff';
-    ctx.font = '72px Arial';
+    ctx.font = '700 120px system-ui, -apple-system, Arial'; // Larger, bolder font
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text === 'Space' ? '␣' : text === '⌫' ? '⌫' : text, 64, 64);
+    
+    // Display text with proper labels
+    let displayText = text;
+    if (text === 'Space') displayText = '␣';
+    else if (text === '⌫') displayText = '⌫';
+    else if (text === 'Enter') displayText = '↵';
+    else if (text === 'Post') displayText = '✓';
+    
+    ctx.fillText(displayText, 128, 128);
     
     const texture = new THREE.CanvasTexture(canvas);
-    const material = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.anisotropy = 16;
+    
+    const material = new THREE.SpriteMaterial({ 
+      map: texture, 
+      depthTest: false,
+      transparent: true,
+    });
     return new THREE.Sprite(material);
   }
 
   private updateDisplay() {
-    const ctx = this.canvas.getContext('2d')!;
+    const ctx = this.canvas.getContext('2d', { alpha: true })!;
+    
+    // Enable high-quality antialiasing
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
+    // Clear and draw background
     ctx.fillStyle = '#1a1a2a';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     
     ctx.fillStyle = '#ffffff';
-    ctx.font = '48px monospace';
+    ctx.font = '600 42px system-ui, -apple-system, Arial'; // Better font with antialiasing
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     
     const displayText = this.currentText || 'Type your comment...';
     const maxChars = 50;
     const visibleText = displayText.slice(-maxChars);
-    ctx.fillText(visibleText, 20, this.canvas.height / 2);
     
-    // Cursor
+    // Draw text with subpixel positioning for smoother rendering
+    ctx.fillText(visibleText, 20.5, this.canvas.height / 2 + 0.5);
+    
+    // Cursor (blinking effect could be added)
     if (this.currentText.length < 500) {
       ctx.fillRect(20 + ctx.measureText(visibleText).width + 5, this.canvas.height / 2 - 20, 3, 40);
     }
@@ -172,7 +213,9 @@ export class VirtualKeyboard {
       this.currentText = this.currentText.slice(0, -1);
     } else if (key === 'Space') {
       this.currentText += ' ';
-    } else if (key === 'Submit') {
+    } else if (key === 'Enter') {
+      this.currentText += '\n';
+    } else if (key === 'Post') {
       this.submit();
       return;
     } else {

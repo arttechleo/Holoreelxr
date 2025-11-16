@@ -231,24 +231,24 @@ export class FeedControls {
     this.keyboardActive = false;
   }
 
-  private handleKeyboardInput(side: 'left' | 'right') {
-    if (!this.keyboardActive || !this.virtualKeyboard.isVisible()) return;
+  private handleKeyboardInput(side: 'left' | 'right'): boolean {
+    if (!this.keyboardActive || !this.virtualKeyboard.isVisible()) return false;
     
     const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
-    if (!from) return;
+    if (!from) return false;
     
-    const camPos = new THREE.Vector3();
-    this.app.camera.getWorldPosition(camPos);
-    const dir = this.virtualKeyboard.getGroup().position.clone().sub(from).normalize();
+    // Create ray from hand toward keyboard
+    const keyboardCenter = this.virtualKeyboard.getGroup().position.clone();
+    const dir = keyboardCenter.sub(from).normalize();
     const ray = new THREE.Ray(from, dir);
     
     const hit = this.virtualKeyboard.raycast(ray);
     if (hit) {
       this.virtualKeyboard.pressKey(hit.key);
-      return true;
+      return true; // Block all other interactions
     }
     
-    return false;
+    return false; // No key hit, but keyboard is still active
   }
 
   // ---------- anti-burst helpers ----------
@@ -481,6 +481,13 @@ export class FeedControls {
     if (L) L.visible = v;
   }
   private updateRays() {
+    // Hide rays when keyboard is active
+    if (this.keyboardActive) {
+      if (this.leftRay) this.leftRay.visible = false;
+      if (this.rightRay) this.rightRay.visible = false;
+      return;
+    }
+    
     const objPos = this.store.getObjectWorldPos();
     const fallbackDir = new THREE.Vector3(0, 0, -1);
     const update = (side: 'left' | 'right', line?: THREE.Line) => {
@@ -515,16 +522,19 @@ export class FeedControls {
 
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
-    // First, check if keyboard is active
+    // PRIORITY 1: Check if keyboard is active (highest priority)
     if (this.keyboardActive) {
       if (this.handleKeyboardInput(side)) {
-        return; // Key press handled
+        // Don't show ray when typing
+        this.setRayVisible(side, false);
+        return; // Key press handled, block all other interactions
       }
     }
 
-    // Try clicking the MR HUD; if it handled, do not show dotted ray.
+    // PRIORITY 2: Try clicking the MR HUD
     if (this.tryClickHud(side)) return;
 
+    // PRIORITY 3: Normal interactions (scroll, grab, etc)
     this.setRayVisible(side, true);
     this.pinchStartAt = performance.now();
     const y = this.hands.pinchMid(side)?.y ?? null;
@@ -589,6 +599,8 @@ export class FeedControls {
   }
 
   private updateScroll(now: number) {
+    // Block scroll when keyboard is active
+    if (this.keyboardActive) return;
     if (now < this.scrollCooldownUntil) return;
     if (this.grabPending || this.grabbing) return;
 
@@ -634,6 +646,8 @@ export class FeedControls {
 
   // ---------- two-hand transform ----------
   private updateTwoHandTransform(dt: number) {
+    // Block transform when keyboard is active
+    if (this.keyboardActive) return;
     const lp = this.hands.state.left.pinch,
       rp = this.hands.state.right.pinch;
     if (this.grabPending || this.grabbing) return;
@@ -743,6 +757,8 @@ export class FeedControls {
 
   // ---------- grab ----------
   private updateAutoAcquirePending() {
+    // Block grab when keyboard is active
+    if (this.keyboardActive) return;
     if (this.grabPending || this.grabbing) return;
     const lp = this.hands.state.left.pinch,
       rp = this.hands.state.right.pinch;

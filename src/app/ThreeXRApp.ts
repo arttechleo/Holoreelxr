@@ -25,6 +25,13 @@ export class ThreeXRApp {
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType?.('local-floor');
+    
+    // Enable max anisotropic filtering for crisp textures (keyboard text)
+    const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    if (maxAnisotropy > 1) {
+      console.log(`Anisotropic filtering enabled: ${maxAnisotropy}x`);
+    }
+    
     document.body.appendChild(this.renderer.domElement);
 
     this.scene.background = null;
