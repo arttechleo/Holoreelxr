@@ -5,6 +5,7 @@ import { ThreeXRApp } from '../app/ThreeXRApp';
 import { FeedStore } from '../feed/FeedStore';
 import ReactionHudManager from '../ui/ReactionHudManager';
 import { VirtualKeyboard } from '../ui/VirtualKeyboard';
+import { BackgroundBlur } from '../effects/BackgroundBlur';
 import { CONTROLS, TRANSFORM, REACTIONS, HUD } from '../config/constants';
 
 export class FeedControls {
@@ -91,6 +92,8 @@ export class FeedControls {
   // Virtual keyboard for in-VR typing
   private virtualKeyboard: VirtualKeyboard;
   private keyboardActive = false;
+  private backgroundBlur: BackgroundBlur;
+  private hoveredKey: string | null = null;
 
   // ---- anti-burst (close-hands) gating ----
   private readonly CLUSTER_DIST = REACTIONS.CLUSTER_DISTANCE;
@@ -111,6 +114,9 @@ export class FeedControls {
     // Virtual keyboard for typing comments in VR
     this.virtualKeyboard = new VirtualKeyboard();
     this.app.scene.add(this.virtualKeyboard.getGroup());
+
+    // Background blur effect
+    this.backgroundBlur = new BackgroundBlur(this.app.scene, this.app.renderer, this.app.contentRoot);
 
     this.hudMgr = new ReactionHudManager(this.app.scene, this.app.camera, () =>
       this.store.getObjectWorldPos()
@@ -191,14 +197,60 @@ export class FeedControls {
 
       this.hudMgr.tick(dt);
       this.store.tick(dt);
+      this.backgroundBlur.tick(dt);
 
-      // Update keyboard position to face camera
+      // Update keyboard position to face camera dynamically
       if (this.keyboardActive && this.virtualKeyboard.isVisible()) {
-        const camPos = new THREE.Vector3();
-        this.app.camera.getWorldPosition(camPos);
-        this.virtualKeyboard.lookAt(camPos);
+        this.updateKeyboardPosition();
+        this.updateKeyboardHoverState();
       }
     });
+  }
+
+  // ========== KEYBOARD POSITIONING ==========
+  private updateKeyboardPosition() {
+    const camPos = new THREE.Vector3();
+    const camDir = new THREE.Vector3();
+    this.app.camera.getWorldPosition(camPos);
+    this.app.camera.getWorldDirection(camDir);
+    
+    // Smoothly follow camera gaze
+    const currentPos = this.virtualKeyboard.getGroup().position;
+    const targetPos = camPos.clone().add(camDir.multiplyScalar(0.6));
+    targetPos.y -= 0.2;
+    
+    // Smooth interpolation
+    currentPos.lerp(targetPos, 0.05);
+    
+    // Always face camera
+    this.virtualKeyboard.lookAt(camPos);
+  }
+
+  private updateKeyboardHoverState() {
+    // Check both hands for hover state
+    const leftHand = this.hands.pinchMid('left') ?? this.hands.indexTip('left');
+    const rightHand = this.hands.pinchMid('right') ?? this.hands.indexTip('right');
+    
+    let hoveredKey: string | null = null;
+    
+    // Check collision with either hand
+    if (leftHand) {
+      const hit = this.virtualKeyboard.checkCollision(leftHand);
+      if (hit) hoveredKey = hit.key;
+    }
+    if (rightHand && !hoveredKey) {
+      const hit = this.virtualKeyboard.checkCollision(rightHand);
+      if (hit) hoveredKey = hit.key;
+    }
+    
+    // Update hover state
+    if (hoveredKey !== this.hoveredKey) {
+      this.virtualKeyboard.clearHover();
+      if (hoveredKey) {
+        this.virtualKeyboard.hoverKey(hoveredKey);
+      }
+      this.hoveredKey = hoveredKey;
+    }
   }
 
   // ========== VIRTUAL KEYBOARD ==========
@@ -232,12 +284,16 @@ export class FeedControls {
     );
     
     this.keyboardActive = true;
-    this.store.notify('✍️ Keyboard ready - pinch keys to type!');
+    this.backgroundBlur.enable(); // Blur background
+    this.store.notify('✍️ Touch keys to type!');
   }
 
   private hideVirtualKeyboard() {
     this.virtualKeyboard.hide();
+    this.virtualKeyboard.clearHover();
     this.keyboardActive = false;
+    this.hoveredKey = null;
+    this.backgroundBlur.disable(); // Un-blur background
   }
 
   private handleKeyboardInput(side: 'left' | 'right'): boolean {
@@ -249,25 +305,24 @@ export class FeedControls {
       return true;
     }
     
-    // Create ray from hand toward keyboard
+    // METHOD 1: Direct collision detection (PINCH TO TOUCH)
+    const collision = this.virtualKeyboard.checkCollision(from);
+    if (collision) {
+      this.virtualKeyboard.pressKey(collision.key);
+      console.log('Key pressed (collision):', collision.key);
+      return true;
+    }
+    
+    // METHOD 2: Raycast (backup method)
     const keyboardCenter = this.virtualKeyboard.getGroup().position.clone();
     const dir = keyboardCenter.sub(from).normalize();
     const ray = new THREE.Ray(from, dir);
     
-    // Debug: log ray info (can be removed later)
-    if (Math.random() < 0.1) { // Only log 10% of frames to avoid spam
-      console.log('Keyboard ray:', {
-        from: `${from.x.toFixed(2)}, ${from.y.toFixed(2)}, ${from.z.toFixed(2)}`,
-        dir: `${dir.x.toFixed(2)}, ${dir.y.toFixed(2)}, ${dir.z.toFixed(2)}`,
-        keyboardPos: `${keyboardCenter.x.toFixed(2)}, ${keyboardCenter.y.toFixed(2)}, ${keyboardCenter.z.toFixed(2)}`
-      });
-    }
-    
     const hit = this.virtualKeyboard.raycast(ray);
     if (hit) {
       this.virtualKeyboard.pressKey(hit.key);
-      console.log('Key pressed:', hit.key);
-      return true; // Block all other interactions
+      console.log('Key pressed (raycast):', hit.key);
+      return true;
     }
     
     // No key hit, but keyboard is still active - still block other interactions
