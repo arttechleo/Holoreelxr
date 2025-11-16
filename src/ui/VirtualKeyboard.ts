@@ -12,7 +12,7 @@ const QWERTY_LAYOUT: KeyboardLayout = [
   ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
   ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
   ['z', 'x', 'c', 'v', 'b', 'n', 'm', '⌫'],
-  ['Space', 'Enter', 'Post']
+  ['Cancel', 'Space', 'Enter', 'Post']
 ];
 
 export class VirtualKeyboard {
@@ -49,17 +49,22 @@ export class VirtualKeyboard {
       let xOffset = -rowWidth / 2;
       
       row.forEach((keyLabel) => {
-        const keyWidth = keyLabel === 'Space' ? this.KEY_SIZE * 3 : 
-                        keyLabel === 'Post' ? this.KEY_SIZE * 2 : 
-                        keyLabel === 'Enter' ? this.KEY_SIZE * 1.5 : 
+        const keyWidth = keyLabel === 'Space' ? this.KEY_SIZE * 2.5 : 
+                        keyLabel === 'Post' ? this.KEY_SIZE * 1.5 : 
+                        keyLabel === 'Cancel' ? this.KEY_SIZE * 1.5 : 
+                        keyLabel === 'Enter' ? this.KEY_SIZE * 1.2 : 
                         this.KEY_SIZE;
         
         const geometry = new THREE.BoxGeometry(keyWidth, this.KEY_SIZE, this.KEY_DEPTH);
         const material = new THREE.MeshStandardMaterial({
-          color: keyLabel === 'Post' ? 0x4b83ff : 0x2a2a3a,
+          color: keyLabel === 'Post' ? 0x4b83ff : 
+                 keyLabel === 'Cancel' ? 0xff4444 : 
+                 0x2a2a3a,
           roughness: 0.7,
           metalness: 0.1,
-          emissive: keyLabel === 'Post' ? 0x2a4080 : 0x000000,
+          emissive: keyLabel === 'Post' ? 0x2a4080 : 
+                    keyLabel === 'Cancel' ? 0x802020 : 
+                    0x000000,
           emissiveIntensity: 0.3,
         });
         
@@ -126,6 +131,7 @@ export class VirtualKeyboard {
     else if (text === '⌫') displayText = '⌫';
     else if (text === 'Enter') displayText = '↵';
     else if (text === 'Post') displayText = '✓';
+    else if (text === 'Cancel') displayText = '✕';
     
     ctx.fillText(displayText, 128, 128);
     
@@ -215,6 +221,9 @@ export class VirtualKeyboard {
       this.currentText += ' ';
     } else if (key === 'Enter') {
       this.currentText += '\n';
+    } else if (key === 'Cancel') {
+      this.cancel();
+      return;
     } else if (key === 'Post') {
       this.submit();
       return;
@@ -237,12 +246,25 @@ export class VirtualKeyboard {
     }
   }
 
+  private cancel() {
+    this.currentText = '';
+    this.onCancel?.();
+  }
+
+  private onCancel?: () => void;
+
   /**
    * Show keyboard at position
    */
-  show(position: THREE.Vector3, onSubmit: (text: string) => void, onTextChange?: (text: string) => void) {
+  show(
+    position: THREE.Vector3, 
+    onSubmit: (text: string) => void, 
+    onCancel: () => void,
+    onTextChange?: (text: string) => void
+  ) {
     this.currentText = '';
     this.onSubmit = onSubmit;
+    this.onCancel = onCancel;
     this.onTextChange = onTextChange;
     this.group.position.copy(position);
     this.group.visible = true;
