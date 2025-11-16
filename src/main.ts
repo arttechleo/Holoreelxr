@@ -5,6 +5,7 @@ import { FeedStore } from './feed/FeedStore';
 import { Hud } from './ui/Hud';
 import { GlobalPlayer } from './integrations/player';
 import { checkWebXRSupport, logError } from './utils/errors';
+import { detectXRMode, getXRBackground } from './config/xr';
 import * as THREE from 'three';
 
 // ========== INITIALIZATION ==========
@@ -51,7 +52,21 @@ hud.mountPlayer(()=> player.play(), ()=> player.pause());
 
   // When XR session starts, place the current item in front of the user:
   // ~1.0 m forward in view direction, Y = 0.5m above floor (local-floor → ground at y=0)
-  (app.renderer.xr as any).addEventListener('sessionstart', () => {
+  (app.renderer.xr as any).addEventListener('sessionstart', (event: any) => {
+    const session = event.session as XRSession;
+    
+    // Detect VR vs MR mode
+    const mode = detectXRMode(session);
+    console.log(`🥽 XR Mode: ${mode.toUpperCase()}`);
+    
+    // Adjust background based on mode
+    const bgColor = getXRBackground(mode);
+    if (bgColor !== null) {
+      app.scene.background = new THREE.Color(bgColor);
+    } else {
+      app.scene.background = null; // Transparent for MR/AR passthrough
+    }
+    
     const cam = app.camera;
     const camPos = new THREE.Vector3();
     const camDir = new THREE.Vector3();
@@ -63,7 +78,7 @@ hud.mountPlayer(()=> player.play(), ()=> player.pause());
     target.y = 0.5; // 0.5 m above ground
 
     store.setPosition(target);
-    hud.toast('Placed model in front of you');
+    hud.toast(`${mode.toUpperCase()} ready - Model placed in front of you`);
   });
 
     new FeedControls(app, hands, store);

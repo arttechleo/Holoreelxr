@@ -202,17 +202,90 @@ export class VirtualKeyboard {
   }
 
   /**
-   * Handle key press
+   * Check collision with hand position (for direct touch/pinch)
+   */
+  checkCollision(handPosition: THREE.Vector3): { key: string; mesh: THREE.Mesh } | null {
+    let closestKey: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
+    const touchThreshold = 0.03; // 3cm proximity for touch detection
+    
+    this.keys.forEach((mesh, key) => {
+      const worldPos = new THREE.Vector3();
+      mesh.getWorldPosition(worldPos);
+      
+      const distance = handPosition.distanceTo(worldPos);
+      
+      if (distance < touchThreshold) {
+        if (!closestKey || distance < closestKey.distance) {
+          closestKey = { key, mesh, distance };
+        }
+      }
+    });
+    
+    return closestKey ? { key: closestKey.key, mesh: closestKey.mesh } : null;
+  }
+
+  /**
+   * Hover effect for key (visual preview before press)
+   */
+  hoverKey(key: string) {
+    const mesh = this.keys.get(key);
+    if (!mesh || (mesh as any)._isHovered) return;
+    
+    const mat = mesh.material as THREE.MeshStandardMaterial;
+    (mesh as any)._isHovered = true;
+    (mesh as any)._originalScale = mesh.scale.clone();
+    
+    // Subtle scale up
+    mesh.scale.multiplyScalar(1.1);
+    mat.emissiveIntensity = 0.5;
+  }
+
+  /**
+   * Clear hover state
+   */
+  clearHover() {
+    this.keys.forEach((mesh) => {
+      if ((mesh as any)._isHovered) {
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        mat.emissiveIntensity = 0.3;
+        if ((mesh as any)._originalScale) {
+          mesh.scale.copy((mesh as any)._originalScale);
+        }
+        (mesh as any)._isHovered = false;
+      }
+    });
+  }
+
+  /**
+   * Handle key press with enhanced feedback
    */
   pressKey(key: string) {
     const mesh = this.keys.get(key);
     if (!mesh) return;
     
-    // Visual feedback
+    // Enhanced visual feedback
     const mat = mesh.material as THREE.MeshStandardMaterial;
     const originalColor = mesh.userData.originalColor;
+    const originalScale = mesh.scale.clone();
+    
+    // Color flash
     mat.color.setHex(0xffffff);
-    setTimeout(() => mat.color.setHex(originalColor), 150);
+    mat.emissiveIntensity = 1.0;
+    
+    // Press animation (scale down then up)
+    const pressDepth = 0.8;
+    mesh.scale.multiplyScalar(pressDepth);
+    
+    setTimeout(() => {
+      mesh.scale.copy(originalScale);
+      mesh.scale.multiplyScalar(1.15); // Bounce
+    }, 50);
+    
+    setTimeout(() => {
+      mesh.scale.copy(originalScale);
+      mat.color.setHex(originalColor);
+      mat.emissiveIntensity = 0.3;
+    }, 150);
     
     // Handle key action
     if (key === '⌫') {
