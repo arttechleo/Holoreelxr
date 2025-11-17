@@ -101,13 +101,16 @@ export class FeedControls {
   private backgroundBlur: BackgroundBlur;
   private hoveredKey: string | null = null;
   
-  // Keyboard interaction state
+  // Keyboard interaction state - PINCH TO AIM, RELEASE TO PRESS
   private lastKeyPressTime = 0;
   private lastPressedKey: string | null = null;
   private keyPressDebounceMs = 150; // Prevent rapid re-presses (150ms feels natural)
-  private isPinchingForKeyboard = false;
-  private leftPinchingKeyboard = false;
-  private rightPinchingKeyboard = false;
+  
+  // Track which key is being aimed at while pinching
+  private leftAimingAtKey: string | null = null;
+  private rightAimingAtKey: string | null = null;
+  private leftPinchStartTime = 0;
+  private rightPinchStartTime = 0;
   
   // Keyboard grab/reposition state
   private keyboardGrabbed = false;
@@ -284,13 +287,9 @@ export class FeedControls {
         // Check for keyboard grab gesture
         this.updateKeyboardGrab(now);
         
-        // Continuously check for pinch-to-type input (not just on pinch start)
-        if (this.hands.state.left.pinch) {
-          this.handleKeyboardInput('left');
-        }
-        if (this.hands.state.right.pinch) {
-          this.handleKeyboardInput('right');
-        }
+        // PINCH TO AIM: Continuously update which key is being aimed at
+        this.updateKeyboardAim('left');
+        this.updateKeyboardAim('right');
         
         if (this.useAdvancedKeyboard && this.advancedKeyboard.isVisible()) {
           this.updateAdvancedKeyboardPosition();
@@ -334,36 +333,16 @@ export class FeedControls {
   }
 
   private updateKeyboardHoverState() {
-    // Only show hover when pinching (ready to type)
-    const leftPinching = this.hands.state.left.pinch;
-    const rightPinching = this.hands.state.right.pinch;
+    // Show hover based on which key we're aiming at (PINCH TO AIM)
+    const aimedKey = this.leftAimingAtKey || this.rightAimingAtKey;
     
-    let hoveredKey: string | null = null;
-    
-    // Check collision only for pinching hands
-    if (leftPinching) {
-      const leftHand = this.hands.pinchMid('left') ?? this.hands.indexTip('left');
-      if (leftHand) {
-        const hit = this.virtualKeyboard.checkCollision(leftHand);
-        if (hit) hoveredKey = hit.key;
-      }
-    }
-    
-    if (rightPinching && !hoveredKey) {
-      const rightHand = this.hands.pinchMid('right') ?? this.hands.indexTip('right');
-      if (rightHand) {
-        const hit = this.virtualKeyboard.checkCollision(rightHand);
-        if (hit) hoveredKey = hit.key;
-      }
-    }
-    
-    // Update hover state
-    if (hoveredKey !== this.hoveredKey) {
+    // Update hover state only if it changed
+    if (aimedKey !== this.hoveredKey) {
       this.virtualKeyboard.clearHover();
-      if (hoveredKey) {
-        this.virtualKeyboard.hoverKey(hoveredKey);
+      if (aimedKey) {
+        this.virtualKeyboard.hoverKey(aimedKey);
       }
-      this.hoveredKey = hoveredKey;
+      this.hoveredKey = aimedKey;
     }
   }
   
@@ -383,36 +362,16 @@ export class FeedControls {
   }
   
   private updateAdvancedKeyboardHoverState() {
-    // Only show hover when pinching (ready to type)
-    const leftPinching = this.hands.state.left.pinch;
-    const rightPinching = this.hands.state.right.pinch;
+    // Show hover based on which key we're aiming at (PINCH TO AIM)
+    const aimedKey = this.leftAimingAtKey || this.rightAimingAtKey;
     
-    let hoveredKey: string | null = null;
-    
-    // Check collision only for pinching hands
-    if (leftPinching) {
-      const leftHand = this.hands.pinchMid('left') ?? this.hands.indexTip('left');
-      if (leftHand) {
-        const hit = this.advancedKeyboard.checkCollision(leftHand);
-        if (hit) hoveredKey = hit.key;
-      }
-    }
-    
-    if (rightPinching && !hoveredKey) {
-      const rightHand = this.hands.pinchMid('right') ?? this.hands.indexTip('right');
-      if (rightHand) {
-        const hit = this.advancedKeyboard.checkCollision(rightHand);
-        if (hit) hoveredKey = hit.key;
-      }
-    }
-    
-    // Update hover state
-    if (hoveredKey !== this.hoveredKey) {
+    // Update hover state only if it changed
+    if (aimedKey !== this.hoveredKey) {
       this.advancedKeyboard.clearHover();
-      if (hoveredKey) {
-        this.advancedKeyboard.hoverKey(hoveredKey);
+      if (aimedKey) {
+        this.advancedKeyboard.hoverKey(aimedKey);
       }
-      this.hoveredKey = hoveredKey;
+      this.hoveredKey = aimedKey;
     }
   }
 
@@ -471,8 +430,8 @@ export class FeedControls {
     this.keyboardActive = true;
     this.backgroundBlur.enable();
     
-    // Helpful notification
-    this.store.notify('✍️ Pinch fingers together and aim at keys to type!');
+    // Helpful notification - PINCH TO AIM, RELEASE TO PRESS
+    this.store.notify('✍️ Pinch to aim at keys, release to press!');
     
     // Tutorial progress
     if (this.tutorial && this.tutorial.getCurrentGesture() === 'ily_sign') {
@@ -506,6 +465,10 @@ export class FeedControls {
     // Reset keyboard input state
     this.lastKeyPressTime = 0;
     this.lastPressedKey = null;
+    this.leftAimingAtKey = null;
+    this.rightAimingAtKey = null;
+    this.leftPinchStartTime = 0;
+    this.rightPinchStartTime = 0;
     
     this.backgroundBlur.disable();
   }
@@ -547,10 +510,12 @@ export class FeedControls {
       return;
     }
     
-    // Check if hand is colliding with a key
+    // Check if hand is colliding with a key OR aiming at a key
     const collision = activeKeyboard.checkCollision(handPos);
-    if (collision) {
-      // Hand is over a key - this is for typing, not grabbing
+    const aimingAtKey = activeSide === 'left' ? this.leftAimingAtKey : this.rightAimingAtKey;
+    
+    if (collision || aimingAtKey) {
+      // Hand is over a key or aiming at a key - this is for typing, not grabbing
       this.keyboardGrabStartTime = 0;
       return;
     }
@@ -601,83 +566,98 @@ export class FeedControls {
     activeKeyboard.getGroup().scale.setScalar(1.0);
   }
 
-  private handleKeyboardInput(side: 'left' | 'right'): boolean {
-    if (!this.keyboardActive) return false;
+  /**
+   * PINCH TO AIM: Track which key is being aimed at while pinching
+   * Does NOT press keys - only tracks hover state
+   */
+  private updateKeyboardAim(side: 'left' | 'right'): void {
+    if (!this.keyboardActive) return;
     
-    // Check which keyboard is active
     const activeKeyboard = this.useAdvancedKeyboard ? this.advancedKeyboard : this.virtualKeyboard;
-    if (!activeKeyboard.isVisible()) return false;
+    if (!activeKeyboard.isVisible()) return;
     
-    // Only process if this hand is actively pinching
     const isPinching = this.hands.state[side].pinch;
+    
     if (!isPinching) {
-      // Reset pinch state when hand releases
-      if (side === 'left') this.leftPinchingKeyboard = false;
-      if (side === 'right') this.rightPinchingKeyboard = false;
-      return false; // Don't block if not pinching
+      // Not pinching - clear aim state
+      if (side === 'left') {
+        this.leftAimingAtKey = null;
+      } else {
+        this.rightAimingAtKey = null;
+      }
+      return;
     }
     
+    // Pinching - check what key we're aiming at
     const from = this.hands.pinchMid(side) ?? this.hands.indexTip(side);
-    if (!from) {
-      return false; // Don't block if no hand position
-    }
+    if (!from) return;
     
-    // Check for collision with keyboard keys
     const collision = activeKeyboard.checkCollision(from);
+    
     if (collision) {
-      const now = performance.now();
-      
-      // Track which key we're currently hovering over
-      const currentHoverKey = `${side}-${collision.key}`;
-      
-      // If hovering over a different key, reset debounce for faster typing
-      if (collision.key !== this.lastPressedKey) {
-        this.lastPressedKey = null;
-        this.lastKeyPressTime = 0;
+      // Aiming at a key - store it
+      if (side === 'left') {
+        this.leftAimingAtKey = collision.key;
+      } else {
+        this.rightAimingAtKey = collision.key;
       }
-      
-      // Debounce: prevent rapid re-presses of the same key
-      // Also check if we've already pressed this key in this pinch session
-      const canPress = (
-        collision.key !== this.lastPressedKey || 
-        now - this.lastKeyPressTime > this.keyPressDebounceMs
-      );
-      
-      if (canPress) {
-        // Mark this hand as having interacted with keyboard
-        if (side === 'left') this.leftPinchingKeyboard = true;
-        if (side === 'right') this.rightPinchingKeyboard = true;
-        
-        activeKeyboard.pressKey(collision.key);
-        
-        // Micro-particle effect on key press
-        this.particleSystem.emit('sparkle', from, 3);
-        
-        // Update debounce state
-        this.lastKeyPressTime = now;
-        this.lastPressedKey = collision.key;
-      }
-      
-      return true; // Block other interactions when over a key
     } else {
-      // When not over any key, reset last pressed key for faster re-entry
-      if (this.lastPressedKey) {
-        this.lastPressedKey = null;
+      // Not aiming at any key
+      if (side === 'left') {
+        this.leftAimingAtKey = null;
+      } else {
+        this.rightAimingAtKey = null;
       }
     }
+  }
+  
+  /**
+   * RELEASE TO PRESS: Called when pinch ends - press the key if we were aiming at it
+   */
+  private handleKeyboardPressOnRelease(side: 'left' | 'right'): void {
+    if (!this.keyboardActive) return;
     
-    // If we're near the keyboard but not hitting a key, still block other interactions
-    // Check if hand is within keyboard interaction area
-    const keyboardPos = activeKeyboard.getGroup().position;
-    const distToKeyboard = from.distanceTo(keyboardPos);
+    const activeKeyboard = this.useAdvancedKeyboard ? this.advancedKeyboard : this.virtualKeyboard;
+    if (!activeKeyboard.isVisible()) return;
     
-    // Only block if within reasonable keyboard interaction distance (40cm)
-    if (distToKeyboard < 0.4) {
-      return true; // Near keyboard, block other interactions
+    // Check which key we were aiming at
+    const aimedKey = side === 'left' ? this.leftAimingAtKey : this.rightAimingAtKey;
+    
+    if (!aimedKey) {
+      // Wasn't aiming at any key - do nothing
+      return;
     }
     
-    // Far from keyboard, allow other interactions (scrolling, grabbing, etc.)
-    return false;
+    // We were aiming at a key - press it!
+    const now = performance.now();
+    
+    // Debounce: prevent rapid re-presses
+    const canPress = (
+      aimedKey !== this.lastPressedKey || 
+      now - this.lastKeyPressTime > this.keyPressDebounceMs
+    );
+    
+    if (canPress) {
+      // Press the key
+      activeKeyboard.pressKey(aimedKey);
+      
+      // Visual feedback
+      const from = this.hands.pinchMid(side) ?? this.hands.indexTip(side);
+      if (from) {
+        this.particleSystem.emit('sparkle', from, 3);
+      }
+      
+      // Update debounce state
+      this.lastKeyPressTime = now;
+      this.lastPressedKey = aimedKey;
+    }
+    
+    // Clear aim state after pressing
+    if (side === 'left') {
+      this.leftAimingAtKey = null;
+    } else {
+      this.rightAimingAtKey = null;
+    }
   }
 
   // ---------- gesture cooldown helpers ----------
@@ -979,12 +959,29 @@ export class FeedControls {
 
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
-    // PRIORITY 1: Check if keyboard is active (highest priority)
+    // PRIORITY 1: Check if keyboard is active - PINCH TO AIM mode
     if (this.keyboardActive) {
-      if (this.handleKeyboardInput(side)) {
-        // Don't show ray when typing
-        this.setRayVisible(side, false);
-        return; // Key press handled, block all other interactions
+      // Track pinch start time for aim mode
+      if (side === 'left') {
+        this.leftPinchStartTime = performance.now();
+      } else {
+        this.rightPinchStartTime = performance.now();
+      }
+      
+      // Check if hand is near keyboard - block other interactions
+      const from = this.hands.pinchMid(side) ?? this.hands.indexTip(side);
+      if (from) {
+        const activeKeyboard = this.useAdvancedKeyboard ? this.advancedKeyboard : this.virtualKeyboard;
+        if (activeKeyboard.isVisible()) {
+          const keyboardPos = activeKeyboard.getGroup().position;
+          const distToKeyboard = from.distanceTo(keyboardPos);
+          
+          // If within keyboard interaction area, block other interactions
+          if (distToKeyboard < 0.4) {
+            this.setRayVisible(side, false);
+            // Don't return - allow aim tracking to continue
+          }
+        }
       }
     }
 
@@ -1032,6 +1029,11 @@ export class FeedControls {
   }
 
   private onPinchEnd(side: 'left' | 'right') {
+    // PRIORITY 1: Check if we were aiming at a keyboard key - RELEASE TO PRESS
+    if (this.keyboardActive) {
+      this.handleKeyboardPressOnRelease(side);
+    }
+    
     this.setRayVisible(side, false);
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
     if (this.grabbing && this.grabSide === side) {
