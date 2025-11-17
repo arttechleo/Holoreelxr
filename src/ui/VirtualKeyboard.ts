@@ -24,9 +24,9 @@ export class VirtualKeyboard {
   private onSubmit?: (text: string) => void;
   private onTextChange?: (text: string) => void;
   
-  private readonly KEY_SIZE = 0.04;
-  private readonly KEY_GAP = 0.006;
-  private readonly KEY_DEPTH = 0.01;
+  private readonly KEY_SIZE = 0.045; // Slightly larger for easier VR targeting
+  private readonly KEY_GAP = 0.007;
+  private readonly KEY_DEPTH = 0.012; // Deeper keys for better depth perception
   
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -59,13 +59,13 @@ export class VirtualKeyboard {
         const material = new THREE.MeshStandardMaterial({
           color: keyLabel === 'Post' ? 0x4b83ff : 
                  keyLabel === 'Cancel' ? 0xff4444 : 
-                 0x2a2a3a,
-          roughness: 0.7,
-          metalness: 0.1,
+                 0x8a8a9a, // Grey buttons for regular keys
+          roughness: 0.5,
+          metalness: 0.15,
           emissive: keyLabel === 'Post' ? 0x2a4080 : 
                     keyLabel === 'Cancel' ? 0x802020 : 
-                    0x000000,
-          emissiveIntensity: 0.3,
+                    0x404050, // Subtle emissive grey
+          emissiveIntensity: 0.2,
         });
         
         const keyMesh = new THREE.Mesh(geometry, material);
@@ -155,12 +155,18 @@ export class VirtualKeyboard {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     
-    // Clear and draw background
-    ctx.fillStyle = '#1a1a2a';
+    // Clear and draw background with subtle grey
+    ctx.fillStyle = '#3a3a4a';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     
+    // Add subtle border
+    ctx.strokeStyle = '#5a5a6a';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(2, 2, this.canvas.width - 4, this.canvas.height - 4);
+    
+    // White text for high contrast
     ctx.fillStyle = '#ffffff';
-    ctx.font = '600 42px system-ui, -apple-system, Arial'; // Better font with antialiasing
+    ctx.font = '600 42px system-ui, -apple-system, Arial';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     
@@ -169,10 +175,12 @@ export class VirtualKeyboard {
     const visibleText = displayText.slice(-maxChars);
     
     // Draw text with subpixel positioning for smoother rendering
+    ctx.fillStyle = this.currentText ? '#ffffff' : '#aaaaaa'; // Placeholder is lighter grey
     ctx.fillText(visibleText, 20.5, this.canvas.height / 2 + 0.5);
     
     // Cursor (blinking effect could be added)
     if (this.currentText.length < 500) {
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(20 + ctx.measureText(visibleText).width + 5, this.canvas.height / 2 - 20, 3, 40);
     }
     
@@ -203,18 +211,31 @@ export class VirtualKeyboard {
 
   /**
    * Check collision with hand position (for direct touch/pinch)
+   * Uses precise bounding box check instead of just distance to center
    */
   checkCollision(handPosition: THREE.Vector3): { key: string; mesh: THREE.Mesh } | null {
     let closestKey: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
-    const touchThreshold = 0.03; // 3cm proximity for touch detection
+    const touchThreshold = 0.025; // 2.5cm proximity for more precise touch detection
     
     this.keys.forEach((mesh, key) => {
       const worldPos = new THREE.Vector3();
       mesh.getWorldPosition(worldPos);
       
-      const distance = handPosition.distanceTo(worldPos);
+      // Get key dimensions for more accurate collision
+      const geometry = mesh.geometry as THREE.BoxGeometry;
+      const keyWidth = geometry.parameters.width;
+      const keyHeight = geometry.parameters.height;
+      const keyDepth = geometry.parameters.depth;
       
-      if (distance < touchThreshold) {
+      // Check if hand is within key bounds (3D box collision)
+      const localPos = handPosition.clone().sub(worldPos);
+      const isWithinBounds = 
+        Math.abs(localPos.x) < keyWidth / 2 + touchThreshold &&
+        Math.abs(localPos.y) < keyHeight / 2 + touchThreshold &&
+        Math.abs(localPos.z) < keyDepth / 2 + touchThreshold;
+      
+      if (isWithinBounds) {
+        const distance = handPosition.distanceTo(worldPos);
         if (!closestKey || distance < closestKey.distance) {
           closestKey = { key, mesh, distance };
         }
@@ -235,9 +256,15 @@ export class VirtualKeyboard {
     (mesh as any)._isHovered = true;
     (mesh as any)._originalScale = mesh.scale.clone();
     
-    // Subtle scale up
-    mesh.scale.multiplyScalar(1.1);
-    mat.emissiveIntensity = 0.5;
+    // Subtle scale up and brighten
+    mesh.scale.multiplyScalar(1.08);
+    mat.emissiveIntensity = 0.6;
+    
+    // Brighten the key color slightly
+    const originalColor = mesh.userData.originalColor;
+    if (key !== 'Post' && key !== 'Cancel') {
+      mat.color.setHex(0xaaaacc); // Lighter grey on hover
+    }
   }
 
   /**
@@ -247,7 +274,14 @@ export class VirtualKeyboard {
     this.keys.forEach((mesh) => {
       if ((mesh as any)._isHovered) {
         const mat = mesh.material as THREE.MeshStandardMaterial;
-        mat.emissiveIntensity = 0.3;
+        mat.emissiveIntensity = 0.2;
+        
+        // Restore original color
+        const originalColor = mesh.userData.originalColor;
+        if (originalColor !== undefined) {
+          mat.color.setHex(originalColor);
+        }
+        
         if ((mesh as any)._originalScale) {
           mesh.scale.copy((mesh as any)._originalScale);
         }
@@ -268,24 +302,24 @@ export class VirtualKeyboard {
     const originalColor = mesh.userData.originalColor;
     const originalScale = mesh.scale.clone();
     
-    // Color flash
+    // Bright white flash on press
     mat.color.setHex(0xffffff);
-    mat.emissiveIntensity = 1.0;
+    mat.emissiveIntensity = 1.2;
     
-    // Press animation (scale down then up)
-    const pressDepth = 0.8;
+    // Press animation (scale down then bounce back)
+    const pressDepth = 0.85;
     mesh.scale.multiplyScalar(pressDepth);
     
     setTimeout(() => {
       mesh.scale.copy(originalScale);
-      mesh.scale.multiplyScalar(1.15); // Bounce
-    }, 50);
+      mesh.scale.multiplyScalar(1.12); // Subtle bounce
+    }, 40);
     
     setTimeout(() => {
       mesh.scale.copy(originalScale);
       mat.color.setHex(originalColor);
-      mat.emissiveIntensity = 0.3;
-    }, 150);
+      mat.emissiveIntensity = 0.2;
+    }, 120);
     
     // Handle key action
     if (key === '⌫') {

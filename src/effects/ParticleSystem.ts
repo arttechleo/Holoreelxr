@@ -1,0 +1,170 @@
+/**
+ * ✨ Particle System for VR
+ * 
+ * Creates beautiful particle effects for reactions and interactions
+ */
+
+import * as THREE from 'three';
+
+export type ParticleType = 'heart' | 'like' | 'sparkle' | 'confetti' | 'emoji';
+
+interface Particle {
+  sprite: THREE.Sprite;
+  velocity: THREE.Vector3;
+  lifetime: number;
+  maxLifetime: number;
+  rotation: number;
+  rotationSpeed: number;
+}
+
+export class ParticleSystem {
+  private particles: Particle[] = [];
+  private scene: THREE.Scene;
+  private pool: THREE.Sprite[] = []; // Object pooling for performance
+  
+  constructor(scene: THREE.Scene) {
+    this.scene = scene;
+    this.initializePool(50); // Pre-create 50 sprites
+  }
+
+  private initializePool(count: number) {
+    for (let i = 0; i < count; i++) {
+      const sprite = this.createSprite('✨');
+      sprite.visible = false;
+      this.scene.add(sprite);
+      this.pool.push(sprite);
+    }
+  }
+
+  private createSprite(emoji: string): THREE.Sprite {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    
+    ctx.font = '96px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(emoji, 64, 64);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 1,
+    });
+    
+    return new THREE.Sprite(material);
+  }
+
+  emit(type: ParticleType, position: THREE.Vector3, count: number = 10) {
+    const emoji = this.getEmojiForType(type);
+    
+    for (let i = 0; i < count; i++) {
+      const sprite = this.getFromPool(emoji);
+      if (!sprite) continue;
+      
+      sprite.position.copy(position);
+      sprite.position.x += (Math.random() - 0.5) * 0.1;
+      sprite.position.y += (Math.random() - 0.5) * 0.1;
+      sprite.position.z += (Math.random() - 0.5) * 0.1;
+      
+      sprite.scale.set(0.05, 0.05, 1);
+      sprite.visible = true;
+      
+      const velocity = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.3,
+        Math.random() * 0.5 + 0.2,
+        (Math.random() - 0.5) * 0.3
+      );
+      
+      this.particles.push({
+        sprite,
+        velocity,
+        lifetime: 0,
+        maxLifetime: type === 'confetti' ? 2.0 : 1.5,
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 5,
+      });
+    }
+  }
+
+  private getEmojiForType(type: ParticleType): string {
+    switch (type) {
+      case 'heart': return '❤️';
+      case 'like': return '👍';
+      case 'sparkle': return '✨';
+      case 'confetti': return '🎉';
+      case 'emoji': return '😊';
+      default: return '✨';
+    }
+  }
+
+  private getFromPool(emoji: string): THREE.Sprite | null {
+    // Reuse existing sprite
+    for (let i = 0; i < this.pool.length; i++) {
+      if (!this.pool[i].visible) {
+        // Update emoji if different
+        const mat = this.pool[i].material as THREE.SpriteMaterial;
+        // For now, reuse as-is; could update texture here
+        return this.pool[i];
+      }
+    }
+    
+    // Pool exhausted, create new one
+    const sprite = this.createSprite(emoji);
+    this.scene.add(sprite);
+    this.pool.push(sprite);
+    return sprite;
+  }
+
+  tick(dt: number) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      
+      p.lifetime += dt;
+      
+      // Update position
+      p.sprite.position.add(p.velocity.clone().multiplyScalar(dt));
+      
+      // Apply gravity
+      p.velocity.y -= 0.5 * dt;
+      
+      // Rotation
+      p.rotation += p.rotationSpeed * dt;
+      p.sprite.material.rotation = p.rotation;
+      
+      // Fade out
+      const lifeRatio = p.lifetime / p.maxLifetime;
+      const mat = p.sprite.material as THREE.SpriteMaterial;
+      mat.opacity = 1 - lifeRatio;
+      
+      // Scale animation (pop in, then shrink)
+      if (lifeRatio < 0.2) {
+        const scale = lifeRatio / 0.2 * 0.08;
+        p.sprite.scale.set(scale, scale, 1);
+      } else {
+        const scale = (1 - (lifeRatio - 0.2) / 0.8) * 0.08;
+        p.sprite.scale.set(scale, scale, 1);
+      }
+      
+      // Remove expired particles
+      if (p.lifetime >= p.maxLifetime) {
+        p.sprite.visible = false;
+        this.particles.splice(i, 1);
+      }
+    }
+  }
+
+  clear() {
+    this.particles.forEach(p => {
+      p.sprite.visible = false;
+    });
+    this.particles = [];
+  }
+}
+
+

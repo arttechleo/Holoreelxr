@@ -5,7 +5,11 @@ import { ThreeXRApp } from '../app/ThreeXRApp';
 import { FeedStore } from '../feed/FeedStore';
 import ReactionHudManager from '../ui/ReactionHudManager';
 import { VirtualKeyboard } from '../ui/VirtualKeyboard';
+import { AdvancedKeyboard } from '../ui/AdvancedKeyboard';
+import { TikTokFeedUI } from '../ui/TikTokFeedUI';
+import { GestureTutorial } from '../ui/GestureTutorial';
 import { BackgroundBlur } from '../effects/BackgroundBlur';
+import { ParticleSystem } from '../effects/ParticleSystem';
 import { CONTROLS, TRANSFORM, REACTIONS, HUD } from '../config/constants';
 
 export class FeedControls {
@@ -89,11 +93,39 @@ export class FeedControls {
   private hudMgr: ReactionHudManager;
   private selectBoundForSession: XRSession | null = null;
 
-  // Virtual keyboard for in-VR typing
+  // 🎹 Virtual keyboard for in-VR typing
   private virtualKeyboard: VirtualKeyboard;
+  private advancedKeyboard: AdvancedKeyboard; // NEW: Advanced keyboard with autocomplete
   private keyboardActive = false;
+  private useAdvancedKeyboard = true; // Toggle for advanced features
   private backgroundBlur: BackgroundBlur;
   private hoveredKey: string | null = null;
+  
+  // Keyboard interaction state
+  private lastKeyPressTime = 0;
+  private lastPressedKey: string | null = null;
+  private keyPressDebounceMs = 150; // Prevent rapid re-presses (150ms feels natural)
+  private isPinchingForKeyboard = false;
+  private leftPinchingKeyboard = false;
+  private rightPinchingKeyboard = false;
+  
+  // Keyboard grab/reposition state
+  private keyboardGrabbed = false;
+  private keyboardGrabStartTime = 0;
+  private keyboardGrabSide: 'left' | 'right' | null = null;
+  private keyboardGrabOffset = new THREE.Vector3();
+  private keyboardAutoFollow = true;
+  private readonly KEYBOARD_GRAB_HOLD_MS = 500; // 500ms long press to grab
+  
+  // 🎬 TikTok-style UI
+  private feedUI: TikTokFeedUI;
+  
+  // ✨ Particle system for reactions
+  private particleSystem: ParticleSystem;
+  
+  // 🎓 Gesture tutorial
+  private tutorial: GestureTutorial;
+  private showTutorialOnStart = true;
 
   // ---- anti-burst (close-hands) gating ----
   private readonly CLUSTER_DIST = REACTIONS.CLUSTER_DISTANCE;
@@ -111,12 +143,26 @@ export class FeedControls {
     this.setRayVisible('left', false);
     this.setRayVisible('right', false);
 
-    // Virtual keyboard for typing comments in VR
+    // 🎹 Virtual keyboards for typing comments in VR
     this.virtualKeyboard = new VirtualKeyboard();
     this.app.scene.add(this.virtualKeyboard.getGroup());
+    
+    this.advancedKeyboard = new AdvancedKeyboard();
+    this.app.scene.add(this.advancedKeyboard.getGroup());
 
-    // Background blur effect
+    // 🌫️ Background blur effect
     this.backgroundBlur = new BackgroundBlur(this.app.scene, this.app.renderer, this.app.contentRoot);
+    
+    // 🎬 TikTok-style feed UI
+    this.feedUI = new TikTokFeedUI();
+    this.app.scene.add(this.feedUI.getGroup());
+    
+    // ✨ Particle system
+    this.particleSystem = new ParticleSystem(this.app.scene);
+    
+    // 🎓 Gesture tutorial
+    this.tutorial = new GestureTutorial();
+    this.app.scene.add(this.tutorial.getGroup());
 
     this.hudMgr = new ReactionHudManager(this.app.scene, this.app.camera, () =>
       this.store.getObjectWorldPos()
@@ -144,8 +190,20 @@ export class FeedControls {
       const now = performance.now();
       if (now - this.lastLikeAt < this.REACT_COOLDOWN_MS) return;
       this.lastLikeAt = now;
+      
+      const thumb = this.hands.thumbTip('left') || this.hands.thumbTip('right');
+      if (thumb) {
+        this.particleSystem.emit('like', thumb, 8); // ✨ Particle effect!
+      }
+      
       this.store.likeCurrent();
       this.hudMgr.bump(this.currentModelKey(), 'like');
+      this.store.notify('👍 Liked!');
+      
+      // Complete tutorial step if active
+      if (this.tutorial && this.tutorial.getCurrentGesture() === 'thumbs_up') {
+        this.tutorial.completeCurrentLesson();
+      }
     });
     this.hands.on('heartstart', () => {
       if (this.keyboardActive) return; // BLOCK when typing
@@ -198,49 +256,98 @@ export class FeedControls {
       this.hudMgr.tick(dt);
       this.store.tick(dt);
       this.backgroundBlur.tick(dt);
+      this.particleSystem.tick(dt); // ✨ Update particles
+      this.feedUI.tick(dt); // 🎬 Update TikTok UI
+
+      // Get camera position once per frame for all updates
+      const camPos = new THREE.Vector3();
+      const camDir = new THREE.Vector3();
+      this.app.camera.getWorldPosition(camPos);
+      this.app.camera.getWorldDirection(camDir);
 
       // Update keyboard position to face camera dynamically
-      if (this.keyboardActive && this.virtualKeyboard.isVisible()) {
-        this.updateKeyboardPosition();
-        this.updateKeyboardHoverState();
+      if (this.keyboardActive) {
+        // Check for keyboard grab gesture
+        this.updateKeyboardGrab(now);
+        
+        if (this.useAdvancedKeyboard && this.advancedKeyboard.isVisible()) {
+          this.updateAdvancedKeyboardPosition();
+          this.updateAdvancedKeyboardHoverState();
+        } else if (this.virtualKeyboard.isVisible()) {
+          this.updateKeyboardPosition();
+          this.updateKeyboardHoverState();
+        }
+      }
+      
+      // Update TikTok UI position
+      const objPos = this.store.getObjectWorldPos();
+      if (objPos) {
+        this.feedUI.setPosition(objPos);
+        this.feedUI.lookAt(camPos);
+      }
+      
+      // Update tutorial position
+      if (this.tutorial && this.tutorial.getGroup().visible) {
+        const tutorialPos = camPos.clone().add(camDir.clone().multiplyScalar(0.8));
+        tutorialPos.y += 0.1;
+        this.tutorial.getGroup().position.copy(tutorialPos);
+        this.tutorial.lookAt(camPos);
       }
     });
   }
 
   // ========== KEYBOARD POSITIONING ==========
   private updateKeyboardPosition() {
+    if (this.keyboardGrabbed) {
+      // When grabbed, follow hand position
+      const handPos = this.hands.pinchMid(this.keyboardGrabSide!);
+      if (handPos) {
+        const targetPos = handPos.clone().add(this.keyboardGrabOffset);
+        this.virtualKeyboard.getGroup().position.copy(targetPos);
+      }
+    } else if (this.keyboardAutoFollow) {
+      // Auto-follow camera gaze with optimized distance
+      const camPos = new THREE.Vector3();
+      const camDir = new THREE.Vector3();
+      this.app.camera.getWorldPosition(camPos);
+      this.app.camera.getWorldDirection(camDir);
+      
+      const currentPos = this.virtualKeyboard.getGroup().position;
+      const targetPos = camPos.clone().add(camDir.multiplyScalar(0.5));
+      targetPos.y -= 0.25; // Comfortable typing height
+      
+      // Smooth interpolation (10% per frame for responsive but stable movement)
+      currentPos.lerp(targetPos, 0.1);
+    }
+    
+    // Always face camera for optimal readability
     const camPos = new THREE.Vector3();
-    const camDir = new THREE.Vector3();
     this.app.camera.getWorldPosition(camPos);
-    this.app.camera.getWorldDirection(camDir);
-    
-    // Smoothly follow camera gaze
-    const currentPos = this.virtualKeyboard.getGroup().position;
-    const targetPos = camPos.clone().add(camDir.multiplyScalar(0.6));
-    targetPos.y -= 0.2;
-    
-    // Smooth interpolation
-    currentPos.lerp(targetPos, 0.05);
-    
-    // Always face camera
     this.virtualKeyboard.lookAt(camPos);
   }
 
   private updateKeyboardHoverState() {
-    // Check both hands for hover state
-    const leftHand = this.hands.pinchMid('left') ?? this.hands.indexTip('left');
-    const rightHand = this.hands.pinchMid('right') ?? this.hands.indexTip('right');
+    // Only show hover when pinching (ready to type)
+    const leftPinching = this.hands.state.left.pinch;
+    const rightPinching = this.hands.state.right.pinch;
     
     let hoveredKey: string | null = null;
     
-    // Check collision with either hand
-    if (leftHand) {
-      const hit = this.virtualKeyboard.checkCollision(leftHand);
-      if (hit) hoveredKey = hit.key;
+    // Check collision only for pinching hands
+    if (leftPinching) {
+      const leftHand = this.hands.pinchMid('left') ?? this.hands.indexTip('left');
+      if (leftHand) {
+        const hit = this.virtualKeyboard.checkCollision(leftHand);
+        if (hit) hoveredKey = hit.key;
+      }
     }
-    if (rightHand && !hoveredKey) {
-      const hit = this.virtualKeyboard.checkCollision(rightHand);
-      if (hit) hoveredKey = hit.key;
+    
+    if (rightPinching && !hoveredKey) {
+      const rightHand = this.hands.pinchMid('right') ?? this.hands.indexTip('right');
+      if (rightHand) {
+        const hit = this.virtualKeyboard.checkCollision(rightHand);
+        if (hit) hoveredKey = hit.key;
+      }
     }
     
     // Update hover state
@@ -252,81 +359,322 @@ export class FeedControls {
       this.hoveredKey = hoveredKey;
     }
   }
+  
+  // Advanced keyboard positioning
+  private updateAdvancedKeyboardPosition() {
+    if (this.keyboardGrabbed) {
+      // When grabbed, follow hand position
+      const handPos = this.hands.pinchMid(this.keyboardGrabSide!);
+      if (handPos) {
+        const targetPos = handPos.clone().add(this.keyboardGrabOffset);
+        this.advancedKeyboard.getGroup().position.copy(targetPos);
+      }
+    } else if (this.keyboardAutoFollow) {
+      // Auto-follow camera gaze
+      const camPos = new THREE.Vector3();
+      const camDir = new THREE.Vector3();
+      this.app.camera.getWorldPosition(camPos);
+      this.app.camera.getWorldDirection(camDir);
+      
+      const currentPos = this.advancedKeyboard.getGroup().position;
+      const targetPos = camPos.clone().add(camDir.multiplyScalar(0.5));
+      targetPos.y -= 0.25; // Comfortable typing height
+      
+      // Smooth interpolation (10% per frame)
+      currentPos.lerp(targetPos, 0.1);
+    }
+    
+    // Always face camera
+    const camPos = new THREE.Vector3();
+    this.app.camera.getWorldPosition(camPos);
+    this.advancedKeyboard.lookAt(camPos);
+  }
+  
+  private updateAdvancedKeyboardHoverState() {
+    // Only show hover when pinching (ready to type)
+    const leftPinching = this.hands.state.left.pinch;
+    const rightPinching = this.hands.state.right.pinch;
+    
+    let hoveredKey: string | null = null;
+    
+    // Check collision only for pinching hands
+    if (leftPinching) {
+      const leftHand = this.hands.pinchMid('left') ?? this.hands.indexTip('left');
+      if (leftHand) {
+        const hit = this.advancedKeyboard.checkCollision(leftHand);
+        if (hit) hoveredKey = hit.key;
+      }
+    }
+    
+    if (rightPinching && !hoveredKey) {
+      const rightHand = this.hands.pinchMid('right') ?? this.hands.indexTip('right');
+      if (rightHand) {
+        const hit = this.advancedKeyboard.checkCollision(rightHand);
+        if (hit) hoveredKey = hit.key;
+      }
+    }
+    
+    // Update hover state
+    if (hoveredKey !== this.hoveredKey) {
+      this.advancedKeyboard.clearHover();
+      if (hoveredKey) {
+        this.advancedKeyboard.hoverKey(hoveredKey);
+      }
+      this.hoveredKey = hoveredKey;
+    }
+  }
 
   // ========== VIRTUAL KEYBOARD ==========
   private showVirtualKeyboard() {
     // Position keyboard in front of camera, slightly below eye level
+    // Optimized for comfortable VR typing distance and angle
     const camPos = new THREE.Vector3();
     const camDir = new THREE.Vector3();
     this.app.camera.getWorldPosition(camPos);
     this.app.camera.getWorldDirection(camDir);
     
-    const keyboardPos = camPos.clone().add(camDir.multiplyScalar(0.6));
-    keyboardPos.y -= 0.2; // Lower for comfortable typing
+    // Position at comfortable typing distance (50cm) and height
+    const keyboardPos = camPos.clone().add(camDir.multiplyScalar(0.5));
+    keyboardPos.y -= 0.25; // Slightly lower for natural hand position
     
-    this.virtualKeyboard.show(
-      keyboardPos,
-      (text: string) => {
-        // On submit
-        this.hudMgr.addCommentForCurrent(text);
-        this.hideVirtualKeyboard();
-        this.store.notify('✅ Comment posted!');
-      },
-      () => {
-        // On cancel
-        this.hideVirtualKeyboard();
-        this.store.notify('Cancelled');
-      },
-      (text: string) => {
-        // On text change (optional feedback)
-        // Could show preview on HUD
-      }
-    );
+    // Use advanced keyboard if enabled
+    if (this.useAdvancedKeyboard) {
+      this.advancedKeyboard.show(keyboardPos, {
+        onSubmit: (text: string) => {
+          this.hudMgr.addCommentForCurrent(text);
+          this.hideVirtualKeyboard();
+          this.store.notify('✅ Comment posted!');
+          // Confetti effect!
+          this.particleSystem.emit('confetti', keyboardPos, 20);
+        },
+        onCancel: () => {
+          this.hideVirtualKeyboard();
+          this.store.notify('Cancelled');
+        },
+        onTextChange: (text: string) => {
+          // Real-time feedback
+        },
+        placeholder: 'Share your thoughts...',
+        maxLength: 500,
+      });
+    } else {
+      // Fallback to simple keyboard
+      this.virtualKeyboard.show(
+        keyboardPos,
+        (text: string) => {
+          this.hudMgr.addCommentForCurrent(text);
+          this.hideVirtualKeyboard();
+          this.store.notify('✅ Comment posted!');
+        },
+        () => {
+          this.hideVirtualKeyboard();
+          this.store.notify('Cancelled');
+        }
+      );
+    }
     
     this.keyboardActive = true;
-    this.backgroundBlur.enable(); // Blur background
-    this.store.notify('✍️ Touch keys to type!');
+    this.backgroundBlur.enable();
+    
+    // Helpful notification
+    this.store.notify('✍️ Pinch fingers together and aim at keys to type!');
+    
+    // Tutorial progress
+    if (this.tutorial && this.tutorial.getCurrentGesture() === 'ily_sign') {
+      this.tutorial.completeCurrentLesson();
+    }
   }
 
   private hideVirtualKeyboard() {
-    this.virtualKeyboard.hide();
-    this.virtualKeyboard.clearHover();
+    if (this.useAdvancedKeyboard) {
+      this.advancedKeyboard.hide();
+      this.advancedKeyboard.clearHover();
+    } else {
+      this.virtualKeyboard.hide();
+      this.virtualKeyboard.clearHover();
+    }
+    
+    // Reset all keyboard state
     this.keyboardActive = false;
     this.hoveredKey = null;
-    this.backgroundBlur.disable(); // Un-blur background
+    this.lastKeyPressTime = 0;
+    this.lastPressedKey = null;
+    this.leftPinchingKeyboard = false;
+    this.rightPinchingKeyboard = false;
+    
+    // Reset grab state
+    this.keyboardGrabbed = false;
+    this.keyboardGrabStartTime = 0;
+    this.keyboardGrabSide = null;
+    this.keyboardAutoFollow = true;
+    
+    this.backgroundBlur.disable();
+  }
+  
+  // ========== KEYBOARD GRAB & REPOSITION ==========
+  private updateKeyboardGrab(now: number) {
+    const leftPinching = this.hands.state.left.pinch;
+    const rightPinching = this.hands.state.right.pinch;
+    
+    // Determine which hand is interacting
+    const activeSide: 'left' | 'right' | null = 
+      leftPinching && !rightPinching ? 'left' :
+      rightPinching && !leftPinching ? 'right' :
+      null;
+    
+    if (!activeSide) {
+      // No pinch or both hands pinching - release grab if active
+      if (this.keyboardGrabbed) {
+        this.releaseKeyboardGrab();
+      }
+      this.keyboardGrabStartTime = 0;
+      return;
+    }
+    
+    const handPos = this.hands.pinchMid(activeSide);
+    if (!handPos) return;
+    
+    const activeKeyboard = this.useAdvancedKeyboard ? this.advancedKeyboard : this.virtualKeyboard;
+    const keyboardPos = activeKeyboard.getGroup().position;
+    const distToKeyboard = handPos.distanceTo(keyboardPos);
+    
+    // Check if hand is near keyboard (within 35cm)
+    if (distToKeyboard > 0.35) {
+      // Too far - release grab if active
+      if (this.keyboardGrabbed) {
+        this.releaseKeyboardGrab();
+      }
+      this.keyboardGrabStartTime = 0;
+      return;
+    }
+    
+    // Check if hand is colliding with a key
+    const collision = activeKeyboard.checkCollision(handPos);
+    if (collision) {
+      // Hand is over a key - this is for typing, not grabbing
+      this.keyboardGrabStartTime = 0;
+      return;
+    }
+    
+    // Hand is pinching near keyboard but not on a key
+    if (this.keyboardGrabbed && this.keyboardGrabSide === activeSide) {
+      // Already grabbed - continue dragging
+      return;
+    }
+    
+    // Start timing for long-press grab
+    if (this.keyboardGrabStartTime === 0) {
+      this.keyboardGrabStartTime = now;
+      this.keyboardGrabSide = activeSide;
+    } else if (now - this.keyboardGrabStartTime >= this.KEYBOARD_GRAB_HOLD_MS) {
+      // Long press achieved - grab keyboard!
+      this.startKeyboardGrab(activeSide, handPos, keyboardPos);
+    }
+  }
+  
+  private startKeyboardGrab(side: 'left' | 'right', handPos: THREE.Vector3, keyboardPos: THREE.Vector3) {
+    this.keyboardGrabbed = true;
+    this.keyboardGrabSide = side;
+    this.keyboardAutoFollow = false;
+    
+    // Calculate offset from hand to keyboard
+    this.keyboardGrabOffset.copy(keyboardPos).sub(handPos);
+    
+    // Visual feedback
+    this.store.notify('🖐️ Keyboard grabbed - move your hand to reposition');
+    
+    // Slightly enlarge keyboard to show it's grabbed
+    const activeKeyboard = this.useAdvancedKeyboard ? this.advancedKeyboard : this.virtualKeyboard;
+    activeKeyboard.getGroup().scale.setScalar(1.05);
+  }
+  
+  private releaseKeyboardGrab() {
+    this.keyboardGrabbed = false;
+    this.keyboardGrabSide = null;
+    this.keyboardGrabStartTime = 0;
+    this.keyboardAutoFollow = true; // Resume auto-follow
+    
+    // Visual feedback
+    this.store.notify('✓ Keyboard released - auto-follow resumed');
+    
+    // Reset keyboard scale
+    const activeKeyboard = this.useAdvancedKeyboard ? this.advancedKeyboard : this.virtualKeyboard;
+    activeKeyboard.getGroup().scale.setScalar(1.0);
   }
 
   private handleKeyboardInput(side: 'left' | 'right'): boolean {
-    if (!this.keyboardActive || !this.virtualKeyboard.isVisible()) return false;
+    if (!this.keyboardActive) return false;
     
-    const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
+    // Check which keyboard is active
+    const activeKeyboard = this.useAdvancedKeyboard ? this.advancedKeyboard : this.virtualKeyboard;
+    if (!activeKeyboard.isVisible()) return false;
+    
+    // Only process if this hand is actively pinching
+    const isPinching = this.hands.state[side].pinch;
+    if (!isPinching) {
+      // Reset pinch state when hand releases
+      if (side === 'left') this.leftPinchingKeyboard = false;
+      if (side === 'right') this.rightPinchingKeyboard = false;
+      return false; // Don't block if not pinching
+    }
+    
+    const from = this.hands.pinchMid(side) ?? this.hands.indexTip(side);
     if (!from) {
-      // Even if no hand position, keyboard is active so block other interactions
-      return true;
+      return false; // Don't block if no hand position
     }
     
-    // METHOD 1: Direct collision detection (PINCH TO TOUCH)
-    const collision = this.virtualKeyboard.checkCollision(from);
+    // Check for collision with keyboard keys
+    const collision = activeKeyboard.checkCollision(from);
     if (collision) {
-      this.virtualKeyboard.pressKey(collision.key);
-      console.log('Key pressed (collision):', collision.key);
-      return true;
+      const now = performance.now();
+      
+      // If hovering over a different key, reset debounce for faster typing
+      if (collision.key !== this.lastPressedKey) {
+        this.lastPressedKey = null;
+        this.lastKeyPressTime = 0;
+      }
+      
+      // Debounce: prevent rapid re-presses of the same key
+      const canPress = (
+        collision.key !== this.lastPressedKey || 
+        now - this.lastKeyPressTime > this.keyPressDebounceMs
+      );
+      
+      if (canPress) {
+        // Mark this hand as having interacted with keyboard
+        if (side === 'left') this.leftPinchingKeyboard = true;
+        if (side === 'right') this.rightPinchingKeyboard = true;
+        
+        activeKeyboard.pressKey(collision.key);
+        
+        // Micro-particle effect on key press
+        this.particleSystem.emit('sparkle', from, 3);
+        
+        // Update debounce state
+        this.lastKeyPressTime = now;
+        this.lastPressedKey = collision.key;
+      }
+      
+      return true; // Block other interactions when over a key
+    } else {
+      // When not over any key, reset last pressed key for faster re-entry
+      if (this.lastPressedKey) {
+        this.lastPressedKey = null;
+      }
     }
     
-    // METHOD 2: Raycast (backup method)
-    const keyboardCenter = this.virtualKeyboard.getGroup().position.clone();
-    const dir = keyboardCenter.sub(from).normalize();
-    const ray = new THREE.Ray(from, dir);
+    // If we're near the keyboard but not hitting a key, still block other interactions
+    // Check if hand is within keyboard interaction area
+    const keyboardPos = activeKeyboard.getGroup().position;
+    const distToKeyboard = from.distanceTo(keyboardPos);
     
-    const hit = this.virtualKeyboard.raycast(ray);
-    if (hit) {
-      this.virtualKeyboard.pressKey(hit.key);
-      console.log('Key pressed (raycast):', hit.key);
-      return true;
+    // Only block if within reasonable keyboard interaction distance (40cm)
+    if (distToKeyboard < 0.4) {
+      return true; // Near keyboard, block other interactions
     }
     
-    // No key hit, but keyboard is still active - still block other interactions
-    return true;
+    // Far from keyboard, allow other interactions (scrolling, grabbing, etc.)
+    return false;
   }
 
   // ---------- anti-burst helpers ----------
@@ -682,10 +1030,20 @@ export class FeedControls {
     if (now < this.scrollCooldownUntil) return;
     if (this.grabPending || this.grabbing) return;
 
-    const lp = this.hands.state.left.pinch,
-      rp = this.hands.state.right.pinch;
-    if ((lp && rp) || (!lp && !rp)) return;
-    const side: 'left' | 'right' = lp ? 'left' : 'right';
+    const lp = this.hands.state.left.pinch;
+    const rp = this.hands.state.right.pinch;
+    
+    // FIXED: Allow scrolling with either hand OR both hands
+    // Only block if neither hand is pinching
+    if (!lp && !rp) {
+      // Reset scroll state when no pinch
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      return;
+    }
+    
+    // Prefer right hand, fallback to left
+    const side: 'left' | 'right' = rp ? 'right' : 'left';
 
     if (this.scrollDisarmedThisPinch || !this.scrollArmed) return;
     if (this.pinchStartAt && now - this.pinchStartAt < this.SCROLL_MIN_HOLD_MS) return;
@@ -693,7 +1051,8 @@ export class FeedControls {
     const mid = this.hands.pinchMid(side);
     if (mid) {
       const distSurf = this.distanceToObjectSurface(mid);
-      if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) {
+      // RELAXED: Made distance check less strict
+      if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST * 0.5) {
         this.scrollDisarmedThisPinch = true;
         return;
       }
@@ -710,15 +1069,22 @@ export class FeedControls {
 
     const dy = this.filtPinchY - this.lastPinchY;
     this.lastPinchY = this.filtPinchY;
-    if (Math.abs(dy) < this.SCROLL_VEL_MIN) return;
+    
+    // RELAXED: Reduced minimum velocity threshold for more responsive scrolling
+    if (Math.abs(dy) < this.SCROLL_VEL_MIN * 0.5) return;
 
     this.scrollAccum += dy;
-    if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP) {
+    
+    // IMPROVED: Reduced displacement needed for smoother scrolling
+    if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP * 0.7) {
       const dir = this.scrollAccum < 0 ? +1 : -1;
       this.store.next(dir);
       this.hudMgr.showFor(this.currentModelKey()); // keep HUD sync
       this.scrollAccum = 0;
-      this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
+      this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS * 0.6; // Faster cooldown
+      
+      // Visual feedback
+      this.store.notify(dir > 0 ? '⬇️ Next' : '⬆️ Previous');
     }
   }
 
