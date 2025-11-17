@@ -78,6 +78,7 @@ export class ThreeMeshUIKeyboard {
       width: 1.3,
       height: 0.7,
       padding: 0.01,
+      direction: 'column', // Vertical layout for rows
       backgroundColor: new THREE.Color(0x1a1a2a),
       backgroundOpacity: 0.8,
       borderRadius: 0.01,
@@ -97,6 +98,7 @@ export class ThreeMeshUIKeyboard {
         width: 1.25,
         height: 0.12,
         padding: 0.005,
+        direction: 'row', // Horizontal layout for keys
         justifyContent: 'center',
         alignItems: 'center',
       });
@@ -284,22 +286,35 @@ export class ThreeMeshUIKeyboard {
     let closestKey: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
     const maxDistance = 0.08; // 8cm max distance - more forgiving for VR hand tracking
     
+    // Update matrix world for accurate positions
+    this.group.updateMatrixWorld(true);
+    
     this.keys.forEach((keyBlock: any, keyLabel: string) => {
-      if (!keyBlock || !keyBlock.position) return;
+      if (!keyBlock) return;
       
-      // Update matrix world for accurate positions
-      this.group.updateMatrixWorld(true);
       keyBlock.updateMatrixWorld(true);
       
-      // Get key world position
+      // Get key world position (center of the block)
       const keyWorldPos = new THREE.Vector3();
       keyBlock.getWorldPosition(keyWorldPos);
       
       const distance = handPosition.distanceTo(keyWorldPos);
       
       if (distance < maxDistance) {
+        // Find the actual mesh for this key block
+        let keyMesh: THREE.Mesh | null = null;
+        keyBlock.traverse((child: any) => {
+          if (child.isMesh && !keyMesh) {
+            keyMesh = child;
+          }
+        });
+        
+        if (!keyMesh) {
+          keyMesh = keyBlock as any; // Fallback to block itself
+        }
+        
         if (!closestKey || distance < closestKey.distance) {
-          closestKey = { key: keyLabel, mesh: keyBlock as any, distance };
+          closestKey = { key: keyLabel, mesh: keyMesh, distance };
         }
       }
     });
@@ -320,20 +335,24 @@ export class ThreeMeshUIKeyboard {
     
     let closestHit: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
     
-    // Raycast against each key
+    // Raycast against each key - traverse all children to find meshes
     this.keys.forEach((keyBlock: any, keyLabel: string) => {
       if (!keyBlock) return;
       
       keyBlock.updateMatrixWorld(true);
       
-      // Raycast against key block
-      const intersects = raycaster.intersectObject(keyBlock, false);
-      if (intersects.length > 0) {
-        const dist = intersects[0].distance;
-        if (!closestHit || dist < closestHit.distance) {
-          closestHit = { key: keyLabel, mesh: keyBlock as any, distance: dist };
+      // Traverse the key block to find all meshes (three-mesh-ui creates nested geometry)
+      keyBlock.traverse((child: any) => {
+        if (child.isMesh) {
+          const intersects = raycaster.intersectObject(child, false);
+          if (intersects.length > 0) {
+            const dist = intersects[0].distance;
+            if (!closestHit || dist < closestHit.distance) {
+              closestHit = { key: keyLabel, mesh: child, distance: dist };
+            }
+          }
         }
-      }
+      });
     });
     
     return closestHit ? { key: closestHit.key, mesh: closestHit.mesh } : null;

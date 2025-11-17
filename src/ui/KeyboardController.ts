@@ -33,6 +33,10 @@ export class KeyboardController {
   private lastLeftIndexActive = false;
   private lastRightIndexActive = false;
   
+  // Track pinch states for pinch-to-aim
+  private leftPinchActive = false;
+  private rightPinchActive = false;
+  
   // Raycast settings
   private readonly RAYCAST_DISTANCE = 1.0; // 1 meter max raycast distance
   private readonly RAYCAST_STEP = 0.01; // 1cm steps for raycast
@@ -86,10 +90,16 @@ export class KeyboardController {
     this.lastLeftIndexActive = leftIndexActive;
     this.lastRightIndexActive = rightIndexActive;
     
+    // Track pinch states
+    const leftPinching = this.handEngine.state['left'].pinch;
+    const rightPinching = this.handEngine.state['right'].pinch;
+    
     // Try touch input first (index finger collision), then raycast
     const touchResult = this.checkTouchInput();
     if (touchResult) {
       this.updateAimState(touchResult);
+      this.leftPinchActive = false;
+      this.rightPinchActive = false;
       return;
     }
     
@@ -97,14 +107,19 @@ export class KeyboardController {
     const raycastResult = this.checkRaycastInput();
     if (raycastResult) {
       this.updateAimState(raycastResult);
+      // Track which hand is pinching
+      this.leftPinchActive = leftPinching;
+      this.rightPinchActive = rightPinching;
       return;
     }
     
-    // No input detected - clear hover
+    // No input detected - clear hover and reset pinch tracking
     if (this.currentAimedKey) {
       this.currentAimedKey = null;
       this.keyboard.clearHover();
     }
+    this.leftPinchActive = false;
+    this.rightPinchActive = false;
   }
   
   /**
@@ -184,30 +199,8 @@ export class KeyboardController {
       }
       
       // For three-mesh-ui, also check individual keys with raycast
-      if ((this.keyboard as any).keys) {
-        const keysMap = (this.keyboard as any).keys as Map<string, any>;
-        const raycaster = new THREE.Raycaster();
-        raycaster.ray.copy(ray);
-        
-        let closestHit: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
-        
-        keysMap.forEach((keyBlock: any, keyLabel: string) => {
-          if (!keyBlock) return;
-          
-          // Raycast against key block
-          const intersects = raycaster.intersectObject(keyBlock);
-          if (intersects.length > 0) {
-            const dist = intersects[0].distance;
-            if (!closestHit || dist < closestHit.distance) {
-              closestHit = { key: keyLabel, mesh: keyBlock as any, distance: dist };
-            }
-          }
-        });
-        
-        if (closestHit) {
-          return { key: closestHit.key, mesh: closestHit.mesh };
-        }
-      }
+      // Use the keyboard's own raycast method which handles three-mesh-ui properly
+      // The keyboard.raycast() already handles three-mesh-ui traversal
     }
     
     return null;
@@ -256,9 +249,19 @@ export class KeyboardController {
   handleInputRelease(side: 'left' | 'right'): void {
     if (!this.isActive || !this.keyboard.isVisible()) return;
     
+    // Check if this hand was pinching and aiming at a key
+    const wasPinching = side === 'left' ? this.leftPinchActive : this.rightPinchActive;
+    
     // Pinch was released - if we were aiming at a key, press it
-    if (this.currentAimedKey) {
+    if (wasPinching && this.currentAimedKey) {
       this.handleKeyPress();
+    }
+    
+    // Reset pinch state for this hand
+    if (side === 'left') {
+      this.leftPinchActive = false;
+    } else {
+      this.rightPinchActive = false;
     }
   }
   
@@ -278,6 +281,10 @@ export class KeyboardController {
     this.isActive = false;
     this.currentAimedKey = null;
     this.keyboard.clearHover();
+    this.leftPinchActive = false;
+    this.rightPinchActive = false;
+    this.lastLeftIndexActive = false;
+    this.lastRightIndexActive = false;
   }
   
   /**
