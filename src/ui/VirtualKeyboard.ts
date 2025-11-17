@@ -211,26 +211,29 @@ export class VirtualKeyboard {
 
   /**
    * Check collision with hand position (for direct touch/pinch)
-   * Reliable distance-based collision detection
+   * RELIABLE distance-based collision detection with larger threshold
    */
   checkCollision(handPosition: THREE.Vector3): { key: string; mesh: THREE.Mesh } | null {
     if (!handPosition) return null;
     
     let closestKey: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
-    const maxDistance = 0.05; // 5cm max distance for key detection
+    const maxDistance = 0.08; // 8cm max distance - more forgiving for VR hand tracking
     
+    // Update all key world positions
     this.keys.forEach((mesh, key) => {
       if (!mesh.visible) return;
       
-      // Get key world position
+      // Get key world position (must update matrix first)
+      mesh.updateMatrixWorld(true);
       const keyWorldPos = new THREE.Vector3();
       mesh.getWorldPosition(keyWorldPos);
       
-      // Simple distance check
+      // Calculate distance from hand to key center
       const distance = handPosition.distanceTo(keyWorldPos);
       
+      // Check if within range
       if (distance < maxDistance) {
-        // Check if this is the closest key
+        // Keep track of closest key
         if (!closestKey || distance < closestKey.distance) {
           closestKey = { key, mesh, distance };
         }
