@@ -4,7 +4,6 @@
  */
 
 import * as THREE from 'three';
-import { VirtualKeyboard } from './VirtualKeyboard';
 import { HandEngine } from '../gestures/HandEngine';
 
 // Keyboard interface for type safety
