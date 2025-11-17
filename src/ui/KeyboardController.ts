@@ -7,8 +7,19 @@ import * as THREE from 'three';
 import { VirtualKeyboard } from './VirtualKeyboard';
 import { HandEngine } from '../gestures/HandEngine';
 
+// Keyboard interface for type safety
+interface IKeyboard {
+  isVisible(): boolean;
+  getGroup(): THREE.Group;
+  checkCollision(handPosition: THREE.Vector3): { key: string; mesh: THREE.Mesh } | null;
+  raycast(ray: THREE.Ray): { key: string; mesh: THREE.Mesh } | null;
+  hoverKey(key: string): void;
+  clearHover(): void;
+  pressKey(key: string): void;
+}
+
 export class KeyboardController {
-  private keyboard: VirtualKeyboard;
+  private keyboard: IKeyboard;
   private handEngine: HandEngine;
   private scene: THREE.Scene;
   
@@ -26,10 +37,17 @@ export class KeyboardController {
   private readonly RAYCAST_DISTANCE = 1.0; // 1 meter max raycast distance
   private readonly RAYCAST_STEP = 0.01; // 1cm steps for raycast
   
-  constructor(keyboard: VirtualKeyboard, handEngine: HandEngine, scene: THREE.Scene) {
+  constructor(keyboard: IKeyboard, handEngine: HandEngine, scene: THREE.Scene) {
     this.keyboard = keyboard;
     this.handEngine = handEngine;
     this.scene = scene;
+  }
+  
+  /**
+   * Set active keyboard (allows switching between keyboard types)
+   */
+  setKeyboard(keyboard: IKeyboard): void {
+    this.keyboard = keyboard;
   }
   
   /**
@@ -91,6 +109,7 @@ export class KeyboardController {
   
   /**
    * Touch input: Check index finger collision with keys
+   * Works with both VirtualKeyboard and ThreeMeshUIKeyboard
    */
   private checkTouchInput(): { key: string; mesh: THREE.Mesh } | null {
     // Check both hands
@@ -100,8 +119,35 @@ export class KeyboardController {
       
       // Check collision with keyboard
       const collision = this.keyboard.checkCollision(indexTip);
-      if (collision) {
+      if (collision && collision.key && collision.key !== 'interactive') {
         return collision;
+      }
+      
+      // For three-mesh-ui, we need to check individual keys
+      // Get all keys from keyboard if it has a keys map
+      if ((this.keyboard as any).keys) {
+        const keysMap = (this.keyboard as any).keys as Map<string, any>;
+        let closestKey: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
+        const maxDistance = 0.06; // 6cm for touch
+        
+        keysMap.forEach((keyBlock: any, keyLabel: string) => {
+          if (!keyBlock || !keyBlock.position) return;
+          
+          // Get key world position
+          const keyWorldPos = new THREE.Vector3();
+          keyBlock.getWorldPosition(keyWorldPos);
+          
+          const distance = indexTip.distanceTo(keyWorldPos);
+          if (distance < maxDistance) {
+            if (!closestKey || distance < closestKey.distance) {
+              closestKey = { key: keyLabel, mesh: keyBlock as any, distance };
+            }
+          }
+        });
+        
+        if (closestKey) {
+          return { key: closestKey.key, mesh: closestKey.mesh };
+        }
       }
     }
     
@@ -110,6 +156,7 @@ export class KeyboardController {
   
   /**
    * Raycast input: Cast ray from pinch position to keyboard
+   * Works with both VirtualKeyboard and ThreeMeshUIKeyboard
    */
   private checkRaycastInput(): { key: string; mesh: THREE.Mesh } | null {
     // Check both hands for pinch
@@ -121,19 +168,45 @@ export class KeyboardController {
       const pinchPos = this.handEngine.pinchMid(side);
       if (!pinchPos) continue;
       
-      // Get camera forward direction (or use hand direction)
+      // Get index tip for ray direction
       const indexTip = this.handEngine.indexTip(side);
       if (!indexTip) continue;
       
       // Calculate ray direction from pinch to index tip (forward direction)
       const rayDirection = indexTip.clone().sub(pinchPos).normalize();
       
-      // Cast ray
+      // Cast ray using keyboard's raycast method
       const ray = new THREE.Ray(pinchPos, rayDirection);
       const hit = this.keyboard.raycast(ray);
       
-      if (hit) {
+      if (hit && hit.key && hit.key !== 'interactive') {
         return hit;
+      }
+      
+      // For three-mesh-ui, also check individual keys with raycast
+      if ((this.keyboard as any).keys) {
+        const keysMap = (this.keyboard as any).keys as Map<string, any>;
+        const raycaster = new THREE.Raycaster();
+        raycaster.ray.copy(ray);
+        
+        let closestHit: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
+        
+        keysMap.forEach((keyBlock: any, keyLabel: string) => {
+          if (!keyBlock) return;
+          
+          // Raycast against key block
+          const intersects = raycaster.intersectObject(keyBlock);
+          if (intersects.length > 0) {
+            const dist = intersects[0].distance;
+            if (!closestHit || dist < closestHit.distance) {
+              closestHit = { key: keyLabel, mesh: keyBlock as any, distance: dist };
+            }
+          }
+        });
+        
+        if (closestHit) {
+          return { key: closestHit.key, mesh: closestHit.mesh };
+        }
       }
     }
     
