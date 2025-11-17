@@ -211,31 +211,26 @@ export class VirtualKeyboard {
 
   /**
    * Check collision with hand position (for direct touch/pinch)
-   * Uses precise bounding box check instead of just distance to center
+   * Reliable distance-based collision detection
    */
   checkCollision(handPosition: THREE.Vector3): { key: string; mesh: THREE.Mesh } | null {
+    if (!handPosition) return null;
+    
     let closestKey: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
-    const touchThreshold = 0.025; // 2.5cm proximity for more precise touch detection
+    const maxDistance = 0.05; // 5cm max distance for key detection
     
     this.keys.forEach((mesh, key) => {
-      const worldPos = new THREE.Vector3();
-      mesh.getWorldPosition(worldPos);
+      if (!mesh.visible) return;
       
-      // Get key dimensions for more accurate collision
-      const geometry = mesh.geometry as THREE.BoxGeometry;
-      const keyWidth = geometry.parameters.width;
-      const keyHeight = geometry.parameters.height;
-      const keyDepth = geometry.parameters.depth;
+      // Get key world position
+      const keyWorldPos = new THREE.Vector3();
+      mesh.getWorldPosition(keyWorldPos);
       
-      // Check if hand is within key bounds (3D box collision)
-      const localPos = handPosition.clone().sub(worldPos);
-      const isWithinBounds = 
-        Math.abs(localPos.x) < keyWidth / 2 + touchThreshold &&
-        Math.abs(localPos.y) < keyHeight / 2 + touchThreshold &&
-        Math.abs(localPos.z) < keyDepth / 2 + touchThreshold;
+      // Simple distance check
+      const distance = handPosition.distanceTo(keyWorldPos);
       
-      if (isWithinBounds) {
-        const distance = handPosition.distanceTo(worldPos);
+      if (distance < maxDistance) {
+        // Check if this is the closest key
         if (!closestKey || distance < closestKey.distance) {
           closestKey = { key, mesh, distance };
         }
