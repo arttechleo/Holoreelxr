@@ -1,7 +1,6 @@
 /**
- * ThreeMeshUI Keyboard - Production-ready VR keyboard using three-mesh-ui library
- * Provides smooth, optimized keyboard experience for VR
- * Based on: https://felixmariotto.github.io/three-mesh-ui/#keyboard
+ * Production-Quality VR Keyboard using three-mesh-ui
+ * Properly implements interactive keyboard with pinch-to-aim support
  */
 
 import * as THREE from 'three';
@@ -15,24 +14,25 @@ const QWERTY_LAYOUT: KeyboardLayout = [
   ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
   ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
   ['z', 'x', 'c', 'v', 'b', 'n', 'm', '⌫'],
-  ['Cancel', 'Space', 'Enter', 'Post']
+  ['Space', 'Post', 'Cancel']
 ];
 
 export class ThreeMeshUIKeyboard {
   private container: any; // ThreeMeshUI.Block
-  private keyboardContainer: any; // ThreeMeshUI.Block for keys
-  private textBlock: any; // ThreeMeshUI.Block for text display
-  private textContent: any; // ThreeMeshUI.Text
+  private textDisplay: any; // ThreeMeshUI.Text
   private group = new THREE.Group();
-  private keys: Map<string, any> = new Map(); // Map of key labels to ThreeMeshUI.Button
+  private keys: Map<string, any> = new Map(); // Map of key labels to ThreeMeshUI.Block
   private currentText = '';
   private onSubmit?: (text: string) => void;
   private onCancel?: () => void;
   private onTextChange?: (text: string) => void;
   
-  // Font configuration - using default or provided fonts
+  // Font configuration
   private fontFamily = './assets/Roboto-msdf.json';
   private fontTexture = './assets/Roboto-msdf.png';
+  
+  // Raycaster for interaction
+  private raycaster = new THREE.Raycaster();
   
   constructor() {
     this.group.name = 'ThreeMeshUIKeyboard';
@@ -41,7 +41,7 @@ export class ThreeMeshUIKeyboard {
   }
   
   private buildKeyboard() {
-    // Create main container
+    // Main container
     this.container = new ThreeMeshUI.Block({
       width: 1.4,
       height: 0.9,
@@ -51,8 +51,8 @@ export class ThreeMeshUIKeyboard {
       borderRadius: 0.02,
     });
     
-    // Create text display area at top
-    this.textBlock = new ThreeMeshUI.Block({
+    // Text display at top
+    const textBlock = new ThreeMeshUI.Block({
       width: 1.3,
       height: 0.12,
       padding: 0.02,
@@ -62,7 +62,7 @@ export class ThreeMeshUIKeyboard {
       margin: 0.02,
     });
     
-    this.textContent = new ThreeMeshUI.Text({
+    this.textDisplay = new ThreeMeshUI.Text({
       content: 'Type your comment...',
       fontSize: 0.035,
       fontFamily: this.fontFamily,
@@ -70,66 +70,60 @@ export class ThreeMeshUIKeyboard {
       color: new THREE.Color(0xffffff),
     });
     
-    this.textBlock.add(this.textContent);
-    this.container.add(this.textBlock);
+    textBlock.add(this.textDisplay);
+    this.container.add(textBlock);
     
-    // Create keyboard container
-    this.keyboardContainer = new ThreeMeshUI.Block({
+    // Keyboard container - stacks rows vertically
+    const keyboardContainer = new ThreeMeshUI.Block({
       width: 1.3,
       height: 0.7,
       padding: 0.01,
-      direction: 'column', // Vertical layout for rows
+      direction: 'column', // Stack rows vertically
       backgroundColor: new THREE.Color(0x1a1a2a),
       backgroundOpacity: 0.8,
       borderRadius: 0.01,
       margin: 0.02,
     });
     
-    // Build keyboard rows
-    this.buildKeyboardRows();
-    
-    this.container.add(this.keyboardContainer);
-    this.group.add(this.container);
-  }
-  
-  private buildKeyboardRows() {
-    QWERTY_LAYOUT.forEach((row, rowIndex) => {
+    // Build each row
+    QWERTY_LAYOUT.forEach((row) => {
       const rowBlock = new ThreeMeshUI.Block({
         width: 1.25,
         height: 0.12,
         padding: 0.005,
-        direction: 'row', // Horizontal layout for keys
+        direction: 'row', // Keys in row horizontally
         justifyContent: 'center',
         alignItems: 'center',
       });
       
       row.forEach((keyLabel) => {
-        const keyButton = this.createKeyButton(keyLabel);
-        rowBlock.add(keyButton);
-        this.keys.set(keyLabel, keyButton);
+        const key = this.createKey(keyLabel);
+        rowBlock.add(key);
+        this.keys.set(keyLabel, key);
       });
       
-      this.keyboardContainer.add(rowBlock);
+      keyboardContainer.add(rowBlock);
     });
+    
+    this.container.add(keyboardContainer);
+    this.group.add(this.container);
   }
   
-  private createKeyButton(keyLabel: string): any {
+  private createKey(keyLabel: string): any {
     // Determine key size
     let keyWidth = 0.08;
     let keyHeight = 0.1;
     
     if (keyLabel === 'Space') {
-      keyWidth = 0.25;
+      keyWidth = 0.3;
     } else if (keyLabel === 'Post' || keyLabel === 'Cancel') {
-      keyWidth = 0.12;
-    } else if (keyLabel === 'Enter') {
       keyWidth = 0.12;
     } else if (keyLabel === '⌫') {
       keyWidth = 0.1;
     }
     
-    // Create button
-    const button = new ThreeMeshUI.Block({
+    // Create interactive key block
+    const key = new ThreeMeshUI.Block({
       width: keyWidth,
       height: keyHeight,
       padding: 0.01,
@@ -137,13 +131,14 @@ export class ThreeMeshUIKeyboard {
       backgroundOpacity: 1.0,
       borderRadius: 0.01,
       margin: 0.003,
+      justifyContent: 'center',
+      alignItems: 'center',
     });
     
     // Add text label
     let displayText = keyLabel;
     if (keyLabel === 'Space') displayText = '␣';
     else if (keyLabel === '⌫') displayText = '⌫';
-    else if (keyLabel === 'Enter') displayText = '↵';
     else if (keyLabel === 'Post') displayText = '✓';
     else if (keyLabel === 'Cancel') displayText = '✕';
     
@@ -155,30 +150,49 @@ export class ThreeMeshUIKeyboard {
       color: new THREE.Color(0xffffff),
     });
     
-    button.add(keyText);
-    button.userData.keyLabel = keyLabel;
-    button.userData.originalColor = 0x8a8a9a;
+    key.add(keyText);
+    key.userData.keyLabel = keyLabel;
+    key.userData.originalColor = 0x8a8a9a;
     
-    // Store button reference
-    return button;
+    // Set up interactive states
+    key.setupState({
+      state: 'hovered',
+      attributes: {
+        backgroundColor: new THREE.Color(0xaaaacc),
+      },
+    });
+    
+    key.setupState({
+      state: 'idle',
+      attributes: {
+        backgroundColor: new THREE.Color(0x8a8a9a),
+      },
+    });
+    
+    return key;
   }
   
-  private handleKeyPress(key: string) {
-    if (key === 'Backspace') {
+  private handleKeyPress(keyLabel: string) {
+    if (keyLabel === '⌫') {
       this.currentText = this.currentText.slice(0, -1);
-    } else if (key === 'Space') {
+    } else if (keyLabel === 'Space') {
       this.currentText += ' ';
-    } else if (key === 'Enter') {
-      this.currentText += '\n';
-    } else if (key === 'Cancel') {
-      this.cancel();
+    } else if (keyLabel === 'Post') {
+      const text = this.currentText.trim();
+      if (text) {
+        this.onSubmit?.(text);
+        this.currentText = '';
+        this.updateTextDisplay();
+      }
       return;
-    } else if (key === 'Post') {
-      this.submit();
+    } else if (keyLabel === 'Cancel') {
+      this.currentText = '';
+      this.updateTextDisplay();
+      this.onCancel?.();
       return;
     } else {
       if (this.currentText.length < 500) {
-        this.currentText += key;
+        this.currentText += keyLabel.toLowerCase();
       }
     }
     
@@ -187,29 +201,14 @@ export class ThreeMeshUIKeyboard {
   }
   
   private updateTextDisplay() {
-    if (this.textContent) {
+    if (this.textDisplay) {
       const displayText = this.currentText || 'Type your comment...';
       const maxChars = 40;
       const visibleText = displayText.length > maxChars 
         ? '...' + displayText.slice(-maxChars)
         : displayText;
-      this.textContent.set({ content: visibleText });
+      this.textDisplay.set({ content: visibleText });
     }
-  }
-  
-  private submit() {
-    const text = this.currentText.trim();
-    if (text) {
-      this.onSubmit?.(text);
-      this.currentText = '';
-      this.updateTextDisplay();
-    }
-  }
-  
-  private cancel() {
-    this.currentText = '';
-    this.updateTextDisplay();
-    this.onCancel?.();
   }
   
   /**
@@ -228,6 +227,11 @@ export class ThreeMeshUIKeyboard {
     this.group.position.copy(position);
     this.group.visible = true;
     this.updateTextDisplay();
+    
+    // Reset all keys to idle state
+    this.keys.forEach((key) => {
+      key.setState('idle');
+    });
   }
   
   /**
@@ -278,30 +282,29 @@ export class ThreeMeshUIKeyboard {
   
   /**
    * Check collision with hand position
-   * Detects which key the hand is closest to
+   * Returns the key being aimed at
    */
   checkCollision(handPosition: THREE.Vector3): { key: string; mesh: THREE.Mesh } | null {
     if (!handPosition) return null;
     
-    let closestKey: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
-    const maxDistance = 0.08; // 8cm max distance - more forgiving for VR hand tracking
-    
-    // Update matrix world for accurate positions
     this.group.updateMatrixWorld(true);
+    
+    let closestKey: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
+    const maxDistance = 0.08; // 8cm threshold
     
     this.keys.forEach((keyBlock: any, keyLabel: string) => {
       if (!keyBlock) return;
       
       keyBlock.updateMatrixWorld(true);
       
-      // Get key world position (center of the block)
+      // Get key center position
       const keyWorldPos = new THREE.Vector3();
       keyBlock.getWorldPosition(keyWorldPos);
       
       const distance = handPosition.distanceTo(keyWorldPos);
       
       if (distance < maxDistance) {
-        // Find the actual mesh for this key block
+        // Find the actual mesh
         let keyMesh: THREE.Mesh | null = null;
         keyBlock.traverse((child: any) => {
           if (child.isMesh && !keyMesh) {
@@ -310,7 +313,7 @@ export class ThreeMeshUIKeyboard {
         });
         
         if (!keyMesh) {
-          keyMesh = keyBlock as any; // Fallback to block itself
+          keyMesh = keyBlock as any;
         }
         
         if (!closestKey || distance < closestKey.distance) {
@@ -324,27 +327,22 @@ export class ThreeMeshUIKeyboard {
   
   /**
    * Raycast against keyboard (for pinch-to-aim)
-   * Detects which key the ray intersects
    */
   raycast(ray: THREE.Ray): { key: string; mesh: THREE.Mesh } | null {
-    const raycaster = new THREE.Raycaster();
-    raycaster.ray.copy(ray);
-    
-    // Update matrix world for accurate positions
+    this.raycaster.ray.copy(ray);
     this.group.updateMatrixWorld(true);
     
     let closestHit: { key: string; mesh: THREE.Mesh; distance: number } | null = null;
     
-    // Raycast against each key - traverse all children to find meshes
     this.keys.forEach((keyBlock: any, keyLabel: string) => {
       if (!keyBlock) return;
       
       keyBlock.updateMatrixWorld(true);
       
-      // Traverse the key block to find all meshes (three-mesh-ui creates nested geometry)
+      // Traverse to find meshes
       keyBlock.traverse((child: any) => {
         if (child.isMesh) {
-          const intersects = raycaster.intersectObject(child, false);
+          const intersects = this.raycaster.intersectObject(child, false);
           if (intersects.length > 0) {
             const dist = intersects[0].distance;
             if (!closestHit || dist < closestHit.distance) {
@@ -362,11 +360,9 @@ export class ThreeMeshUIKeyboard {
    * Hover effect - highlight key
    */
   hoverKey(key: string) {
-    const keyButton = this.keys.get(key);
-    if (keyButton) {
-      keyButton.set({
-        backgroundColor: new THREE.Color(0xaaaacc),
-      });
+    const keyBlock = this.keys.get(key);
+    if (keyBlock) {
+      keyBlock.setState('hovered');
     }
   }
   
@@ -374,11 +370,8 @@ export class ThreeMeshUIKeyboard {
    * Clear hover - reset all keys
    */
   clearHover() {
-    this.keys.forEach((keyButton) => {
-      const originalColor = keyButton.userData.originalColor || 0x8a8a9a;
-      keyButton.set({
-        backgroundColor: new THREE.Color(originalColor),
-      });
+    this.keys.forEach((keyBlock) => {
+      keyBlock.setState('idle');
     });
   }
   
@@ -386,19 +379,16 @@ export class ThreeMeshUIKeyboard {
    * Press key programmatically
    */
   pressKey(key: string) {
-    const keyButton = this.keys.get(key);
-    if (keyButton) {
+    const keyBlock = this.keys.get(key);
+    if (keyBlock) {
       // Visual feedback - flash white
-      keyButton.set({
+      keyBlock.set({
         backgroundColor: new THREE.Color(0xffffff),
       });
       
       // Reset after short delay
       setTimeout(() => {
-        const originalColor = keyButton.userData.originalColor || 0x8a8a9a;
-        keyButton.set({
-          backgroundColor: new THREE.Color(originalColor),
-        });
+        keyBlock.setState('idle');
       }, 100);
     }
     
@@ -413,4 +403,3 @@ export class ThreeMeshUIKeyboard {
     return this.keys;
   }
 }
-

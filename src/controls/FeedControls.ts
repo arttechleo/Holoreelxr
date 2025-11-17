@@ -4,8 +4,6 @@ import { HandEngine } from '../gestures/HandEngine';
 import { ThreeXRApp } from '../app/ThreeXRApp';
 import { FeedStore } from '../feed/FeedStore';
 import ReactionHudManager from '../ui/ReactionHudManager';
-import { VirtualKeyboard } from '../ui/VirtualKeyboard';
-import { AdvancedKeyboard } from '../ui/AdvancedKeyboard';
 import { ThreeMeshUIKeyboard } from '../ui/ThreeMeshUIKeyboard';
 import { KeyboardController } from '../ui/KeyboardController';
 import { TikTokFeedUI } from '../ui/TikTokFeedUI';
@@ -95,14 +93,10 @@ export class FeedControls {
   private hudMgr: ReactionHudManager;
   private selectBoundForSession: XRSession | null = null;
 
-  // 🎹 Virtual keyboard for in-VR typing - SEPARATE MODULE
-  private virtualKeyboard: VirtualKeyboard;
-  private advancedKeyboard: AdvancedKeyboard;
-  private threeMeshUIKeyboard: ThreeMeshUIKeyboard;
+  // 🎹 Production-quality VR keyboard using three-mesh-ui
+  private keyboard: ThreeMeshUIKeyboard;
   private keyboardController: KeyboardController; // Standalone keyboard controller
   private keyboardActive = false;
-  private useAdvancedKeyboard = false; // Use simple keyboard for reliability
-  private useThreeMeshUI = true; // Use three-mesh-ui for smoother experience
   private backgroundBlur: BackgroundBlur;
   
   // Keyboard grab/reposition state
@@ -144,22 +138,13 @@ export class FeedControls {
     this.setRayVisible('left', false);
     this.setRayVisible('right', false);
 
-    // 🎹 Virtual keyboards for typing comments in VR
-    this.virtualKeyboard = new VirtualKeyboard();
-    this.app.scene.add(this.virtualKeyboard.getGroup());
+    // 🎹 Production-quality VR keyboard using three-mesh-ui
+    this.keyboard = new ThreeMeshUIKeyboard();
+    this.app.scene.add(this.keyboard.getGroup());
     
-    this.advancedKeyboard = new AdvancedKeyboard();
-    this.app.scene.add(this.advancedKeyboard.getGroup());
-    
-    // Three-mesh-ui keyboard for smoother experience
-    this.threeMeshUIKeyboard = new ThreeMeshUIKeyboard();
-    this.app.scene.add(this.threeMeshUIKeyboard.getGroup());
-    
-    // Initialize standalone keyboard controller (separate module)
-    // Use three-mesh-ui keyboard if enabled, otherwise fallback to virtual keyboard
-    const activeKeyboard = this.useThreeMeshUI ? this.threeMeshUIKeyboard : this.virtualKeyboard;
+    // Initialize standalone keyboard controller
     this.keyboardController = new KeyboardController(
-      activeKeyboard,
+      this.keyboard,
       this.hands,
       this.app.scene
     );
@@ -297,14 +282,8 @@ export class FeedControls {
         this.keyboardController.update();
         
         // Update three-mesh-ui (must be called every frame)
-        if (this.useThreeMeshUI && this.threeMeshUIKeyboard.isVisible()) {
-          this.threeMeshUIKeyboard.update();
-          this.updateKeyboardPosition();
-        }
-        // Update keyboard position (only when grabbed)
-        else if (this.useAdvancedKeyboard && this.advancedKeyboard.isVisible()) {
-          this.updateAdvancedKeyboardPosition();
-        } else if (this.virtualKeyboard.isVisible()) {
+        if (this.keyboard.isVisible()) {
+          this.keyboard.update();
           this.updateKeyboardPosition();
         }
       }
@@ -341,22 +320,6 @@ export class FeedControls {
     // NO lookAt - keyboard orientation stays fixed
   }
 
-  // Advanced keyboard positioning
-  private updateAdvancedKeyboardPosition() {
-    // Keyboard ONLY moves when grabbed by hand - NO head tracking
-    if (this.keyboardGrabbed) {
-      // When grabbed, follow hand position
-      const handPos = this.hands.pinchMid(this.keyboardGrabSide!);
-      if (handPos) {
-        const targetPos = handPos.clone().add(this.keyboardGrabOffset);
-        this.advancedKeyboard.getGroup().position.copy(targetPos);
-      }
-    }
-    // NO auto-follow - keyboard stays fixed in position
-    // NO lookAt - keyboard orientation stays fixed
-  }
-  
-
   // ========== VIRTUAL KEYBOARD ==========
   private showVirtualKeyboard() {
     // Position keyboard in front of camera at fixed position
@@ -371,81 +334,26 @@ export class FeedControls {
     keyboardPos.y -= 0.25; // Slightly lower for natural hand position
     
     // Make keyboard face the user initially (one-time orientation)
-    let keyboardGroup: THREE.Group;
+    const keyboardGroup = this.keyboard.getGroup();
+    keyboardGroup.lookAt(camPos); // Face camera
     
-    // Use three-mesh-ui keyboard if enabled (smoother experience)
-    if (this.useThreeMeshUI) {
-      keyboardGroup = this.threeMeshUIKeyboard.getGroup();
-      keyboardGroup.lookAt(camPos); // Face camera
-      
-      this.threeMeshUIKeyboard.show(
-        keyboardPos,
-        (text: string) => {
-          this.hudMgr.addCommentForCurrent(text);
-          this.hideVirtualKeyboard();
-          this.store.notify('✅ Comment posted!');
-          // Confetti effect!
-          this.particleSystem.emit('confetti', keyboardPos, 20);
-        },
-        () => {
-          this.hideVirtualKeyboard();
-          this.store.notify('Cancelled');
-        },
-        (text: string) => {
-          // Real-time feedback
-        }
-      );
-      
-      // Update keyboard controller to use three-mesh-ui keyboard
-      this.keyboardController.setKeyboard(this.threeMeshUIKeyboard);
-    }
-    // Use advanced keyboard if enabled
-    else if (this.useAdvancedKeyboard) {
-      keyboardGroup = this.advancedKeyboard.getGroup();
-      keyboardGroup.lookAt(camPos); // Face camera
-      
-      this.advancedKeyboard.show(keyboardPos, {
-        onSubmit: (text: string) => {
-          this.hudMgr.addCommentForCurrent(text);
-          this.hideVirtualKeyboard();
-          this.store.notify('✅ Comment posted!');
-          // Confetti effect!
-          this.particleSystem.emit('confetti', keyboardPos, 20);
-        },
-        onCancel: () => {
-          this.hideVirtualKeyboard();
-          this.store.notify('Cancelled');
-        },
-        onTextChange: (text: string) => {
-          // Real-time feedback
-        },
-        placeholder: 'Share your thoughts...',
-        maxLength: 500,
-      });
-      
-      // Update keyboard controller to use advanced keyboard
-      this.keyboardController.setKeyboard(this.advancedKeyboard);
-    } else {
-      // Fallback to simple keyboard
-      keyboardGroup = this.virtualKeyboard.getGroup();
-      keyboardGroup.lookAt(camPos); // Face camera
-      
-      this.virtualKeyboard.show(
-        keyboardPos,
-        (text: string) => {
-          this.hudMgr.addCommentForCurrent(text);
-          this.hideVirtualKeyboard();
-          this.store.notify('✅ Comment posted!');
-        },
-        () => {
-          this.hideVirtualKeyboard();
-          this.store.notify('Cancelled');
-        }
-      );
-      
-      // Update keyboard controller to use virtual keyboard
-      this.keyboardController.setKeyboard(this.virtualKeyboard);
-    }
+    this.keyboard.show(
+      keyboardPos,
+      (text: string) => {
+        this.hudMgr.addCommentForCurrent(text);
+        this.hideVirtualKeyboard();
+        this.store.notify('✅ Comment posted!');
+        // Confetti effect!
+        this.particleSystem.emit('confetti', keyboardPos, 20);
+      },
+      () => {
+        this.hideVirtualKeyboard();
+        this.store.notify('Cancelled');
+      },
+      (text: string) => {
+        // Real-time feedback
+      }
+    );
     
     this.keyboardActive = true;
     this.backgroundBlur.enable();
@@ -466,16 +374,8 @@ export class FeedControls {
     // Deactivate keyboard controller (SEPARATE MODULE)
     this.keyboardController.deactivate();
     
-    if (this.useThreeMeshUI) {
-      this.threeMeshUIKeyboard.hide();
-      this.threeMeshUIKeyboard.clearHover();
-    } else if (this.useAdvancedKeyboard) {
-      this.advancedKeyboard.hide();
-      this.advancedKeyboard.clearHover();
-    } else {
-      this.virtualKeyboard.hide();
-      this.virtualKeyboard.clearHover();
-    }
+    this.keyboard.hide();
+    this.keyboard.clearHover();
     
     // Reset keyboard state
     this.keyboardActive = false;
@@ -512,8 +412,7 @@ export class FeedControls {
     const handPos = this.hands.pinchMid(activeSide);
     if (!handPos) return;
     
-    const activeKeyboard = this.useThreeMeshUI ? this.threeMeshUIKeyboard : 
-                          (this.useAdvancedKeyboard ? this.advancedKeyboard : this.virtualKeyboard);
+    const activeKeyboard = this.keyboard;
     const keyboardPos = activeKeyboard.getGroup().position;
     const distToKeyboard = handPos.distanceTo(keyboardPos);
     
@@ -565,8 +464,7 @@ export class FeedControls {
     this.store.notify('🖐️ Keyboard grabbed - move hand to reposition, release to lock');
     
     // Slightly enlarge keyboard to show it's grabbed
-    const activeKeyboard = this.useThreeMeshUI ? this.threeMeshUIKeyboard : 
-                          (this.useAdvancedKeyboard ? this.advancedKeyboard : this.virtualKeyboard);
+    const activeKeyboard = this.keyboard;
     activeKeyboard.getGroup().scale.setScalar(1.05);
   }
   
@@ -580,8 +478,7 @@ export class FeedControls {
     this.store.notify('✓ Keyboard released - position locked');
     
     // Reset keyboard scale
-    const activeKeyboard = this.useThreeMeshUI ? this.threeMeshUIKeyboard : 
-                          (this.useAdvancedKeyboard ? this.advancedKeyboard : this.virtualKeyboard);
+    const activeKeyboard = this.keyboard;
     activeKeyboard.getGroup().scale.setScalar(1.0);
   }
 
