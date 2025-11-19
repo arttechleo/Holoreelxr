@@ -20,14 +20,14 @@ export const GESTURE = {
   /** Thumb extension threshold (m) */
   THUMB_EXTENDED_THRESHOLD: 0.080,
   
-  /** Gesture stabilization time (ms) - optimized for smooth recognition */
-  SETTLE_TIME_MS: 60,
+  /** Gesture stabilization time (ms) - optimized for heart gesture reliability */
+  SETTLE_TIME_MS: 80,
   
-  /** Number of frames for gesture smoothing - balanced for responsiveness */
-  SMOOTH_FRAMES: 3,
+  /** Number of frames for gesture smoothing - more frames for heart gesture */
+  SMOOTH_FRAMES: 4,
   
   /** Minimum stable hold before accepting gesture (ms) - smooth experience */
-  HOLD_TIME_MS: 100,
+  HOLD_TIME_MS: 120,
 } as const;
 
 // ========== INTERACTION CONTROLS ==========
