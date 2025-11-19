@@ -20,38 +20,38 @@ export const GESTURE = {
   /** Thumb extension threshold (m) */
   THUMB_EXTENDED_THRESHOLD: 0.080,
   
-  /** Gesture stabilization time (ms) */
-  SETTLE_TIME_MS: 100,
+  /** Gesture stabilization time (ms) - REDUCED for faster recognition */
+  SETTLE_TIME_MS: 50,
   
-  /** Number of frames for gesture smoothing */
-  SMOOTH_FRAMES: 4,
+  /** Number of frames for gesture smoothing - REDUCED for faster response */
+  SMOOTH_FRAMES: 2,
   
-  /** Minimum stable hold before accepting gesture (ms) */
-  HOLD_TIME_MS: 120,
+  /** Minimum stable hold before accepting gesture (ms) - REDUCED for faster response */
+  HOLD_TIME_MS: 80,
 } as const;
 
 // ========== INTERACTION CONTROLS ==========
 export const CONTROLS = {
-  /** Scroll threshold: vertical displacement to trigger feed change (m) */
-  SCROLL_DISPLACEMENT: 0.026,
+  /** Scroll threshold: vertical displacement to trigger feed change (m) - OPTIMIZED */
+  SCROLL_DISPLACEMENT: 0.022,
   
-  /** Cooldown between scroll actions (ms) */
-  SCROLL_COOLDOWN_MS: 300,
+  /** Cooldown between scroll actions (ms) - REDUCED for faster scrolling */
+  SCROLL_COOLDOWN_MS: 250,
   
-  /** Minimum vertical velocity to register scroll (m/s) */
-  SCROLL_MIN_VELOCITY: 0.008,
+  /** Minimum vertical velocity to register scroll (m/s) - REDUCED for more responsive scrolling */
+  SCROLL_MIN_VELOCITY: 0.006,
   
-  /** Distance from object to allow "in air" scrolling (m) */
-  SCROLL_IN_AIR_DISTANCE: 0.2,
+  /** Distance from object to allow "in air" scrolling (m) - INCREASED for easier scrolling */
+  SCROLL_IN_AIR_DISTANCE: 0.25,
   
-  /** Distance from object to start armed for scrolling (m) */
-  SCROLL_START_DISTANCE: 0.2,
+  /** Distance from object to start armed for scrolling (m) - REDUCED for easier activation */
+  SCROLL_START_DISTANCE: 0.15,
   
-  /** Minimum pinch hold time before scroll is allowed (ms) */
-  SCROLL_MIN_HOLD_MS: 120,
+  /** Minimum pinch hold time before scroll is allowed (ms) - REDUCED for faster response */
+  SCROLL_MIN_HOLD_MS: 80,
   
-  /** Low-pass filter alpha for scroll smoothing */
-  SCROLL_LPF_ALPHA: 0.22,
+  /** Low-pass filter alpha for scroll smoothing - INCREASED for smoother tracking */
+  SCROLL_LPF_ALPHA: 0.28,
 } as const;
 
 // ========== GRAB & TRANSFORM ==========
@@ -114,8 +114,8 @@ export const REACTIONS = {
   /** Cooldown when hands are clustered together (ms) */
   CLUSTER_COOLDOWN_MS: 450,
   
-  /** Gesture must be stable for this duration (ms) */
-  GESTURE_STABLE_MS: 120,
+  /** Gesture must be stable for this duration (ms) - REDUCED for faster recognition */
+  GESTURE_STABLE_MS: 80,
 } as const;
 
 // ========== UI & HUD ==========

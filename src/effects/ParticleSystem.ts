@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 
-export type ParticleType = 'heart' | 'like' | 'sparkle' | 'confetti' | 'emoji';
+export type ParticleType = 'heart' | 'like' | 'repost' | 'sparkle' | 'confetti' | 'emoji';
 
 interface Particle {
   sprite: THREE.Sprite;
@@ -96,6 +96,7 @@ export class ParticleSystem {
     switch (type) {
       case 'heart': return '❤️';
       case 'like': return '👍';
+      case 'repost': return '🔁';
       case 'sparkle': return '✨';
       case 'confetti': return '🎉';
       case 'emoji': return '😊';
@@ -104,21 +105,41 @@ export class ParticleSystem {
   }
 
   private getFromPool(emoji: string): THREE.Sprite | null {
-    // Reuse existing sprite
+    // Reuse existing sprite from pool
     for (let i = 0; i < this.pool.length; i++) {
       if (!this.pool[i].visible) {
-        // Update emoji if different
+        // Update texture if emoji changed
         const mat = this.pool[i].material as THREE.SpriteMaterial;
-        // For now, reuse as-is; could update texture here
+        if (mat.map) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 128;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d')!;
+          ctx.font = '96px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(emoji, 64, 64);
+          
+          // Dispose old texture
+          mat.map.dispose();
+          mat.map = new THREE.CanvasTexture(canvas);
+          mat.map.minFilter = THREE.LinearFilter;
+          mat.map.magFilter = THREE.LinearFilter;
+        }
         return this.pool[i];
       }
     }
     
-    // Pool exhausted, create new one
-    const sprite = this.createSprite(emoji);
-    this.scene.add(sprite);
-    this.pool.push(sprite);
-    return sprite;
+    // Pool exhausted, create new one (but limit pool size to prevent memory issues)
+    if (this.pool.length < 100) {
+      const sprite = this.createSprite(emoji);
+      this.scene.add(sprite);
+      this.pool.push(sprite);
+      return sprite;
+    }
+    
+    // Pool at max size, reuse oldest visible sprite
+    return this.pool[0] || null;
   }
 
   tick(dt: number) {
@@ -166,5 +187,6 @@ export class ParticleSystem {
     this.particles = [];
   }
 }
+
 
 

@@ -105,21 +105,6 @@ export class HandEngine {
     if (thumbUp('left'))  this.emit('thumbsupstart',{side:'left'});
     if (thumbUp('right')) this.emit('thumbsupstart',{side:'right'});
 
-    // ILY / 🤟 (thumb + index + pinky extended; middle & ring curled)
-    const ily = (side:Side) => {
-      const W = J(side,'wrist');
-      const IT = J(side,'index-finger-tip');
-      const PT = J(side,'pinky-finger-tip');
-      const TT = J(side,'thumb-tip');
-      const MT = J(side,'middle-finger-tip');
-      const RT = J(side,'ring-finger-tip');
-      if (!(W && IT && PT && TT && MT && RT)) return false;
-      const ext = (p:THREE.Vector3|null, thr:number)=> p ? p.distanceTo(W!) > thr : false;
-      const cur = (p:THREE.Vector3|null, thr:number)=> p ? p.distanceTo(W!) < thr : false;
-      return ext(IT,GESTURE.FINGER_EXTENDED_THRESHOLD) && ext(PT,GESTURE.FINGER_EXTENDED_THRESHOLD) && ext(TT,GESTURE.THUMB_EXTENDED_THRESHOLD) && cur(MT,GESTURE.FINGER_CURLED_THRESHOLD) && cur(RT,GESTURE.FINGER_CURLED_THRESHOLD);
-    };
-    if (ily('left'))  this.emit('ilystart', {side:'left'});
-    if (ily('right')) this.emit('ilystart', {side:'right'});
 
     // PEACE ✌️ (index + middle extended; ring + pinky curled; thumb relaxed)
     const peace = (side:Side) => {
@@ -140,6 +125,6 @@ export class HandEngine {
   indexTip(side: Side){ const p = this.lastPos[side]['index-finger-tip']; return p ? p.clone() : null; }
   pinchMid(side: Side){
     const t = this.thumbTip(side), i = this.indexTip(side);
-    return (t && i) ? t.add(i).multiplyScalar(0.5) : null;
+    return (t && i) ? t.clone().add(i).multiplyScalar(0.5) : null;
   }
 }
