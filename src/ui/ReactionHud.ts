@@ -30,13 +30,13 @@ export class ReactionHud {
   // particles (chips)
   private particles: Array<{ sprite: THREE.Sprite; vel: THREE.Vector3; ttl: number }> = [];
 
-  // Panel geometry in meters (drawn to canvas) - SQUARE for camera overlay
-  readonly PANEL_W = 0.20;
-  readonly PANEL_H = 0.20;
+  // Panel geometry in meters (drawn to canvas) - TALLER for all icons visible
+  readonly PANEL_W = 0.18;
+  readonly PANEL_H = 0.40;
 
-  // high-res canvas for crisp text - SQUARE layout
-  private readonly CANVAS_W = 512;
-  private readonly CANVAS_H = 512;
+  // high-res canvas for crisp text - TALLER layout for all icons
+  private readonly CANVAS_W = 460;
+  private readonly CANVAS_H = 1024;
 
   // Position offset (to the left of model, vertically centered)
   private readonly OFFSET = new THREE.Vector3(-0.35, 0.05, 0);
@@ -268,18 +268,20 @@ export class ReactionHud {
     const c = this.panelCanvas, ctx = this.ctx;
     ctx.clearRect(0, 0, c.width, c.height);
 
-    // Transparent background - icons only, vertically stacked in SQUARE layout
-    const iconSize = 120; // Larger icons for square layout
+    // Transparent background - icons only, vertically stacked
+    const iconSize = 140; // Larger icons for better visibility
     const baseX = (c.width - iconSize) / 2; // Center horizontally
-    const gap = 20; // Vertical gap between icons
-    const startY = (c.height - (iconSize * 3 + gap * 2 + 50 * 3)) / 2; // Center vertically with counters
+    const gap = 24; // Vertical gap between icons
+    const counterHeight = 50; // Height for counter text
+    const totalHeight = (iconSize * 3) + (gap * 2) + (counterHeight * 3);
+    const startY = (c.height - totalHeight) / 2; // Center vertically with counters
     
     // Stack icons vertically: Heart, Like, Repost (top to bottom)
     let currentY = startY;
     this.heartRect  = this.drawIconWithCounter(this.heartIcon, '❤️', baseX, currentY, iconSize, this.heartCount);
-    currentY += iconSize + 50 + gap; // icon + counter + gap
+    currentY += iconSize + counterHeight + gap; // icon + counter + gap
     this.likeRect   = this.drawIconWithCounter(this.likeIcon,  '👍', baseX, currentY, iconSize, this.likeCount);
-    currentY += iconSize + 50 + gap;
+    currentY += iconSize + counterHeight + gap;
     this.repostRect = this.drawIconWithCounter(this.repostIcon,'🔁', baseX, currentY, iconSize, this.repostCount);
 
     // Comments rect set to empty (no comments section)

@@ -62,12 +62,23 @@ export class HandEngine {
     if (!getJointPose) return;
 
     const inputSources = Array.from(session.inputSources || []).filter((s:any)=> !!s.hand);
-    if (!inputSources.length) return;
+    if (!inputSources.length) {
+      // No hands in frame - reset all gesture states
+      this.state.left.pinch = false;
+      this.state.right.pinch = false;
+      this.state.heart = false;
+      return;
+    }
 
     this.lastPos.left = {}; this.lastPos.right = {};
+    let leftHandInFrame = false;
+    let rightHandInFrame = false;
+    
     for (const src of inputSources) {
       const side = (src.handedness === 'left' || src.handedness === 'right') ? src.handedness : 'left';
       const hand = src.hand as XRHand;
+      let handHasValidJoints = false;
+      
       for (const name of XR_HAND_JOINTS) {
         const js = (hand as any).get?.(name as string) as XRJointSpace | undefined;
         if (!js) continue;
@@ -75,49 +86,78 @@ export class HandEngine {
         if (!jp || !jp.transform) continue;
         const { x, y, z } = jp.transform.position;
         (this.lastPos[side][name] ??= new THREE.Vector3()).set(x, y, z);
+        handHasValidJoints = true;
       }
+      
+      if (side === 'left') leftHandInFrame = handHasValidJoints;
+      if (side === 'right') rightHandInFrame = handHasValidJoints;
+    }
+    
+    // If hands are not in frame, reset gesture states
+    if (!leftHandInFrame) {
+      this.state.left.pinch = false;
+      this.lastPos.left = {};
+    }
+    if (!rightHandInFrame) {
+      this.state.right.pinch = false;
+      this.lastPos.right = {};
+    }
+    if (!leftHandInFrame || !rightHandInFrame) {
+      this.state.heart = false;
     }
 
     const J = (side:Side, name:XRHandJointName) => this.lastPos[side]?.[name] ?? null;
     const dist = (a:THREE.Vector3|null, b:THREE.Vector3|null) => (a&&b)? a.distanceTo(b) : 1e9;
 
-    // pinch
-    const leftPinch  = dist(J('left','thumb-tip'),  J('left','index-finger-tip'))  < GESTURE.PINCH_THRESHOLD;
-    const rightPinch = dist(J('right','thumb-tip'), J('right','index-finger-tip')) < GESTURE.PINCH_THRESHOLD;
-    this.state.left.pinch  = leftPinch;  this.updateFlag('left.pinch', leftPinch, {side:'left'});
-    this.state.right.pinch = rightPinch; this.updateFlag('right.pinch', rightPinch, {side:'right'});
+    // pinch - only detect if hand is in frame
+    if (leftHandInFrame) {
+      const leftPinch = dist(J('left','thumb-tip'), J('left','index-finger-tip')) < GESTURE.PINCH_THRESHOLD;
+      this.state.left.pinch = leftPinch;
+      this.updateFlag('left.pinch', leftPinch, {side:'left'});
+    }
+    if (rightHandInFrame) {
+      const rightPinch = dist(J('right','thumb-tip'), J('right','index-finger-tip')) < GESTURE.PINCH_THRESHOLD;
+      this.state.right.pinch = rightPinch;
+      this.updateFlag('right.pinch', rightPinch, {side:'right'});
+    }
 
-    // heart gesture: REFACTORED for better reliability
-    // Both index fingers AND both thumbs must be close together (collide)
-    const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
-    const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
-    
-    // Check if both hands are present with all required joints
-    const hasBothHands = !!(L_i && R_i && L_t && R_t);
-    if (!hasBothHands) {
+    // heart gesture: Both hands must be in frame AND index fingers collide AND thumbs collide
+    // Only detect if BOTH hands are in frame
+    if (!leftHandInFrame || !rightHandInFrame) {
       this.state.heart = false;
       this.updateFlag('heart', false);
-      return;
+    } else {
+      // Both hands are in frame - check heart gesture
+      const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
+      const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
+      
+      // Check if all required joints are present
+      if (!L_i || !R_i || !L_t || !R_t) {
+        this.state.heart = false;
+        this.updateFlag('heart', false);
+      } else {
+        // Calculate distances between corresponding tips
+        const indexDist = dist(L_i, R_i);
+        const thumbDist = dist(L_t, R_t);
+        
+        // Heart gesture: index fingers must collide AND thumbs must collide
+        const indexCollide = indexDist < GESTURE.HEART_THRESHOLD;
+        const thumbCollide = thumbDist < GESTURE.HEART_THRESHOLD;
+        
+        // BOTH conditions must be true (like making a heart with hands)
+        const heartNow = indexCollide && thumbCollide;
+        
+        // Update state and emit events
+        this.state.heart = heartNow;
+        this.updateFlag('heart', heartNow);
+      }
     }
-    
-    // Calculate distances between corresponding tips
-    const indexDist = dist(L_i, R_i);
-    const thumbDist = dist(L_t, R_t);
-    
-    // Both index fingers AND thumbs must be within threshold (collide)
-    // More lenient: allow either to be close, but prefer both
-    const indexClose = indexDist < GESTURE.HEART_THRESHOLD;
-    const thumbClose = thumbDist < GESTURE.HEART_THRESHOLD;
-    
-    // Heart gesture requires BOTH conditions: index fingers collide AND thumbs collide
-    const heartNow = indexClose && thumbClose;
-    
-    // Update state and emit events
-    this.state.heart = heartNow;
-    this.updateFlag('heart', heartNow);
 
-    // thumbs up (like)
+    // thumbs up (like) - only detect if hand is in frame
     const thumbUp = (side:Side) => {
+      const inFrame = side === 'left' ? leftHandInFrame : rightHandInFrame;
+      if (!inFrame) return false;
+      
       const W = J(side,'wrist'), T = J(side,'thumb-tip');
       if (!W || !T) return false;
       const thumbExtended = T.distanceTo(W) > GESTURE.FINGER_EXTENDED_THRESHOLD;
@@ -130,7 +170,11 @@ export class HandEngine {
 
 
     // PEACE ✌️ (index + middle extended; ring + pinky curled; thumb relaxed)
+    // Only detect if hand is in frame
     const peace = (side:Side) => {
+      const inFrame = side === 'left' ? leftHandInFrame : rightHandInFrame;
+      if (!inFrame) return false;
+      
       const W = J(side,'wrist');
       const IT = J(side,'index-finger-tip'), MT = J(side,'middle-finger-tip');
       const RT = J(side,'ring-finger-tip'),  PT = J(side,'pinky-finger-tip');
