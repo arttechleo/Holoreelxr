@@ -8,8 +8,8 @@ export const GESTURE = {
   /** Distance (m) between thumb and index tips to register pinch */
   PINCH_THRESHOLD: 0.035,
   
-  /** Distance (m) for heart gesture (both hands' index + thumb tips) */
-  HEART_THRESHOLD: 0.10, // INCREASED - More forgiving detection
+  /** Distance (m) for heart gesture (both hands' index + thumb tips) - INCREASED for easier detection */
+  HEART_THRESHOLD: 0.12,
   
   /** Min distance (m) from wrist for extended fingers */
   FINGER_EXTENDED_THRESHOLD: 0.085,

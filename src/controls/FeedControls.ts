@@ -75,6 +75,17 @@ export class FeedControls {
     depthTest: false,   // ✅ valid
     depthWrite: false,  // ✅ valid
   });
+  
+  // Rubber band scroll line (elastic connection to object)
+  private scrollRay?: THREE.Line;
+  private scrollRayMat = new THREE.LineBasicMaterial({
+    color: 0x88ff88,
+    transparent: true,
+    opacity: 0.6,
+    linewidth: 2,
+    depthTest: false,
+    depthWrite: false,
+  });
 
   // reaction throttles (incl. repost – fixes spam)
   private lastLikeAt = 0;
@@ -122,6 +133,9 @@ export class FeedControls {
     this.setRayVisible('left', false);
     this.setRayVisible('right', false);
     
+    // Initialize scroll rubber band ray
+    this.initScrollRay();
+    
     // 🎬 TikTok-style feed UI
     this.feedUI = new TikTokFeedUI();
     this.app.scene.add(this.feedUI.getGroup());
@@ -138,10 +152,10 @@ export class FeedControls {
     );
     this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png', '/assets/ui/repost.png');
 
-    // Place HUD close to object (left icons, right comments)
+    // Place HUD close to object (icons only, no comments panel)
     (this.hudMgr as any).setOffsets?.(
       new THREE.Vector3(-0.25, -0.05, 0.0), // icons
-      new THREE.Vector3(0.28, 0.02, 0.0)    // comments panel
+      new THREE.Vector3(0.0, 0.0, 0.0)      // comments panel removed
     );
 
     this.hudMgr.showFor(this.currentModelKey());
@@ -483,20 +497,8 @@ export class FeedControls {
     const hit = this.hudMgr.raycastHit(ray);
     const hitKind = hit?.kind ?? null;
 
-    if (hitKind === 'comments') {
-      const y = tip.y;
-      if (this.uiLastY == null) this.uiLastY = y;
-      const dy = y - this.uiLastY;
-      this.uiLastY = y;
-      if (Math.abs(dy) >= 0.01) {
-        this.hudMgr.scrollComments(dy < 0 ? +1 : -1);
-        this.uiHoverKind = 'comments';
-        this.uiHoverBeganAt = now;
-        return;
-      }
-    } else {
-      this.uiLastY = null;
-    }
+    // Comments section removed - no longer supported
+    this.uiLastY = null;
 
     if (hitKind !== this.uiHoverKind) {
       this.uiHoverKind = hitKind;
@@ -545,6 +547,14 @@ export class FeedControls {
     const L = side === 'left' ? this.leftRay : this.rightRay;
     if (L) L.visible = v;
   }
+  private initScrollRay() {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(6), 3));
+    this.scrollRay = new THREE.Line(geom, this.scrollRayMat);
+    this.scrollRay.visible = false;
+    this.rayGroup.add(this.scrollRay);
+  }
+  
   private updateRays() {
     const objPos = this.store.getObjectWorldPos();
     const fallbackDir = new THREE.Vector3(0, 0, -1);
@@ -579,6 +589,57 @@ export class FeedControls {
     };
     update('left', this.leftRay);
     update('right', this.rightRay);
+    
+    // Update rubber band scroll ray
+    this.updateScrollRay(objPos);
+  }
+  
+  private updateScrollRay(objPos: THREE.Vector3 | null) {
+    if (!this.scrollRay || !objPos) {
+      if (this.scrollRay) this.scrollRay.visible = false;
+      return;
+    }
+    
+    const lp = this.hands.state.left.pinch;
+    const rp = this.hands.state.right.pinch;
+    const side: 'left' | 'right' = rp ? 'right' : (lp ? 'left' : null);
+    
+    if (!side || !this.scrollArmed || this.grabbing || this.grabPending) {
+      this.scrollRay.visible = false;
+      return;
+    }
+    
+    const mid = this.hands.pinchMid(side);
+    if (!mid) {
+      this.scrollRay.visible = false;
+      return;
+    }
+    
+    // Show rubber band line from hand to object center
+    const pos = (this.scrollRay.geometry as THREE.BufferGeometry).getAttribute(
+      'position'
+    ) as THREE.BufferAttribute;
+    if (pos) {
+      // Elastic effect: line connects hand to object, with slight curve for rubber band feel
+      const handPos = mid;
+      const objCenter = objPos;
+      
+      // Calculate distance for elastic effect
+      const dist = handPos.distanceTo(objCenter);
+      const maxDist = 0.5; // Maximum distance before line becomes more visible
+      const elasticFactor = Math.min(dist / maxDist, 1.0);
+      
+      // Update line color based on stretch (more stretched = more visible)
+      (this.scrollRay.material as THREE.LineBasicMaterial).opacity = 0.3 + (elasticFactor * 0.4);
+      (this.scrollRay.material as THREE.LineBasicMaterial).color.setHex(
+        elasticFactor > 0.7 ? 0xffff88 : 0x88ff88 // Yellow when stretched, green when relaxed
+      );
+      
+      pos.setXYZ(0, handPos.x, handPos.y, handPos.z);
+      pos.setXYZ(1, objCenter.x, objCenter.y, objCenter.z);
+      pos.needsUpdate = true;
+      this.scrollRay.visible = true;
+    }
   }
 
   // ---------- pinch lifecycle / feed scroll ----------
@@ -663,6 +724,7 @@ export class FeedControls {
       this.lastPinchY = null;
       this.filtPinchY = null;
       this.scrollArmed = false;
+      if (this.scrollRay) this.scrollRay.visible = false;
       return;
     }
     
@@ -695,6 +757,7 @@ export class FeedControls {
       // Reset scroll state if not armed
       this.lastPinchY = null;
       this.filtPinchY = null;
+      if (this.scrollRay) this.scrollRay.visible = false;
       return;
     }
 
