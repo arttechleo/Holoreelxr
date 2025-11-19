@@ -30,16 +30,16 @@ export class ReactionHud {
   // particles (chips)
   private particles: Array<{ sprite: THREE.Sprite; vel: THREE.Vector3; ttl: number }> = [];
 
-  // Panel geometry in meters (drawn to canvas) - REDUCED for icons only
-  readonly PANEL_W = 0.25;
-  readonly PANEL_H = 0.15;
+  // Panel geometry in meters (drawn to canvas) - VERTICAL STACK for icons
+  readonly PANEL_W = 0.12;
+  readonly PANEL_H = 0.35;
 
-  // high-res canvas for crisp text - REDUCED for icons only
-  private readonly CANVAS_W = 512;
-  private readonly CANVAS_H = 256;
+  // high-res canvas for crisp text - VERTICAL layout
+  private readonly CANVAS_W = 256;
+  private readonly CANVAS_H = 512;
 
-  // Position offset (above model). NO head-orbit, NO rotation/scale linkage.
-  private readonly OFFSET = new THREE.Vector3(0, 0.22, 0);
+  // Position offset (to the left of model). NO head-orbit, NO rotation/scale linkage.
+  private readonly OFFSET = new THREE.Vector3(-0.35, 0, 0);
 
   // icons (optional)
   private heartIcon?: HTMLImageElement;
@@ -210,16 +210,19 @@ export class ReactionHud {
     const c = this.panelCanvas, ctx = this.ctx;
     ctx.clearRect(0, 0, c.width, c.height);
 
-    // Transparent background - icons only, no panel
-    // Icons row - centered
-    const iconSize = 80;
-    const baseX = (c.width - (iconSize * 3 + 24 * 2)) / 2; // Center 3 icons with gaps
-    const gap = 24 + iconSize;
-    const tileY = (c.height - iconSize - 40) / 2; // Vertically centered
-
-    this.heartRect  = this.drawIconWithCounter(this.heartIcon, '❤️', baseX,          tileY, iconSize, this.heartCount);
-    this.likeRect   = this.drawIconWithCounter(this.likeIcon,  '👍', baseX + gap,    tileY, iconSize, this.likeCount);
-    this.repostRect = this.drawIconWithCounter(this.repostIcon,'🔁', baseX + gap*2,  tileY, iconSize, this.repostCount);
+    // Transparent background - icons only, vertically stacked
+    const iconSize = 70;
+    const baseX = (c.width - iconSize) / 2; // Center horizontally
+    const gap = 16; // Vertical gap between icons
+    const startY = (c.height - (iconSize * 3 + gap * 2 + 50 * 3)) / 2; // Center vertically with counters
+    
+    // Stack icons vertically: Heart, Like, Repost (top to bottom)
+    let currentY = startY;
+    this.heartRect  = this.drawIconWithCounter(this.heartIcon, '❤️', baseX, currentY, iconSize, this.heartCount);
+    currentY += iconSize + 50 + gap; // icon + counter + gap
+    this.likeRect   = this.drawIconWithCounter(this.likeIcon,  '👍', baseX, currentY, iconSize, this.likeCount);
+    currentY += iconSize + 50 + gap;
+    this.repostRect = this.drawIconWithCounter(this.repostIcon,'🔁', baseX, currentY, iconSize, this.repostCount);
 
     // Comments rect set to empty (no comments section)
     this.commentsRect = { x: -1, y: -1, w: 1, h: 1 };
