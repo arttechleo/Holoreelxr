@@ -37,8 +37,7 @@ export class FeedControls {
   private readonly LPF_ALPHA = TRANSFORM.TWO_HAND_LPF_ALPHA;
   private readonly SCALE_GAIN = TRANSFORM.SCALE_GAIN;
   private readonly SCALE_DEADBAND = TRANSFORM.SCALE_DEADBAND;
-  private readonly SCALE_MIN = TRANSFORM.SCALE_MIN;
-  private readonly SCALE_MAX = TRANSFORM.SCALE_MAX;
+  // Scale limits removed - allow unlimited scaling
   private rotTarget = 0;
   private rotVel = 0;
   private readonly ROT_GAIN = TRANSFORM.ROTATION_GAIN;
@@ -76,13 +75,14 @@ export class FeedControls {
     depthWrite: false,  // ✅ valid
   });
   
-  // Rubber band scroll line (elastic connection to object)
+  // Rubber band scroll line (elastic connection to object) - DOTTED
   private scrollRay?: THREE.Line;
-  private scrollRayMat = new THREE.LineBasicMaterial({
+  private scrollRayMat = new THREE.LineDashedMaterial({
     color: 0x88ff88,
     transparent: true,
     opacity: 0.6,
-    linewidth: 2,
+    dashSize: 0.02,
+    gapSize: 0.015,
     depthTest: false,
     depthWrite: false,
   });
@@ -152,10 +152,10 @@ export class FeedControls {
     );
     this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png', '/assets/ui/repost.png');
 
-    // Place HUD close to object (icons only, no comments panel)
+    // Place HUD to the left of object (vertical stack, no comments panel)
     (this.hudMgr as any).setOffsets?.(
-      new THREE.Vector3(-0.25, -0.05, 0.0), // icons
-      new THREE.Vector3(0.0, 0.0, 0.0)      // comments panel removed
+      new THREE.Vector3(-0.35, 0.0, 0.0), // icons - left side, vertically stacked
+      new THREE.Vector3(0.0, 0.0, 0.0)    // comments panel removed
     );
 
     this.hudMgr.showFor(this.currentModelKey());
@@ -552,6 +552,7 @@ export class FeedControls {
     geom.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(6), 3));
     this.scrollRay = new THREE.Line(geom, this.scrollRayMat);
     this.scrollRay.visible = false;
+    (this.scrollRay as any).computeLineDistances?.(); // Required for dashed lines
     this.rayGroup.add(this.scrollRay);
   }
   
@@ -630,14 +631,15 @@ export class FeedControls {
       const elasticFactor = Math.min(dist / maxDist, 1.0);
       
       // Update line color based on stretch (more stretched = more visible)
-      (this.scrollRay.material as THREE.LineBasicMaterial).opacity = 0.3 + (elasticFactor * 0.4);
-      (this.scrollRay.material as THREE.LineBasicMaterial).color.setHex(
+      (this.scrollRay.material as THREE.LineDashedMaterial).opacity = 0.3 + (elasticFactor * 0.4);
+      (this.scrollRay.material as THREE.LineDashedMaterial).color.setHex(
         elasticFactor > 0.7 ? 0xffff88 : 0x88ff88 // Yellow when stretched, green when relaxed
       );
       
       pos.setXYZ(0, handPos.x, handPos.y, handPos.z);
       pos.setXYZ(1, objCenter.x, objCenter.y, objCenter.z);
       pos.needsUpdate = true;
+      (this.scrollRay as any).computeLineDistances?.(); // Update dashes for new positions
       this.scrollRay.visible = true;
     }
   }
@@ -839,7 +841,8 @@ export class FeedControls {
     this.filtDist = this.filtDist + (rawDist - this.filtDist) * this.LPF_ALPHA;
     const ratio = this.filtDist / this.baseDist;
     let scaleRaw = this.baseScale * Math.pow(ratio, this.SCALE_GAIN);
-    scaleRaw = THREE.MathUtils.clamp(scaleRaw, this.SCALE_MIN, this.SCALE_MAX);
+    // No scale limits - allow unlimited scaling
+    scaleRaw = Math.max(0.001, scaleRaw); // Only prevent negative/zero scale
 
     let newScale = this.store.scale;
     if (Math.abs(scaleRaw - this.store.scale) > this.SCALE_DEADBAND) newScale = scaleRaw;

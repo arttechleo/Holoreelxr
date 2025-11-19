@@ -171,12 +171,14 @@ export class FeedStore {
   }
 
   setTargetTransform(scale: number, rotY: number) {
-    this.targetScale = THREE.MathUtils.clamp(scale, 0.15, 8);
+    // No scale limits - allow unlimited scaling
+    this.targetScale = Math.max(0.001, scale); // Only prevent negative/zero scale
     this.targetRotY = rotY;
   }
 
   setTransform(scale: number, rotY: number) {
-    this._scale = THREE.MathUtils.clamp(scale, 0.15, 8);
+    // No scale limits - allow unlimited scaling
+    this._scale = Math.max(0.001, scale); // Only prevent negative/zero scale
     this._rotY = rotY;
     const obj = this.getObject();
     if (obj) {

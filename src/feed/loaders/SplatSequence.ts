@@ -48,7 +48,8 @@ export class SplatSequence {
   /** Set uniform scale and Y rotation for the whole sequence root */
   setTransform(scale: number, rotY: number) {
     if (this.disposed) return;
-    const s = THREE.MathUtils.clamp(scale, 0.01, 100);
+    // No scale limits - allow unlimited scaling
+    const s = Math.max(0.001, scale); // Only prevent negative/zero scale
     this.root.scale.setScalar(s);
     this.root.rotation.y = rotY;
   }
