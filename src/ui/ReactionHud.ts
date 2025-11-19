@@ -38,8 +38,8 @@ export class ReactionHud {
   private readonly CANVAS_W = 512;
   private readonly CANVAS_H = 512;
 
-  // Position offset (for camera overlay mode, this is relative to camera)
-  private readonly OFFSET = new THREE.Vector3(-0.35, 0, 0);
+  // Position offset (to the left of model, vertically centered)
+  private readonly OFFSET = new THREE.Vector3(-0.35, 0.05, 0);
   
   // Camera overlay mode - HUD always in front of camera like a filter
   private cameraOverlayMode = false;
@@ -81,7 +81,7 @@ export class ReactionHud {
       map: this.panelTex,
       transparent: true,
       opacity: 1.0,             // transparency drawn in canvas
-      depthTest: false,         // Always on top for overlay
+      depthTest: true,          // Proper depth testing for MR visibility
       depthWrite: false
     });
     this.panel = new THREE.Mesh(geo, mat);

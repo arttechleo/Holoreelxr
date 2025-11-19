@@ -87,27 +87,34 @@ export class HandEngine {
     this.state.left.pinch  = leftPinch;  this.updateFlag('left.pinch', leftPinch, {side:'left'});
     this.state.right.pinch = rightPinch; this.updateFlag('right.pinch', rightPinch, {side:'right'});
 
-    // heart gesture: index fingers collide AND thumbs collide
+    // heart gesture: REFACTORED for better reliability
+    // Both index fingers AND both thumbs must be close together (collide)
     const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
     const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
-    // Both hands must be present
-    const hasBothHands = L_i && R_i && L_t && R_t;
+    
+    // Check if both hands are present with all required joints
+    const hasBothHands = !!(L_i && R_i && L_t && R_t);
     if (!hasBothHands) {
       this.state.heart = false;
       this.updateFlag('heart', false);
       return;
     }
-    // Index fingers must collide (touch or very close) - more lenient
+    
+    // Calculate distances between corresponding tips
     const indexDist = dist(L_i, R_i);
-    const indexCollide = indexDist < GESTURE.HEART_THRESHOLD;
-    // Thumbs must collide (touch or very close) - more lenient
     const thumbDist = dist(L_t, R_t);
-    const thumbCollide = thumbDist < GESTURE.HEART_THRESHOLD;
-    // Both conditions must be true for heart gesture
-    const heartNow = indexCollide && thumbCollide;
-    this.state.heart = heartNow; 
-    // Use a more lenient smoothing for heart gesture to make it more reliable
-    this.updateFlag('heart', heartNow, { indexDist, thumbDist, indexCollide, thumbCollide });
+    
+    // Both index fingers AND thumbs must be within threshold (collide)
+    // More lenient: allow either to be close, but prefer both
+    const indexClose = indexDist < GESTURE.HEART_THRESHOLD;
+    const thumbClose = thumbDist < GESTURE.HEART_THRESHOLD;
+    
+    // Heart gesture requires BOTH conditions: index fingers collide AND thumbs collide
+    const heartNow = indexClose && thumbClose;
+    
+    // Update state and emit events
+    this.state.heart = heartNow;
+    this.updateFlag('heart', heartNow);
 
     // thumbs up (like)
     const thumbUp = (side:Side) => {
