@@ -115,31 +115,44 @@ export async function checkWebXRSupport(): Promise<{
   };
 
   try {
+    // Check if WebXR is available
+    if (typeof navigator === 'undefined' || !(navigator as any).xr) {
+      return result;
+    }
+
     const xr = (navigator as any).xr as XRSystem | undefined;
     
-    if (!xr) {
+    if (!xr || typeof xr.isSessionSupported !== 'function') {
       return result;
     }
 
     result.supported = true;
 
+    // Check AR support
     try {
       result.ar = await xr.isSessionSupported('immersive-ar');
-    } catch {
+    } catch (e) {
       result.ar = false;
+      // Silently fail - not all browsers support AR
     }
 
+    // Check VR support
     try {
       result.vr = await xr.isSessionSupported('immersive-vr');
-    } catch {
+    } catch (e) {
       result.vr = false;
+      // Silently fail - not all browsers support VR
     }
 
     // Hand tracking detection is session-dependent, can't pre-check reliably
     result.handTracking = false;
 
   } catch (error) {
-    logError(error, 'WebXR Support Check');
+    // Don't log errors for unsupported browsers - this is expected
+    // Only log unexpected errors
+    if (error instanceof Error && !error.message.includes('not supported')) {
+      logError(error, 'WebXR Support Check');
+    }
   }
 
   return result;
