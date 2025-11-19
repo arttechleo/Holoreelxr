@@ -178,29 +178,50 @@ export class ReactionHud {
   /** Follow object position or camera (for overlay mode). */
   tick(dt: number) {
     if (this.cameraOverlayMode && this.camera) {
-      // Camera overlay mode: position HUD in front of camera like a filter on headset lens
-      const camPos = new THREE.Vector3();
-      const camDir = new THREE.Vector3();
-      const camUp = new THREE.Vector3();
-      const camRight = new THREE.Vector3();
-      
-      this.camera.getWorldPosition(camPos);
-      this.camera.getWorldDirection(camDir);
-      this.camera.getWorldUp(camUp);
-      camRight.crossVectors(camDir, camUp).normalize();
-      
-      // Position 0.8m in front of camera, slightly to the left and up
-      const forwardDist = 0.8;
-      const leftOffset = -0.15; // Left side
-      const upOffset = 0.05;    // Slightly up
-      
-      const forward = camDir.clone().multiplyScalar(-forwardDist);
-      const left = camRight.clone().multiplyScalar(leftOffset);
-      const up = camUp.clone().multiplyScalar(upOffset);
-      
-      this.anchor.position.copy(camPos).add(forward).add(left).add(up);
-      // Always face camera
-      this.anchor.lookAt(camPos);
+      try {
+        // Camera overlay mode: position HUD in front of camera like a filter on headset lens
+        const camPos = new THREE.Vector3();
+        const camDir = new THREE.Vector3();
+        const camUp = new THREE.Vector3();
+        const camRight = new THREE.Vector3();
+        
+        this.camera.getWorldPosition(camPos);
+        this.camera.getWorldDirection(camDir);
+        
+        // Calculate up vector from camera's matrix (getWorldUp doesn't exist in Three.js)
+        // Column 1 of matrixWorld is the up vector
+        if (this.camera.matrixWorld) {
+          camUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
+          camRight.crossVectors(camDir, camUp).normalize();
+          // Recalculate up to ensure orthogonality
+          camUp.crossVectors(camRight, camDir).normalize();
+        } else {
+          // Fallback: use default up vector if matrix not available
+          camUp.set(0, 1, 0);
+          camRight.crossVectors(camDir, camUp).normalize();
+          camUp.crossVectors(camRight, camDir).normalize();
+        }
+        
+        // Position 0.8m in front of camera, slightly to the left and up
+        const forwardDist = 0.8;
+        const leftOffset = -0.15; // Left side
+        const upOffset = 0.05;    // Slightly up
+        
+        const forward = camDir.clone().multiplyScalar(-forwardDist);
+        const left = camRight.clone().multiplyScalar(leftOffset);
+        const up = camUp.clone().multiplyScalar(upOffset);
+        
+        this.anchor.position.copy(camPos).add(forward).add(left).add(up);
+        // Always face camera
+        this.anchor.lookAt(camPos);
+      } catch (error) {
+        // Fallback to object-relative mode on error
+        console.warn('Camera overlay mode error, falling back to object-relative:', error);
+        const center = this.getObjectWorldPos?.();
+        if (center) {
+          this.anchor.position.copy(center).add(this.OFFSET);
+        }
+      }
     } else {
       // Object-relative mode: follow object position
       const center = this.getObjectWorldPos?.();
