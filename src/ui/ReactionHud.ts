@@ -6,11 +6,11 @@ export type Comment = { id: string; author?: string; text: string };
 
 /** Which thing on the HUD was hit. */
 export type HudHit =
-  | { kind: 'like' | 'heart' | 'repost' | 'comments'; point?: THREE.Vector3 }
+  | { kind: 'like' | 'heart' | 'repost'; point?: THREE.Vector3 }
   | null;
 
 type Hit =
-  | { kind: 'like' | 'heart' | 'repost' | 'post' | 'comments' }
+  | { kind: 'like' | 'heart' | 'repost' }
   | null;
 
 export class ReactionHud {
@@ -25,22 +25,18 @@ export class ReactionHud {
   private heartCount = 0;
   private repostCount = 0;
 
-  // comments
-  private comments: Comment[] = [];
-  private scrollY = 0;                 // pixels
-  private readonly SCROLL_STEP = 42;
 
 
   // particles (chips)
   private particles: Array<{ sprite: THREE.Sprite; vel: THREE.Vector3; ttl: number }> = [];
 
-  // Panel geometry in meters (drawn to canvas)
-  readonly PANEL_W = 0.50;
-  readonly PANEL_H = 0.30;
+  // Panel geometry in meters (drawn to canvas) - REDUCED for icons only
+  readonly PANEL_W = 0.25;
+  readonly PANEL_H = 0.15;
 
-  // high-res canvas for crisp text
-  private readonly CANVAS_W = 1152;
-  private readonly CANVAS_H = 640;
+  // high-res canvas for crisp text - REDUCED for icons only
+  private readonly CANVAS_W = 512;
+  private readonly CANVAS_H = 256;
 
   // Position offset (above model). NO head-orbit, NO rotation/scale linkage.
   private readonly OFFSET = new THREE.Vector3(0, 0.22, 0);
@@ -113,23 +109,11 @@ export class ReactionHud {
     this.redraw();
   }
 
-  setComments(list: Comment[]) {
-    this.comments = Array.isArray(list) ? list.slice() : [];
-    this.scrollY = 0;
-    this.redraw();
-  }
-  scrollComments(steps: number) {
-    const maxScroll = Math.max(0, this.contentHeight() - this.commentsViewportH());
-    this.scrollY = THREE.MathUtils.clamp(this.scrollY + steps * this.SCROLL_STEP, 0, maxScroll);
-    this.redraw();
-  }
-  appendComment(c: Comment) {
-    this.comments.push(c);
-    this.redraw();
-  }
-  postQuickComment(text = 'Posted from MR ✍️') {
-    this.appendComment({ id: `c-${Date.now()}`, author: 'You', text });
-  }
+  // Comments methods removed - no longer supported
+  setComments(_list: Comment[]) { /* No-op */ }
+  scrollComments(_steps: number) { /* No-op */ }
+  appendComment(_c: Comment) { /* No-op */ }
+  postQuickComment(_text = '') { /* No-op */ }
 
   isComposing() { return false; }
 
@@ -166,7 +150,6 @@ export class ReactionHud {
     if (inRect(this.heartRect))  return { kind: 'heart', point: hitPoint.clone() };
     if (inRect(this.likeRect))   return { kind: 'like', point: hitPoint.clone() };
     if (inRect(this.repostRect)) return { kind: 'repost', point: hitPoint.clone() };
-    if (inRect(this.commentsRect)) return { kind: 'comments', point: hitPoint.clone() };
     return null;
   }
 
@@ -220,7 +203,6 @@ export class ReactionHud {
     if (inRect(this.heartRect))  return { kind: 'heart' };
     if (inRect(this.likeRect))   return { kind: 'like' };
     if (inRect(this.repostRect)) return { kind: 'repost' };
-    if (inRect(this.commentsRect)) return { kind: 'comments' };
     return null;
   }
 
@@ -228,110 +210,23 @@ export class ReactionHud {
     const c = this.panelCanvas, ctx = this.ctx;
     ctx.clearRect(0, 0, c.width, c.height);
 
-    // Card background (slight transparency)
-    this.rounded(ctx, 0, 0, c.width, c.height, 32);
-    ctx.fillStyle = 'rgba(18,18,28,0.82)';
-    ctx.fill();
-
-    // Header
-    ctx.fillStyle = '#fff';
-    ctx.font = '700 34px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('Reactions', 36, 62);
-
-    // Icons row
-    const iconSize = 112;
-    const baseX = 36;
-    const gap = 36 + iconSize;
-    const tileY = 62 + 32;
+    // Transparent background - icons only, no panel
+    // Icons row - centered
+    const iconSize = 80;
+    const baseX = (c.width - (iconSize * 3 + 24 * 2)) / 2; // Center 3 icons with gaps
+    const gap = 24 + iconSize;
+    const tileY = (c.height - iconSize - 40) / 2; // Vertically centered
 
     this.heartRect  = this.drawIconWithCounter(this.heartIcon, '❤️', baseX,          tileY, iconSize, this.heartCount);
     this.likeRect   = this.drawIconWithCounter(this.likeIcon,  '👍', baseX + gap,    tileY, iconSize, this.likeCount);
     this.repostRect = this.drawIconWithCounter(this.repostIcon,'🔁', baseX + gap*2,  tileY, iconSize, this.repostCount);
 
-    // Comments box (right side)
-    const boxX = baseX + gap * 2 + iconSize + 48;
-    const boxY = 36;
-    const boxW = c.width - boxX - 36;
-    const boxH = c.height - boxY - 36;
-
-    this.commentsRect = { x: boxX + 16, y: boxY + 16, w: boxW - 32, h: boxH - 32 };
-    this.rounded(ctx, boxX, boxY, boxW, boxH, 20);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    ctx.fill();
-
-    // Comments clipped region
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(this.commentsRect.x, this.commentsRect.y, this.commentsRect.w, this.commentsRect.h - 64);
-    ctx.clip();
-    ctx.translate(0, -this.scrollY);
-
-    // Render each comment bubble
-    let cy = this.commentsRect.y + 8;
-    for (const cmt of this.comments) {
-      const bubbleW = this.commentsRect.w;
-      const linesH = this.measureWrappedHeight(
-        cmtText(cmt),
-        '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif',
-        bubbleW - 24,
-        26
-      );
-      const bubbleH = linesH + 24;
-
-      this.rounded(ctx, this.commentsRect.x, cy, bubbleW, bubbleH, 12);
-      ctx.fillStyle = 'rgba(255,255,255,0.10)';
-      ctx.fill();
-
-      ctx.fillStyle = '#EDEDED';
-      ctx.font = '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
-      cy = this.wrap(ctx, cmtText(cmt), this.commentsRect.x + 12, cy + 18, bubbleW - 24, 26) + 8;
-    }
-    ctx.restore();
-
-
-    // Simple scrollbar
-    const contentH = this.contentHeight();
-    const viewH = this.commentsViewportH();
-    if (contentH > viewH) {
-      const trackX = this.commentsRect.x + this.commentsRect.w - 6;
-      const trackY = this.commentsRect.y;
-      const trackH = viewH;
-      const thumbH = Math.max(22, (viewH / contentH) * trackH);
-      const maxScroll = contentH - viewH;
-      const thumbY = trackY + (this.scrollY / maxScroll) * (trackH - thumbH);
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fillRect(trackX, trackY, 4, trackH);
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.fillRect(trackX-1, thumbY, 6, thumbH);
-    }
+    // Comments rect set to empty (no comments section)
+    this.commentsRect = { x: -1, y: -1, w: 1, h: 1 };
 
     this.panelTex.needsUpdate = true;
-
-    function cmtText(c: Comment) {
-      const author = c.author ? `${c.author}: ` : '';
-      return author + c.text;
-    }
   }
 
-  private commentsViewportH(): number {
-    return this.commentsRect.h - 64; // space for Post
-  }
-
-  private contentHeight(): number {
-    let total = 8;
-    for (const cmt of this.comments) {
-      const linesH = this.measureWrappedHeight(
-        (cmt.author ? `${cmt.author}: ` : '') + cmt.text,
-        '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif',
-        this.commentsRect.w - 24,
-        26
-      );
-      const bubbleH = linesH + 24;
-      total += bubbleH + 8;
-    }
-    return total + 8;
-  }
 
   private drawIconWithCounter(img: HTMLImageElement | undefined, fallbackEmoji: string, x: number, y: number, size: number, count: number) {
     const ctx = this.ctx;

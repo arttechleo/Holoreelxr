@@ -5,7 +5,7 @@
  * - Smooth vertical scrolling with momentum
  * - Swipe gestures
  * - Auto-play indicators
- * - Progress bars
+ * - UI panels for creator info and stats
  * - Creator info panels
  * - View counts & engagement stats
  * - Trending indicators
@@ -31,7 +31,6 @@ export class TikTokFeedUI {
   // UI Panels
   private creatorPanel!: THREE.Mesh;
   private statsPanel!: THREE.Mesh;
-  private progressBar!: THREE.Mesh;
   private trendingBadge!: THREE.Mesh;
   
   // Canvases
@@ -42,7 +41,6 @@ export class TikTokFeedUI {
   
   // State
   private currentMeta: FeedItemMeta | null = null;
-  private progress = 0; // 0-1 for progress bar
   
   constructor() {
     this.group.name = 'TikTokFeedUI';
@@ -92,16 +90,7 @@ export class TikTokFeedUI {
     this.statsPanel.position.set(0.42, 0, 0.02);
     this.group.add(this.statsPanel);
     
-    // Progress bar (top - shows viewing progress)
-    const progressGeo = new THREE.PlaneGeometry(0.6, 0.006);
-    const progressMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.8,
-    });
-    this.progressBar = new THREE.Mesh(progressGeo, progressMat);
-    this.progressBar.position.set(0, 0.45, 0.02);
-    this.group.add(this.progressBar);
+    // Progress bar removed - no longer needed
     
     // Trending badge (animated glow)
     const badgeGeo = new THREE.PlaneGeometry(0.08, 0.08);
@@ -117,7 +106,6 @@ export class TikTokFeedUI {
 
   showForItem(meta: FeedItemMeta) {
     this.currentMeta = meta;
-    this.progress = 0;
     this.updateCreatorPanel();
     this.updateStatsPanel();
     this.updateTrendingBadge();
@@ -198,13 +186,7 @@ export class TikTokFeedUI {
     }
   }
 
-  updateProgress(progress: number) {
-    this.progress = Math.max(0, Math.min(1, progress));
-    
-    // Update progress bar scale
-    this.progressBar.scale.x = this.progress;
-    this.progressBar.position.x = -0.3 + (this.progress * 0.3);
-  }
+  // updateProgress removed - progress bar no longer exists
 
   tick(dt: number) {
     // Pulse trending badge

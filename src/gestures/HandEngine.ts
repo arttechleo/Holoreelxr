@@ -87,11 +87,16 @@ export class HandEngine {
     this.state.left.pinch  = leftPinch;  this.updateFlag('left.pinch', leftPinch, {side:'left'});
     this.state.right.pinch = rightPinch; this.updateFlag('right.pinch', rightPinch, {side:'right'});
 
-    // heart (two-hands close)
+    // heart (two-hands close) - IMPROVED: More reliable detection
     const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
     const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
-    const heartNow = dist(L_i, R_i) < GESTURE.HEART_THRESHOLD && dist(L_t, R_t) < GESTURE.HEART_THRESHOLD;
-    this.state.heart = heartNow; this.updateFlag('heart', heartNow);
+    // Both hands must be present and tips must be close together
+    const hasBothHands = L_i && R_i && L_t && R_t;
+    const indexClose = hasBothHands && dist(L_i, R_i) < GESTURE.HEART_THRESHOLD;
+    const thumbClose = hasBothHands && dist(L_t, R_t) < GESTURE.HEART_THRESHOLD;
+    const heartNow = hasBothHands && indexClose && thumbClose;
+    this.state.heart = heartNow; 
+    this.updateFlag('heart', heartNow, { hasBothHands, indexClose, thumbClose });
 
     // thumbs up (like)
     const thumbUp = (side:Side) => {
