@@ -113,9 +113,16 @@ export class ReactionHudManager {
 
   getPanelCenterWorld(): THREE.Vector3 { return this.hud.getPanelCenterWorld(); }
 
+  /** Enable camera overlay mode - HUD always in front of camera like a filter */
+  setCameraOverlayMode(enabled: boolean) {
+    (this.hud as any).setCameraOverlayMode?.(enabled);
+  }
+  
   tick(dt: number) { 
-    // Dynamically update HUD positioning
-    this.updateDynamicPositioning();
+    // Only update dynamic positioning if not in camera overlay mode
+    if (!(this.hud as any).cameraOverlayMode) {
+      this.updateDynamicPositioning();
+    }
     this.hud.tick(dt); 
   }
   
