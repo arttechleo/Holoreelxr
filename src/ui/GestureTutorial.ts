@@ -56,13 +56,6 @@ export class GestureTutorial {
       instruction: 'Extend index and middle fingers',
       completed: false,
     },
-    {
-      name: 'ILY Sign',
-      icon: '🤟',
-      description: 'Open keyboard',
-      instruction: 'Extend thumb, index, and pinky',
-      completed: false,
-    },
   ];
   
   private currentLessonIndex = 0;
@@ -264,5 +257,6 @@ export class GestureTutorial {
     return this.lessons[this.currentLessonIndex].name.toLowerCase().replace(/\s/g, '_');
   }
 }
+
 
 

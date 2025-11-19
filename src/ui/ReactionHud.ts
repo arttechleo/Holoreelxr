@@ -6,7 +6,7 @@ export type Comment = { id: string; author?: string; text: string };
 
 /** Which thing on the HUD was hit. */
 export type HudHit =
-  | { kind: 'like' | 'heart' | 'repost' | 'post' | 'compose' | 'comments'; point?: THREE.Vector3 }
+  | { kind: 'like' | 'heart' | 'repost' | 'comments'; point?: THREE.Vector3 }
   | null;
 
 type Hit =
@@ -30,10 +30,6 @@ export class ReactionHud {
   private scrollY = 0;                 // pixels
   private readonly SCROLL_STEP = 42;
 
-  // compose
-  private composing = false;
-  private composeText = '';
-  private onComposeSubmit?: (text: string) => void;
 
   // particles (chips)
   private particles: Array<{ sprite: THREE.Sprite; vel: THREE.Vector3; ttl: number }> = [];
@@ -59,7 +55,6 @@ export class ReactionHud {
   private likeRect!: {x:number;y:number;w:number;h:number};
   private repostRect!: {x:number;y:number;w:number;h:number};
   private commentsRect!: {x:number;y:number;w:number;h:number};
-  private postBtnRect!: {x:number;y:number;w:number;h:number};
 
   // small thickness to consider Z proximity for hits (meters)
   private readonly HIT_THICKNESS = 0.08;
@@ -136,40 +131,7 @@ export class ReactionHud {
     this.appendComment({ id: `c-${Date.now()}`, author: 'You', text });
   }
 
-  setOnComposeSubmit(cb: (text: string)=>void) { this.onComposeSubmit = cb; }
-  beginCommentEntry(prefill = '') {
-    this.composing = true;
-    this.composeText = prefill;
-    this.redraw();
-
-    // HOOK: let host attach a WebXR keyboard.
-    // Implement this to open your MR keyboard and call window.dispatchEvent(new CustomEvent('holoreel:keyboardSubmit',{detail:text}))
-    (window as any).dispatchEvent?.(new CustomEvent('holoreel:keyboardOpen'));
-
-    // Minimal fallback so you can test immediately:
-    setTimeout(async () => {
-      if (!this.composing) return;
-      // If your runtime injects text via event, we'll capture it below; otherwise prompt:
-      const handler = (e: any) => {
-        if (!this.composing) return;
-        const val = String(e?.detail ?? '').trim();
-        if (!val) return;
-        this.finishCompose(val);
-      };
-      window.addEventListener('holoreel:keyboardSubmit', handler, { once: true });
-
-      // Fallback prompt (kept non-blocking to avoid XR issues)
-      setTimeout(() => {
-        if (!this.composing) return;
-        const v = window.prompt('Type your comment:') ?? '';
-        if (v.trim()) this.finishCompose(v.trim());
-        else this.cancelCommentEntry();
-        window.removeEventListener('holoreel:keyboardSubmit', handler);
-      }, 10);
-    }, 0);
-  }
-  cancelCommentEntry() { this.composing = false; this.composeText = ''; this.redraw(); }
-  isComposing() { return this.composing; }
+  isComposing() { return false; }
 
   /** Panel center in world coordinates (for aiming rays) */
   getPanelCenterWorld(): THREE.Vector3 {
@@ -204,8 +166,7 @@ export class ReactionHud {
     if (inRect(this.heartRect))  return { kind: 'heart', point: hitPoint.clone() };
     if (inRect(this.likeRect))   return { kind: 'like', point: hitPoint.clone() };
     if (inRect(this.repostRect)) return { kind: 'repost', point: hitPoint.clone() };
-    if (inRect(this.postBtnRect)) return { kind: 'post', point: hitPoint.clone() };
-    if (inRect(this.commentsRect)) return { kind: (this.composing ? 'compose' : 'comments'), point: hitPoint.clone() };
+    if (inRect(this.commentsRect)) return { kind: 'comments', point: hitPoint.clone() };
     return null;
   }
 
@@ -238,12 +199,6 @@ export class ReactionHud {
   }
 
   // ----------------- internals -----------------
-  private finishCompose(text: string) {
-    this.composing = false;
-    this.composeText = '';
-    this.onComposeSubmit?.(text);
-    this.redraw();
-  }
 
   private hitTestWorld(worldPoint: THREE.Vector3): Hit {
     // (kept for compatibility; raycastHit() is preferred)
@@ -265,7 +220,6 @@ export class ReactionHud {
     if (inRect(this.heartRect))  return { kind: 'heart' };
     if (inRect(this.likeRect))   return { kind: 'like' };
     if (inRect(this.repostRect)) return { kind: 'repost' };
-    if (inRect(this.postBtnRect)) return { kind: 'post' };
     if (inRect(this.commentsRect)) return { kind: 'comments' };
     return null;
   }
@@ -283,22 +237,17 @@ export class ReactionHud {
     ctx.fillStyle = '#fff';
     ctx.font = '700 34px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(this.composing ? 'Compose Comment' : 'Reactions', 36, 62);
+    ctx.fillText('Reactions', 36, 62);
 
-    // Icons row (hide when composing to focus UI)
+    // Icons row
     const iconSize = 112;
     const baseX = 36;
     const gap = 36 + iconSize;
     const tileY = 62 + 32;
 
-    if (!this.composing) {
-      this.heartRect  = this.drawIconWithCounter(this.heartIcon, '❤️', baseX,          tileY, iconSize, this.heartCount);
-      this.likeRect   = this.drawIconWithCounter(this.likeIcon,  '👍', baseX + gap,    tileY, iconSize, this.likeCount);
-      this.repostRect = this.drawIconWithCounter(this.repostIcon,'🔁', baseX + gap*2,  tileY, iconSize, this.repostCount);
-    } else {
-      // reserve rects to something empty so hit tests don't collide
-      this.heartRect = this.likeRect = this.repostRect = { x:-1, y:-1, w:1, h:1 };
-    }
+    this.heartRect  = this.drawIconWithCounter(this.heartIcon, '❤️', baseX,          tileY, iconSize, this.heartCount);
+    this.likeRect   = this.drawIconWithCounter(this.likeIcon,  '👍', baseX + gap,    tileY, iconSize, this.likeCount);
+    this.repostRect = this.drawIconWithCounter(this.repostIcon,'🔁', baseX + gap*2,  tileY, iconSize, this.repostCount);
 
     // Comments box (right side)
     const boxX = baseX + gap * 2 + iconSize + 48;
@@ -311,43 +260,7 @@ export class ReactionHud {
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
     ctx.fill();
 
-    // Compose mode (draw text box + hint)
-    if (this.composing) {
-      const pad = 12;
-      const inputH = 56;
-      const inputRect = { x: this.commentsRect.x, y: this.commentsRect.y, w: this.commentsRect.w, h: inputH };
-      this.rounded(ctx, inputRect.x, inputRect.y, inputRect.w, inputRect.h, 10);
-      ctx.fillStyle = 'rgba(255,255,255,0.14)';
-      ctx.fill();
-
-      ctx.fillStyle = '#fff';
-      ctx.font = '400 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      const shown = this.composeText || 'Type with your XR keyboard…';
-      ctx.fillText(shown, inputRect.x + pad, inputRect.y + inputH/2);
-
-      // Post button (reused spot)
-      const btnW = 160, btnH = 44;
-      this.postBtnRect = {
-        x: this.commentsRect.x + this.commentsRect.w - btnW,
-        y: this.commentsRect.y + this.commentsRect.h - btnH,
-        w: btnW, h: btnH
-      };
-      this.rounded(ctx, this.postBtnRect.x, this.postBtnRect.y, this.postBtnRect.w, this.postBtnRect.h, 12);
-      ctx.fillStyle = '#4b83ff';
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = '700 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('Submit', this.postBtnRect.x + btnW/2, this.postBtnRect.y + btnH/2 + 2);
-
-      this.panelTex.needsUpdate = true;
-      return;
-    }
-
-    // Comments clipped region (when not composing)
+    // Comments clipped region
     ctx.save();
     ctx.beginPath();
     ctx.rect(this.commentsRect.x, this.commentsRect.y, this.commentsRect.w, this.commentsRect.h - 64);
@@ -376,21 +289,6 @@ export class ReactionHud {
     }
     ctx.restore();
 
-    // "Post" button (inside comments area, bottom-right)
-    const btnW = 160, btnH = 44;
-    this.postBtnRect = {
-      x: this.commentsRect.x + this.commentsRect.w - btnW,
-      y: this.commentsRect.y + this.commentsRect.h - btnH,
-      w: btnW, h: btnH
-    };
-    this.rounded(ctx, this.postBtnRect.x, this.postBtnRect.y, this.postBtnRect.w, this.postBtnRect.h, 12);
-    ctx.fillStyle = '#4b83ff';
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.font = '700 22px system-ui,-apple-system, Segoe UI, Roboto, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Post', this.postBtnRect.x + btnW/2, this.postBtnRect.y + btnH/2 + 2);
 
     // Simple scrollbar
     const contentH = this.contentHeight();

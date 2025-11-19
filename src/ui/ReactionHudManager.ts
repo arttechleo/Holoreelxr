@@ -36,14 +36,6 @@ export class ReactionHudManager {
     this.reactIcons = (this.hud as any).reactIcons;
     this.commentHud = (this.hud as any).commentHud;
 
-    this.hud.setOnComposeSubmit((text) => {
-      if (!this.currentKey) return;
-      const list = this.comments.get(this.currentKey) ?? [];
-      const c: Comment = { id: `c-${Date.now()}`, author: 'You', text };
-      list.push(c);
-      this.comments.set(this.currentKey, list);
-      this.hud.appendComment(c);
-    });
   }
 
   // data
@@ -71,27 +63,12 @@ export class ReactionHudManager {
     this.comments.set(modelKey, list.slice());
     if (this.currentKey === modelKey) this.hud.setComments(list);
   }
-  addCommentForCurrent(text: string, author = 'You') {
-    if (!this.currentKey) return;
-    const list = this.comments.get(this.currentKey) ?? [];
-    const c: Comment = { id: `c-${Date.now()}`, author, text };
-    list.push(c);
-    this.comments.set(this.currentKey, list);
-    this.hud.appendComment(c);
-  }
   scrollComments(steps: number) {
     this.hud.scrollComments(steps);
   }
 
-  // compose
-  beginCommentEntry(prefill = '') {
-    this.hud.beginCommentEntry(prefill);
-  }
-  cancelCommentEntry() {
-    this.hud.cancelCommentEntry();
-  }
   isComposing() {
-    return this.hud.isComposing();
+    return false;
   }
 
   // show/bind

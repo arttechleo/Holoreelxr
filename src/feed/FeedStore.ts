@@ -143,14 +143,31 @@ export class FeedStore {
     this.ensurePlatform();
     this.updatePlatformPose();
 
-    this.toast(`${item.title} — @${item.author}`);
+    // Safe string formatting
+    const title = item.title || 'Untitled';
+    const author = item.author || 'Unknown';
+    this.toast(`${title} — @${author}`);
   }
 
   next(delta: number) {
-    if (!this.items.length) return;
+    if (!this.items.length) {
+      this.toast('⚠️ No items in feed');
+      return;
+    }
+    const oldIndex = this.index;
     this.index = (this.index + delta + this.items.length) % this.items.length;
-    this.setTargetTransform(1, 0);
-    this.showCurrent();
+    
+    // Prevent infinite loops if only one item
+    if (this.items.length === 1) {
+      this.index = 0;
+      return;
+    }
+    
+    // Only update if index actually changed
+    if (this.index !== oldIndex) {
+      this.setTargetTransform(1, 0);
+      this.showCurrent();
+    }
   }
 
   setTargetTransform(scale: number, rotY: number) {

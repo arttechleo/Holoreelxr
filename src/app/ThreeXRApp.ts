@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { XRHandModelFactory } from 'three/examples/jsm/webxr/XRHandModelFactory.js';
+import { logError } from '../utils/errors';
 
 export type XRFrameInfo = { frame: XRFrame | null; refSpace: XRReferenceSpace | null };
 
@@ -26,11 +27,9 @@ export class ThreeXRApp {
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType?.('local-floor');
     
-    // Enable max anisotropic filtering for crisp textures (keyboard text)
+    // Enable max anisotropic filtering for crisp textures
     const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
-    if (maxAnisotropy > 1) {
-      console.log(`Anisotropic filtering enabled: ${maxAnisotropy}x`);
-    }
+    // Anisotropic filtering automatically applied to textures
     
     document.body.appendChild(this.renderer.domElement);
 
@@ -48,10 +47,17 @@ export class ThreeXRApp {
     });
     document.body.appendChild(this.overlayRoot);
 
+    // Handle window resize with debouncing for performance
+    let resizeTimeout: number | null = null;
     addEventListener('resize', () => {
-      this.camera.aspect = innerWidth / innerHeight;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(innerWidth, innerHeight);
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = window.setTimeout(() => {
+        const width = window.innerWidth || innerWidth;
+        const height = window.innerHeight || innerHeight;
+        this.camera.aspect = width / height;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(width, height);
+      }, 100);
     });
 
     // XR lifecycle
@@ -158,7 +164,7 @@ export class ThreeXRApp {
       });
     };
 
-    init().catch(console.error);
+    init().catch((error) => logError(error, 'ThreeXRApp.wireExplicitButtons'));
   }
 
   private ensureDebugHands() {
