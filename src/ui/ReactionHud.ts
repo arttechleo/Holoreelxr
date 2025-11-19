@@ -30,16 +30,20 @@ export class ReactionHud {
   // particles (chips)
   private particles: Array<{ sprite: THREE.Sprite; vel: THREE.Vector3; ttl: number }> = [];
 
-  // Panel geometry in meters (drawn to canvas) - VERTICAL STACK for icons
-  readonly PANEL_W = 0.12;
-  readonly PANEL_H = 0.35;
+  // Panel geometry in meters (drawn to canvas) - SQUARE for camera overlay
+  readonly PANEL_W = 0.20;
+  readonly PANEL_H = 0.20;
 
-  // high-res canvas for crisp text - VERTICAL layout
-  private readonly CANVAS_W = 256;
+  // high-res canvas for crisp text - SQUARE layout
+  private readonly CANVAS_W = 512;
   private readonly CANVAS_H = 512;
 
-  // Position offset (to the left of model). NO head-orbit, NO rotation/scale linkage.
+  // Position offset (for camera overlay mode, this is relative to camera)
   private readonly OFFSET = new THREE.Vector3(-0.35, 0, 0);
+  
+  // Camera overlay mode - HUD always in front of camera like a filter
+  private cameraOverlayMode = false;
+  private camera: THREE.Camera | null = null;
 
   // icons (optional)
   private heartIcon?: HTMLImageElement;
@@ -57,9 +61,10 @@ export class ReactionHud {
 
   constructor(
     private scene: THREE.Scene,
-    _camera: THREE.Camera, // not used for rotation – panel doesn't follow head
+    camera: THREE.Camera,
     private getObjectWorldPos: () => THREE.Vector3 | null
   ) {
+    this.camera = camera;
     this.panelCanvas = document.createElement('canvas');
     this.panelCanvas.width = this.CANVAS_W;
     this.panelCanvas.height = this.CANVAS_H;
@@ -76,7 +81,7 @@ export class ReactionHud {
       map: this.panelTex,
       transparent: true,
       opacity: 1.0,             // transparency drawn in canvas
-      depthTest: true,
+      depthTest: false,         // Always on top for overlay
       depthWrite: false
     });
     this.panel = new THREE.Mesh(geo, mat);
@@ -165,11 +170,36 @@ export class ReactionHud {
     this.spawnChip(text);
   }
 
-  /** Follow object position only (NO rotation/scale updates). */
+  /** Enable camera overlay mode - HUD always in front of camera like a filter */
+  setCameraOverlayMode(enabled: boolean) {
+    this.cameraOverlayMode = enabled;
+  }
+  
+  /** Follow object position or camera (for overlay mode). */
   tick(dt: number) {
-    const center = this.getObjectWorldPos?.();
-    if (center) {
-      this.anchor.position.copy(center).add(this.OFFSET);
+    if (this.cameraOverlayMode && this.camera) {
+      // Camera overlay mode: position HUD in front of camera
+      const camPos = new THREE.Vector3();
+      const camDir = new THREE.Vector3();
+      this.camera.getWorldPosition(camPos);
+      this.camera.getWorldDirection(camDir);
+      
+      // Position 0.8m in front of camera, slightly to the left
+      const offset = new THREE.Vector3(-0.15, 0.05, -0.8); // Left, up, forward
+      const worldOffset = camDir.clone().multiplyScalar(-offset.z)
+        .add(new THREE.Vector3(-offset.x, offset.y, 0).applyQuaternion(
+          new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), camDir)
+        ));
+      
+      this.anchor.position.copy(camPos).add(worldOffset);
+      // Always face camera
+      this.anchor.lookAt(camPos);
+    } else {
+      // Object-relative mode: follow object position
+      const center = this.getObjectWorldPos?.();
+      if (center) {
+        this.anchor.position.copy(center).add(this.OFFSET);
+      }
     }
 
     for (let i = this.particles.length - 1; i >= 0; i--) {
@@ -210,10 +240,10 @@ export class ReactionHud {
     const c = this.panelCanvas, ctx = this.ctx;
     ctx.clearRect(0, 0, c.width, c.height);
 
-    // Transparent background - icons only, vertically stacked
-    const iconSize = 70;
+    // Transparent background - icons only, vertically stacked in SQUARE layout
+    const iconSize = 120; // Larger icons for square layout
     const baseX = (c.width - iconSize) / 2; // Center horizontally
-    const gap = 16; // Vertical gap between icons
+    const gap = 20; // Vertical gap between icons
     const startY = (c.height - (iconSize * 3 + gap * 2 + 50 * 3)) / 2; // Center vertically with counters
     
     // Stack icons vertically: Heart, Like, Repost (top to bottom)

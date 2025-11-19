@@ -152,7 +152,10 @@ export class FeedControls {
     );
     this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png', '/assets/ui/repost.png');
 
-    // Place HUD to the left of object (vertical stack, no comments panel)
+    // Enable camera overlay mode - HUD as filter on headset lens
+    this.hudMgr.setCameraOverlayMode(true);
+
+    // Place HUD to the left of object (vertical stack, no comments panel) - not used in overlay mode
     (this.hudMgr as any).setOffsets?.(
       new THREE.Vector3(-0.35, 0.0, 0.0), // icons - left side, vertically stacked
       new THREE.Vector3(0.0, 0.0, 0.0)    // comments panel removed
@@ -178,7 +181,8 @@ export class FeedControls {
         const side = detail?.side || 'right';
         const thumb = this.hands.thumbTip(side) || this.hands.thumbTip(side === 'left' ? 'right' : 'left');
         if (thumb) {
-          this.particleSystem.emit('like', thumb, 8);
+          // Show only 1 emoji instead of array
+          this.particleSystem.emit('like', thumb, 1);
         }
         
         this.store.likeCurrent();
@@ -209,7 +213,8 @@ export class FeedControls {
         const rightTip = this.hands.indexTip('right');
         const heartPos = leftTip && rightTip ? leftTip.clone().add(rightTip).multiplyScalar(0.5) : null;
         if (heartPos) {
-          this.particleSystem.emit('heart', heartPos, 12);
+          // Show only 1 emoji instead of array
+          this.particleSystem.emit('heart', heartPos, 1);
         }
         
         this.store.saveCurrent();
@@ -238,7 +243,8 @@ export class FeedControls {
         const side = detail?.side || 'right';
         const peaceHand = this.hands.indexTip(side) || this.hands.indexTip(side === 'left' ? 'right' : 'left');
         if (peaceHand) {
-          this.particleSystem.emit('repost', peaceHand, 10);
+          // Show only 1 emoji instead of array
+          this.particleSystem.emit('repost', peaceHand, 1);
         }
         
         this.store.repostCurrent();
