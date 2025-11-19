@@ -152,10 +152,8 @@ export class FeedControls {
     );
     this.hudMgr.setIcons('/assets/ui/heart.png', '/assets/ui/like.png', '/assets/ui/repost.png');
 
-    // Enable camera overlay mode - HUD as filter on headset lens
-    // Only enable if WebXR is available (will work in both XR and desktop mode)
-    const hasWebXR = typeof navigator !== 'undefined' && !!(navigator as any).xr;
-    this.hudMgr.setCameraOverlayMode(hasWebXR);
+    // Disable camera overlay mode - use object-relative positioning (visible in MR)
+    this.hudMgr.setCameraOverlayMode(false);
 
     // Place HUD to the left of object (vertical stack, no comments panel) - not used in overlay mode
     (this.hudMgr as any).setOffsets?.(

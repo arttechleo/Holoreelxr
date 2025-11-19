@@ -8,8 +8,8 @@ export const GESTURE = {
   /** Distance (m) between thumb and index tips to register pinch */
   PINCH_THRESHOLD: 0.035,
   
-  /** Distance (m) for heart gesture (index fingers collide + thumbs collide) - INCREASED for easier detection */
-  HEART_THRESHOLD: 0.10,
+  /** Distance (m) for heart gesture (index fingers collide + thumbs collide) */
+  HEART_THRESHOLD: 0.12,
   
   /** Min distance (m) from wrist for extended fingers */
   FINGER_EXTENDED_THRESHOLD: 0.085,
@@ -20,14 +20,14 @@ export const GESTURE = {
   /** Thumb extension threshold (m) */
   THUMB_EXTENDED_THRESHOLD: 0.080,
   
-  /** Gesture stabilization time (ms) - REDUCED for faster recognition */
-  SETTLE_TIME_MS: 50,
+  /** Gesture stabilization time (ms) - optimized for smooth recognition */
+  SETTLE_TIME_MS: 60,
   
-  /** Number of frames for gesture smoothing - REDUCED for faster response */
-  SMOOTH_FRAMES: 2,
+  /** Number of frames for gesture smoothing - balanced for responsiveness */
+  SMOOTH_FRAMES: 3,
   
-  /** Minimum stable hold before accepting gesture (ms) - REDUCED for faster response */
-  HOLD_TIME_MS: 80,
+  /** Minimum stable hold before accepting gesture (ms) - smooth experience */
+  HOLD_TIME_MS: 100,
 } as const;
 
 // ========== INTERACTION CONTROLS ==========
@@ -102,8 +102,8 @@ export const TRANSFORM = {
 
 // ========== REACTION COOLDOWNS ==========
 export const REACTIONS = {
-  /** Cooldown between same reaction type (ms) */
-  COOLDOWN_MS: 800,
+  /** Cooldown between same reaction type (ms) - smooth UX */
+  COOLDOWN_MS: 1000,
   
   /** Distance threshold for "hands together" detection (m) */
   CLUSTER_DISTANCE: 0.11,
@@ -115,7 +115,7 @@ export const REACTIONS = {
   CLUSTER_COOLDOWN_MS: 450,
   
   /** Gesture must be stable for this duration (ms) - REDUCED for faster recognition */
-  GESTURE_STABLE_MS: 80,
+  GESTURE_STABLE_MS: 100,
 } as const;
 
 // ========== UI & HUD ==========
