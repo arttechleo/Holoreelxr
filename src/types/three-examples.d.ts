@@ -19,3 +19,15 @@ declare module 'three/examples/jsm/loaders/PLYLoader.js' {
     ): void;
   }
 }
+
+declare module 'three/examples/jsm/loaders/GLTFLoader.js' {
+  import * as THREE from 'three';
+  export class GLTFLoader {
+    load(
+      url: string,
+      onLoad: (gltf: { scene: THREE.Group; animations: THREE.AnimationClip[] }) => void,
+      onProgress?: (ev: ProgressEvent<EventTarget>) => void,
+      onError?: (err: unknown) => void
+    ): void;
+  }
+}
