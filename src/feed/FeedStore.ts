@@ -228,6 +228,10 @@ export class FeedStore {
       obj.rotation.y = this._rotY;
     }
     if (this.seq) this.seq.setTransform(this._scale, this._rotY);
+    if (this.currentGLTF) {
+      this.currentGLTF.scale.setScalar(this._scale);
+      this.currentGLTF.rotation.y = this._rotY;
+    }
     this.updatePlatformPose();
   }
 
