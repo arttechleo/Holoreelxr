@@ -6,6 +6,12 @@ import { Hud } from './ui/Hud';
 import { GlobalPlayer } from './integrations/player';
 import { checkWebXRSupport, logError } from './utils/errors';
 import { detectXRMode, getXRBackground } from './config/xr';
+import { AssetLinkManager } from './feed/AssetLinkManager';
+import { AuthManager } from './auth/AuthManager';
+import { MusicManager } from './music/MusicManager';
+import { AssetLinkUI } from './ui/AssetLinkUI';
+import { AuthUI } from './ui/AuthUI';
+import { MusicUI } from './ui/MusicUI';
 import * as THREE from 'three';
 
 // ========== INITIALIZATION ==========
@@ -14,6 +20,24 @@ const hands = new HandEngine(app.renderer);
 const hud = new Hud();
 const store = new FeedStore(app.contentRoot, (t)=>hud.toast(t));
 const player = new GlobalPlayer();
+
+// New managers
+const assetLinkMgr = new AssetLinkManager(store);
+const authMgr = new AuthManager();
+const musicMgr = new MusicManager();
+
+// UI components
+const assetLinkUI = new AssetLinkUI(assetLinkMgr);
+const authUI = new AuthUI(authMgr);
+const musicUI = new MusicUI(musicMgr);
+
+// Sync asset links to feed when added
+assetLinkUI.setOnLinkAdded(() => {
+  const items = assetLinkMgr.getFeedItems();
+  if (items.length > 0) {
+    store.setItems([...store.items, ...items]);
+  }
+});
 
 hud.mountPlayer(()=> player.play(), ()=> player.pause());
 

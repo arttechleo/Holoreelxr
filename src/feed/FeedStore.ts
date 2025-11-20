@@ -73,6 +73,16 @@ export class FeedStore {
     }
   }
 
+  // Set items directly (for asset link manager)
+  setItems(items: Item[]) {
+    this.items = items;
+  }
+
+  // Add item
+  addItem(item: Item) {
+    this.items.push(item);
+  }
+
   async showCurrent() {
     const item = this.items[this.index];
     if (!item) {
