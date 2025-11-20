@@ -502,6 +502,26 @@ export class FeedControls {
     const dir = tip.clone().sub(camPos).normalize();
     const ray = new THREE.Ray(camPos, dir);
 
+    // Check XR panels first (auth, music)
+    const authPanel = (this as any).authPanel as XRAuthPanel | undefined;
+    const musicPanel = (this as any).musicPanel as XRMusicPanel | undefined;
+    
+    if (authPanel?.isVisible()) {
+      const authHit = authPanel.raycast(ray);
+      if (authHit?.button && this.hands.state.right.pinch) {
+        authPanel.handleClick(authHit.button);
+        return;
+      }
+    }
+    
+    if (musicPanel?.isVisible()) {
+      const musicHit = musicPanel.raycast(ray);
+      if (musicHit?.button && this.hands.state.right.pinch) {
+        musicPanel.handleClick(musicHit.button);
+        return;
+      }
+    }
+
     const hit = this.hudMgr.raycastHit(ray);
     const hitKind = hit?.kind ?? null;
 

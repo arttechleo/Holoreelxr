@@ -9,7 +9,7 @@ export const GESTURE = {
   PINCH_THRESHOLD: 0.035,
   
   /** Distance (m) for heart gesture (index fingers collide + thumbs collide) */
-  HEART_THRESHOLD: 0.18,
+  HEART_THRESHOLD: 0.20,
   
   /** Min distance (m) from wrist for extended fingers */
   FINGER_EXTENDED_THRESHOLD: 0.085,
@@ -21,13 +21,13 @@ export const GESTURE = {
   THUMB_EXTENDED_THRESHOLD: 0.080,
   
   /** Gesture stabilization time (ms) - optimized for heart gesture reliability */
-  SETTLE_TIME_MS: 80,
+  SETTLE_TIME_MS: 100,
   
   /** Number of frames for gesture smoothing - more frames for heart gesture */
-  SMOOTH_FRAMES: 4,
+  SMOOTH_FRAMES: 5,
   
   /** Minimum stable hold before accepting gesture (ms) - smooth experience */
-  HOLD_TIME_MS: 120,
+  HOLD_TIME_MS: 150,
 } as const;
 
 // ========== INTERACTION CONTROLS ==========
