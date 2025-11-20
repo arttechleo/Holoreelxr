@@ -74,7 +74,12 @@ hud.mountPlayer(()=> player.play(), ()=> player.pause());
     hud.toast('✅ Ready! Use gestures or keyboard shortcuts');
 
   // Keep joints flowing
-  app.onFrame((info) => { hands.update(info); });
+  app.onFrame((info) => { 
+    hands.update(info);
+    // Update 3D panels to face camera
+    xrAuthPanel.update(app.camera);
+    xrMusicPanel.update(app.camera);
+  });
 
   // When XR session starts, place the current item in front of the user:
   // ~1.0 m forward in view direction, Y = 0.5m above floor (local-floor → ground at y=0)
@@ -107,7 +112,11 @@ hud.mountPlayer(()=> player.play(), ()=> player.pause());
     hud.toast(`${mode.toUpperCase()} ready - Model placed in front of you`);
   });
 
-    new FeedControls(app, hands, store);
+    const controls = new FeedControls(app, hands, store);
+    // Wire up 3D panels to controls
+    (controls as any).authPanel = xrAuthPanel;
+    (controls as any).musicPanel = xrMusicPanel;
+    
     app.start();
   } catch (error) {
     logError(error, 'Main initialization');
