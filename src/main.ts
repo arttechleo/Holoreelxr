@@ -10,8 +10,8 @@ import { AssetLinkManager } from './feed/AssetLinkManager';
 import { AuthManager } from './auth/AuthManager';
 import { MusicManager } from './music/MusicManager';
 import { AssetLinkUI } from './ui/AssetLinkUI';
-import { AuthUI } from './ui/AuthUI';
-import { MusicUI } from './ui/MusicUI';
+import { XRAuthPanel } from './ui/XRAuthPanel';
+import { XRMusicPanel } from './ui/XRMusicPanel';
 import * as THREE from 'three';
 
 // ========== INITIALIZATION ==========
@@ -26,10 +26,12 @@ const assetLinkMgr = new AssetLinkManager(store);
 const authMgr = new AuthManager();
 const musicMgr = new MusicManager();
 
-// UI components
+// 2D UI (desktop only)
 const assetLinkUI = new AssetLinkUI(assetLinkMgr);
-const authUI = new AuthUI(authMgr);
-const musicUI = new MusicUI(musicMgr);
+
+// 3D XR UI panels (Mixed Reality)
+const xrAuthPanel = new XRAuthPanel(authMgr, app.scene);
+const xrMusicPanel = new XRMusicPanel(musicMgr, app.scene);
 
 // Sync asset links to feed when added
 assetLinkUI.setOnLinkAdded(() => {
