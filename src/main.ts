@@ -12,6 +12,7 @@ import { MusicManager } from './music/MusicManager';
 import { AssetLinkUI } from './ui/AssetLinkUI';
 import { XRAuthPanel } from './ui/XRAuthPanel';
 import { XRMusicPanel } from './ui/XRMusicPanel';
+import { OnboardingTutorial } from './ui/OnboardingTutorial';
 import * as THREE from 'three';
 
 // ========== INITIALIZATION ==========
@@ -39,6 +40,14 @@ musicUI.hide();
 const xrAuthPanel = new XRAuthPanel(authMgr, app.scene);
 const xrMusicPanel = new XRMusicPanel(musicMgr, app.scene);
 
+// Onboarding tutorial
+const onboarding = new OnboardingTutorial(app.scene, hands, store);
+onboarding.setOnComplete(() => {
+  onboarding.hide();
+  // Start loading feed after tutorial
+  loadMainFeed();
+});
+
 // Sync asset links to feed when added
 assetLinkUI.setOnLinkAdded(() => {
   const items = assetLinkMgr.getFeedItems();
@@ -65,7 +74,7 @@ hud.mountPlayer(()=> player.play(), ()=> player.pause());
 })().catch(err => logError(err, 'WebXR check'));
 
 // ========== LOAD FEED ==========
-(async () => {
+async function loadMainFeed() {
   try {
     hud.toast('Loading feed...');
     await store.loadFeed();
@@ -78,6 +87,14 @@ hud.mountPlayer(()=> player.play(), ()=> player.pause());
     hud.toast('Loading content...');
     await store.showCurrent();
     hud.toast('✅ Ready! Use gestures or keyboard shortcuts');
+  } catch (error) {
+    logError(error, 'Main feed loading');
+    hud.toast('❌ Failed to load feed');
+  }
+}
+
+(async () => {
+  try {
 
   // Keep joints flowing
   app.onFrame((info) => { 

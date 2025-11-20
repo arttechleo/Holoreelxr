@@ -8,7 +8,8 @@ type Item =
   | { id: string; title: string; author: string; type: 'shape'; shape: ShapeKind; color?: string }
   | { id: string; title: string; author: string; type: 'splat4d'; fps: number; frames: string[] }
   | { id: string; title: string; author: string; type: 'ply'; src: string }
-  | { id: string; title: string; author: string; type: 'mesh'; src: string };
+  | { id: string; title: string; author: string; type: 'mesh'; src: string }
+  | { id: string; title: string; author: string; type: 'gltf' | 'glb'; src: string };
 
 export class FeedStore {
   items: Item[] = [];
@@ -21,6 +22,8 @@ export class FeedStore {
   private lastPlaced?: THREE.Vector3;
 
   private seq?: SplatSequence;
+  private gltfLoader?: GLTFModelLoader;
+  private currentGLTF?: THREE.Group;
   private onHud?: (t: string) => void;
   private parent: THREE.Object3D;
 
@@ -49,6 +52,13 @@ export class FeedStore {
 
   get scale() { return this._scale; }
   get rotationY() { return this._rotY; }
+  
+  // Update rotation for current model
+  updateRotation(deltaY: number) {
+    this._rotY += deltaY;
+    this.targetRotY = this._rotY;
+    this.applyTransform();
+  }
 
   /** Stable key for the currently shown item (used for per-model UI state). */
   getCurrentKey(): string {
@@ -128,6 +138,28 @@ export class FeedStore {
         await this.seq.ready;
         this.seq.setTransform(this._scale, this._rotY);
         this.seq.setPosition(spawnPos);
+      } else if (item.type === 'gltf' || item.type === 'glb') {
+        // Load GLTF/GLB model
+        if (!this.gltfLoader) {
+          this.gltfLoader = new GLTFModelLoader();
+        }
+        const gltf = await this.gltfLoader.load(item.src);
+        gltf.scene.name = 'content-gltf';
+        gltf.scene.position.copy(spawnPos);
+        gltf.scene.rotation.y = this._rotY;
+        gltf.scene.scale.multiplyScalar(this._scale);
+        this.parent.add(gltf.scene);
+        this.currentGLTF = gltf.scene;
+        
+        // Play animations if available
+        if (gltf.animations && gltf.animations.length > 0) {
+          const mixer = new THREE.AnimationMixer(gltf.scene);
+          gltf.animations.forEach((clip) => {
+            mixer.clipAction(clip).play();
+          });
+          // Store mixer for cleanup
+          (gltf.scene as any).mixer = mixer;
+        }
       } else {
         // generic mesh fallback
         const geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
