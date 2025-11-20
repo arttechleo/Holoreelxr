@@ -26,8 +26,14 @@ const assetLinkMgr = new AssetLinkManager(store);
 const authMgr = new AuthManager();
 const musicMgr = new MusicManager();
 
-// 2D UI (desktop only)
+// 2D UI (desktop only - hidden in XR)
 const assetLinkUI = new AssetLinkUI(assetLinkMgr);
+const authUI = new AuthUI(authMgr);
+const musicUI = new MusicUI(musicMgr);
+
+// Hide 2D UI initially (will show in XR via 3D panels)
+authUI.hide();
+musicUI.hide();
 
 // 3D XR UI panels (Mixed Reality)
 const xrAuthPanel = new XRAuthPanel(authMgr, app.scene);
