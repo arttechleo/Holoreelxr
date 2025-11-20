@@ -7,6 +7,8 @@ import ReactionHudManager from '../ui/ReactionHudManager';
 import { TikTokFeedUI } from '../ui/TikTokFeedUI';
 import { GestureTutorial } from '../ui/GestureTutorial';
 import { ParticleSystem } from '../effects/ParticleSystem';
+import { XRAuthPanel } from '../ui/XRAuthPanel';
+import { XRMusicPanel } from '../ui/XRMusicPanel';
 import { CONTROLS, TRANSFORM, REACTIONS, HUD } from '../config/constants';
 import { logError } from '../utils/errors';
 

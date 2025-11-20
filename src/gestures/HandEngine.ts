@@ -102,10 +102,6 @@ export class HandEngine {
       this.state.right.pinch = false;
       this.lastPos.right = {};
     }
-    if (!leftHandInFrame || !rightHandInFrame) {
-      this.state.heart = false;
-    }
-
     const J = (side:Side, name:XRHandJointName) => this.lastPos[side]?.[name] ?? null;
     const dist = (a:THREE.Vector3|null, b:THREE.Vector3|null) => (a&&b)? a.distanceTo(b) : 1e9;
 
@@ -121,26 +117,31 @@ export class HandEngine {
       this.updateFlag('right.pinch', rightPinch, {side:'right'});
     }
 
-    // heart gesture: index fingers collide AND thumbs collide
-    const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
-    const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
-    // Both hands must be present
-    const hasBothHands = L_i && R_i && L_t && R_t;
-    if (!hasBothHands) {
+    // heart gesture: ONLY check if BOTH hands are in frame
+    if (!leftHandInFrame || !rightHandInFrame) {
       this.state.heart = false;
       this.updateFlag('heart', false);
     } else {
-      // Index fingers must collide (touch or very close) - more lenient
-      const indexDist = dist(L_i, R_i);
-      const indexCollide = indexDist < GESTURE.HEART_THRESHOLD;
-      // Thumbs must collide (touch or very close) - more lenient
-      const thumbDist = dist(L_t, R_t);
-      const thumbCollide = thumbDist < GESTURE.HEART_THRESHOLD;
-      // Both conditions must be true for heart gesture
-      const heartNow = indexCollide && thumbCollide;
-      this.state.heart = heartNow; 
-      // Use a more lenient smoothing for heart gesture to make it more reliable
-      this.updateFlag('heart', heartNow, { indexDist, thumbDist, indexCollide, thumbCollide });
+      // Both hands in frame - check heart gesture
+      const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
+      const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
+      
+      // All required joints must be present
+      if (!L_i || !R_i || !L_t || !R_t) {
+        this.state.heart = false;
+        this.updateFlag('heart', false);
+      } else {
+        // Index fingers must collide (touch or very close)
+        const indexDist = dist(L_i, R_i);
+        const indexCollide = indexDist < GESTURE.HEART_THRESHOLD;
+        // Thumbs must collide (touch or very close)
+        const thumbDist = dist(L_t, R_t);
+        const thumbCollide = thumbDist < GESTURE.HEART_THRESHOLD;
+        // Both conditions must be true for heart gesture
+        const heartNow = indexCollide && thumbCollide;
+        this.state.heart = heartNow; 
+        this.updateFlag('heart', heartNow);
+      }
     }
 
     // thumbs up (like) - only detect if hand is in frame AND not pinching
