@@ -1,5 +1,10 @@
 [
-  { "id": "shape-1", "title": "Blue Cube",   "author": "system", "type": "shape", "shape": "box",     "color": "#66ccff" },
-  { "id": "shape-2", "title": "Pink Sphere", "author": "system", "type": "shape", "shape": "sphere",  "color": "#ff6699" },
-  { "id": "shape-3", "title": "Lime Pyramid","author": "system", "type": "shape", "shape": "pyramid", "color": "#99ff66" }
+  { "id": "tutorial-sphere", "title": "Welcome", "author": "HoloreelXR", "type": "shape", "shape": "sphere", "color": "#FF6B6B" },
+  { "id": "tutorial-box", "title": "Pinch Tutorial", "author": "HoloreelXR", "type": "shape", "shape": "box", "color": "#4ECDC4" },
+  { "id": "tutorial-pyramid", "title": "Scroll Tutorial", "author": "HoloreelXR", "type": "shape", "shape": "pyramid", "color": "#95E1D3" },
+  { "id": "glb-1", "title": "Animated Robot", "author": "Sketchfab", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/AnimatedMorphSphere/glTF-Binary/AnimatedMorphSphere.glb" },
+  { "id": "glb-2", "title": "Duck", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF-Binary/Duck.glb" },
+  { "id": "glb-3", "title": "Sponza", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Sponza/glTF-Binary/Sponza.glb" },
+  { "id": "glb-4", "title": "Damaged Helmet", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/DamagedHelmet/glTF-Binary/DamagedHelmet.glb" },
+  { "id": "glb-5", "title": "Flight Helmet", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/FlightHelmet/glTF-Binary/FlightHelmet.glb" }
 ]
