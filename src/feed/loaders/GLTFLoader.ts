@@ -20,32 +20,10 @@ export class GLTFModelLoader {
   private disposed = false;
 
   constructor() {
-    // Dynamically import GLTFLoader
-    import('three/examples/jsm/loaders/GLTFLoader.js').then((module) => {
-      this.loader = new module.GLTFLoader();
-    }).catch((err) => {
-      console.error('Failed to load GLTFLoader:', err);
-    });
+    this.loader = new ThreeGLTFLoader();
   }
 
   async load(url: string): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
-    if (!this.loader) {
-      // Wait for loader to be ready
-      await new Promise((resolve) => {
-        const checkLoader = setInterval(() => {
-          if (this.loader) {
-            clearInterval(checkLoader);
-            resolve(undefined);
-          }
-        }, 50);
-        setTimeout(() => {
-          clearInterval(checkLoader);
-          if (!this.loader) {
-            throw new AssetLoadError('GLTFLoader not available', url);
-          }
-        }, 5000);
-      });
-    }
 
     return retry(
       () => this.loadGLTF(url),

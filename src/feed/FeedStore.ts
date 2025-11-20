@@ -57,7 +57,7 @@ export class FeedStore {
   updateRotation(deltaY: number) {
     this._rotY += deltaY;
     this.targetRotY = this._rotY;
-    this.applyTransform();
+    this.setTransform(this._scale, this._rotY);
   }
 
   /** Stable key for the currently shown item (used for per-model UI state). */
