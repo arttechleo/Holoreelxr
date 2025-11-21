@@ -34,6 +34,12 @@ export class HandEngine {
 
   private listeners: Record<string, Listener[]> = {};
   on(ev: string, fn: Listener){ (this.listeners[ev] ??= []).push(fn); }
+  off(ev: string, fn: Listener){
+    const arr = this.listeners[ev];
+    if (!arr) return;
+    const idx = arr.indexOf(fn);
+    if (idx >= 0) arr.splice(idx, 1);
+  }
   private emit(ev: string, detail?: any){ (this.listeners[ev]||[]).forEach(f=>f(detail)); }
 
   private smooth(key:string, v:boolean){
