@@ -9,7 +9,7 @@ interface TutorialStep {
   description: string;
   shape: 'sphere' | 'pyramid' | 'box';
   color: string;
-  gesture?: string;
+  gesture?: string; // 'twohandrotate', 'twohandscale', 'grab', 'heart', 'thumbsup', 'peace', 'scroll'
   completed: boolean;
 }
 
@@ -18,29 +18,39 @@ export class OnboardingTutorial {
   private currentStepIndex = 0;
   private steps: TutorialStep[] = [
     {
-      id: 'welcome',
-      title: 'Welcome to HoloreelXR',
-      description: 'Experience 3D content in Mixed Reality',
-      shape: 'sphere',
-      color: '#FF6B6B',
-      completed: false,
-    },
-    {
-      id: 'pinch',
-      title: 'Pinch to Interact',
-      description: 'Pinch thumb and index finger to grab and move objects',
+      id: 'rotate',
+      title: 'Rotate 3D Object',
+      description: 'Pinch with both hands and rotate to spin the object',
       shape: 'box',
       color: '#4ECDC4',
-      gesture: 'pinch',
+      gesture: 'twohandrotate',
       completed: false,
     },
     {
-      id: 'scroll',
-      title: 'Scroll Through Feed',
-      description: 'Pinch and move hand up/down to navigate',
-      shape: 'pyramid',
+      id: 'scale',
+      title: 'Scale Object',
+      description: 'Pinch with both hands, move closer to shrink, farther to enlarge',
+      shape: 'box',
       color: '#95E1D3',
-      gesture: 'scroll',
+      gesture: 'twohandscale',
+      completed: false,
+    },
+    {
+      id: 'grab',
+      title: 'Hold and Place',
+      description: 'Pinch near the cube and move your hand to place it',
+      shape: 'box',
+      color: '#FF6B6B',
+      gesture: 'grab',
+      completed: false,
+    },
+    {
+      id: 'heart',
+      title: 'Heart Gesture',
+      description: 'Touch index fingers AND thumbs together (both hands)',
+      shape: 'box',
+      color: '#AA96DA',
+      gesture: 'heart',
       completed: false,
     },
     {
@@ -53,12 +63,21 @@ export class OnboardingTutorial {
       completed: false,
     },
     {
-      id: 'heart',
-      title: 'Heart Gesture',
-      description: 'Touch index fingers and thumbs together',
-      shape: 'box',
-      color: '#AA96DA',
-      gesture: 'heart',
+      id: 'repost',
+      title: 'Peace Sign to Repost',
+      description: 'Extend index and middle fingers, curl others',
+      shape: 'pyramid',
+      color: '#FFD93D',
+      gesture: 'peace',
+      completed: false,
+    },
+    {
+      id: 'scroll',
+      title: 'Scroll Through Feed',
+      description: 'Pinch and move hand up/down away from object',
+      shape: 'sphere',
+      color: '#6BCF7F',
+      gesture: 'scroll',
       completed: false,
     },
   ];
@@ -71,11 +90,15 @@ export class OnboardingTutorial {
   private onComplete?: () => void;
   private tutorialItemIndices: number[] = []; // Indices of tutorial items in feed
   private isLoading = false; // Prevent gesture handlers during loading
+  private twoHandCheckInterval: number | null = null; // For detecting two-hand gestures
+  private grabCheckInterval: number | null = null; // For detecting grab
+  private feedControls: any = null; // Reference to FeedControls for checking state
   private currentGestureHandlers: Array<{ event: string; handler: () => void }> = []; // Track active handlers
 
-  constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore) {
+  constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore, feedControls?: any) {
     this.hands = hands;
     this.store = store;
+    this.feedControls = feedControls;
     
     this.canvas = document.createElement('canvas');
     this.canvas.width = 1024;
@@ -103,9 +126,9 @@ export class OnboardingTutorial {
   }
   
   private findTutorialItems() {
-    // Find the first 3 shape items (sphere, box, pyramid) from feed
+    // Find the first 7 shape items for tutorial steps
     this.tutorialItemIndices = [];
-    for (let i = 0; i < this.store.items.length && this.tutorialItemIndices.length < 3; i++) {
+    for (let i = 0; i < this.store.items.length && this.tutorialItemIndices.length < 7; i++) {
       const item = this.store.items[i];
       if (item.type === 'shape') {
         this.tutorialItemIndices.push(i);
@@ -116,6 +139,10 @@ export class OnboardingTutorial {
 
   setOnComplete(callback: () => void) {
     this.onComplete = callback;
+  }
+
+  setFeedControls(controls: any) {
+    this.feedControls = controls;
   }
 
   async showStep(index: number) {
@@ -250,15 +277,118 @@ export class OnboardingTutorial {
     // Register appropriate listeners based on gesture type
     console.log(`[Tutorial] Setting up gesture handler for step ${stepIndex}: ${gesture}`);
     
-    if (gesture === 'pinch' || gesture === 'scroll') {
-      // For pinch/scroll, listen to both left and right (scroll is just a pinch)
-      // Use a debounced handler to prevent rapid fires
+    // Clear any existing check intervals
+    if (this.twoHandCheckInterval) {
+      clearInterval(this.twoHandCheckInterval);
+      this.twoHandCheckInterval = null;
+    }
+    if (this.grabCheckInterval) {
+      clearInterval(this.grabCheckInterval);
+      this.grabCheckInterval = null;
+    }
+    
+    if (gesture === 'twohandrotate') {
+      // Check for two-hand rotation by monitoring twoHandActive and rotation changes
+      let lastRotY = this.store.rotationY;
+      let rotationDetected = false;
+      this.twoHandCheckInterval = window.setInterval(() => {
+        if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
+          if (this.twoHandCheckInterval) {
+            clearInterval(this.twoHandCheckInterval);
+            this.twoHandCheckInterval = null;
+          }
+          return;
+        }
+        
+        const lp = this.hands.state.left.pinch;
+        const rp = this.hands.state.right.pinch;
+        const currentRotY = this.store.rotationY;
+        
+        if (lp && rp) {
+          // Both hands pinching - check if rotation changed
+          if (Math.abs(currentRotY - lastRotY) > 0.1) {
+            rotationDetected = true;
+          }
+          lastRotY = currentRotY;
+          
+          // If rotation detected and held for 1 second, complete step
+          if (rotationDetected) {
+            setTimeout(() => {
+              if (!handlerFired && this.currentStepIndex === stepIndex && lp && rp) {
+                console.log(`[Tutorial] Two-hand rotate detected on step ${stepIndex}`);
+                handler();
+              }
+            }, 1000);
+          }
+        } else {
+          lastRotY = currentRotY;
+        }
+      }, 100);
+      console.log(`[Tutorial] Registered two-hand rotate detector for step ${stepIndex}`);
+    } else if (gesture === 'twohandscale') {
+      // Check for two-hand scale by monitoring scale changes
+      let lastScale = this.store.scale;
+      let scaleDetected = false;
+      this.twoHandCheckInterval = window.setInterval(() => {
+        if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
+          if (this.twoHandCheckInterval) {
+            clearInterval(this.twoHandCheckInterval);
+            this.twoHandCheckInterval = null;
+          }
+          return;
+        }
+        
+        const lp = this.hands.state.left.pinch;
+        const rp = this.hands.state.right.pinch;
+        const currentScale = this.store.scale;
+        
+        if (lp && rp) {
+          // Both hands pinching - check if scale changed
+          if (Math.abs(currentScale - lastScale) > 0.05) {
+            scaleDetected = true;
+          }
+          lastScale = currentScale;
+          
+          // If scale detected and held for 1 second, complete step
+          if (scaleDetected) {
+            setTimeout(() => {
+              if (!handlerFired && this.currentStepIndex === stepIndex && lp && rp) {
+                console.log(`[Tutorial] Two-hand scale detected on step ${stepIndex}`);
+                handler();
+              }
+            }, 1000);
+          }
+        } else {
+          lastScale = currentScale;
+        }
+      }, 100);
+      console.log(`[Tutorial] Registered two-hand scale detector for step ${stepIndex}`);
+    } else if (gesture === 'grab') {
+      // Check for grab by monitoring FeedControls grab state
+      this.grabCheckInterval = window.setInterval(() => {
+        if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
+          if (this.grabCheckInterval) {
+            clearInterval(this.grabCheckInterval);
+            this.grabCheckInterval = null;
+          }
+          return;
+        }
+        
+        // Check if grab is active in FeedControls
+        if (this.feedControls && (this.feedControls as any).grabbing === true) {
+          console.log(`[Tutorial] Grab detected on step ${stepIndex}`);
+          handler();
+        }
+      }, 200);
+      console.log(`[Tutorial] Registered grab detector for step ${stepIndex}`);
+    } else if (gesture === 'scroll') {
+      // For scroll, listen to both left and right pinch
       let lastFireTime = 0;
       const debouncedHandler = () => {
         const now = Date.now();
         if (now - lastFireTime < 500) return; // Debounce 500ms
         lastFireTime = now;
-        console.log(`[Tutorial] Pinch gesture detected on step ${stepIndex}`);
+        console.log(`[Tutorial] Scroll gesture detected on step ${stepIndex}`);
         handler();
       };
       
@@ -268,7 +398,7 @@ export class OnboardingTutorial {
         { event: 'leftpinchstart', handler: debouncedHandler },
         { event: 'rightpinchstart', handler: debouncedHandler }
       );
-      console.log(`[Tutorial] Registered pinch handlers for step ${stepIndex}`);
+      console.log(`[Tutorial] Registered scroll handlers for step ${stepIndex}`);
     } else if (gesture === 'thumbsup') {
       this.hands.on('thumbsupstart', handler);
       this.currentGestureHandlers.push({ event: 'thumbsupstart', handler });
@@ -277,6 +407,10 @@ export class OnboardingTutorial {
       this.hands.on('heartstart', handler);
       this.currentGestureHandlers.push({ event: 'heartstart', handler });
       console.log(`[Tutorial] Registered heart handler for step ${stepIndex}`);
+    } else if (gesture === 'peace') {
+      this.hands.on('peacestart', handler);
+      this.currentGestureHandlers.push({ event: 'peacestart', handler });
+      console.log(`[Tutorial] Registered peace handler for step ${stepIndex}`);
     } else {
       console.warn(`[Tutorial] Unknown gesture type: ${gesture}`);
     }
@@ -288,6 +422,16 @@ export class OnboardingTutorial {
       this.hands.off(event, handler);
     });
     this.currentGestureHandlers = [];
+    
+    // Clear check intervals
+    if (this.twoHandCheckInterval) {
+      clearInterval(this.twoHandCheckInterval);
+      this.twoHandCheckInterval = null;
+    }
+    if (this.grabCheckInterval) {
+      clearInterval(this.grabCheckInterval);
+      this.grabCheckInterval = null;
+    }
   }
 
   private nextStep() {
@@ -331,6 +475,7 @@ export class OnboardingTutorial {
   private complete() {
     this.clearGestureHandlers(); // Clean up handlers when tutorial completes
     this.group.visible = false;
+    console.log('[Tutorial] Tutorial completed!');
     if (this.onComplete) {
       this.onComplete();
     }
