@@ -313,23 +313,34 @@ export class FeedStore {
   }
 
   setPosition(worldPos: THREE.Vector3) {
-    const obj = this.getObject();
-    if (obj) obj.position.copy(worldPos);
-    if (this.seq) this.seq.setPosition(worldPos);
-    this.lastPlaced = worldPos.clone();
-    this.updatePlatformPose();
+    try {
+      const obj = this.getObject();
+      if (obj) {
+        obj.position.copy(worldPos);
+      }
+      if (this.seq) {
+        this.seq.setPosition(worldPos);
+      }
+      this.lastPlaced = worldPos.clone();
+      this.updatePlatformPose();
+    } catch (error) {
+      logError(error, 'FeedStore.setPosition');
+    }
   }
 
   getObject(): THREE.Object3D | undefined {
-    const found = this.parent.children.find(
-      (c) => c.name === 'content-shape' || c.name === 'content-mesh'
-    );
-    if (found) return found;
+    try {
+      const found = this.parent.children.find(
+        (c) => c.name === 'content-shape' || c.name === 'content-mesh' || c.name === 'content-gltf'
+      );
+      if (found) return found;
 
-    const plat = this.parent.children.find((c) => c.name === 'content-platform');
-    if (plat) return plat;
-
-    return undefined;
+      // Don't return platform as the main object
+      return undefined;
+    } catch (error) {
+      logError(error, 'FeedStore.getObject');
+      return undefined;
+    }
   }
 
   getObjectWorldPos(): THREE.Vector3 | null {
@@ -340,13 +351,20 @@ export class FeedStore {
   }
 
   getObjectBounds(): { center: THREE.Vector3; radius: number; box: THREE.Box3 } | null {
-    const obj = this.getObject();
-    if (!obj || !obj.visible) return null;
-    const box = new THREE.Box3().setFromObject(obj);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const radius = size.length() * 0.5;
-    return { center, radius, box };
+    try {
+      const obj = this.getObject();
+      if (!obj || !obj.visible) return null;
+      const box = new THREE.Box3().setFromObject(obj);
+      if (!box || !box.isFinite()) return null; // Check for invalid bounds
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const radius = size.length() * 0.5;
+      if (!isFinite(radius) || radius <= 0) return null; // Validate radius
+      return { center, radius, box };
+    } catch (error) {
+      logError(error, 'FeedStore.getObjectBounds');
+      return null;
+    }
   }
 
   // ---------- Reactions ----------
@@ -391,18 +409,23 @@ export class FeedStore {
 
   private updatePlatformPose() {
     if (!this.platform) return;
-    const info = this.getObjectBounds();
-    if (!info) {
+    try {
+      const info = this.getObjectBounds();
+      if (!info) {
+        this.platform.visible = false;
+        return;
+      }
+      const { box } = info;
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      this.platform.position.set(center.x, box.min.y - 0.02, center.z);
+      const r = Math.max(size.x, size.z) * 0.35;
+      this.platform.scale.setScalar(Math.max(0.2, r));
+      this.platform.visible = true;
+    } catch (error) {
+      logError(error, 'FeedStore.updatePlatformPose');
       this.platform.visible = false;
-      return;
     }
-    const { box } = info;
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    this.platform.position.set(center.x, box.min.y - 0.02, center.z);
-    const r = Math.max(size.x, size.z) * 0.35;
-    this.platform.scale.setScalar(Math.max(0.2, r));
-    this.platform.visible = true;
   }
 
   // ---------- Platform pulse ----------
