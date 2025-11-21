@@ -355,15 +355,19 @@ export class OnboardingTutorial {
             // Calculate progress percentage
             const progress = (totalRotation / FULL_ROTATION) * 100;
             
-            // Complete when FULL rotation (360°) is achieved
-            if (totalRotation >= FULL_ROTATION) {
+            // Complete when FULL rotation (360°) is achieved OR significant rotation (180°) with time
+            const MIN_ROTATION = Math.PI; // 180 degrees - half rotation
+            const hasFullRotation = totalRotation >= FULL_ROTATION;
+            const hasSignificantRotation = totalRotation >= MIN_ROTATION && (now - rotationStartTime) > 2000; // 180° + 2 seconds
+            
+            if (hasFullRotation || hasSignificantRotation) {
               if (!handlerFired) {
                 const timeHeld = now - rotationStartTime;
-                console.log(`[Tutorial] ✅ FULL ROTATION COMPLETE! Step ${stepIndex} - total=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°), time=${timeHeld}ms`);
+                const rotationType = hasFullRotation ? 'FULL 360°' : 'SIGNIFICANT 180°';
+                console.log(`[Tutorial] ✅ ${rotationType} ROTATION COMPLETE! Step ${stepIndex} - total=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°), time=${timeHeld}ms`);
                 console.log(`[Tutorial] Calling handler() to mark step complete...`);
-                handlerFired = true; // Set immediately to prevent multiple calls
                 
-                // Call handler and verify it's called
+                // Call handler - it will set handlerFired internally to prevent multiple calls
                 try {
                   handler();
                   console.log(`[Tutorial] Handler called successfully`);
@@ -446,7 +450,7 @@ export class OnboardingTutorial {
             if (scaleDetected && (hasHeldTime || hasEnoughChange)) {
               if (!handlerFired) {
                 console.log(`[Tutorial] ✅ Two-hand scale detected on step ${stepIndex} - delta=${scaleDelta.toFixed(4)}, total=${totalScaleChange.toFixed(4)}, time=${timeHeld}ms - marking complete!`);
-                handlerFired = true; // Set immediately to prevent multiple calls
+                // Call handler - it will set handlerFired internally to prevent multiple calls
                 handler();
                 return; // Exit interval after completion
               }
@@ -479,7 +483,7 @@ export class OnboardingTutorial {
         if (this.feedControls && (this.feedControls as any).grabbing === true) {
           if (!handlerFired) {
             console.log(`[Tutorial] ✅ Grab detected on step ${stepIndex} - marking complete!`);
-            handlerFired = true; // Set immediately to prevent multiple calls
+            // Call handler - it will set handlerFired internally to prevent multiple calls
             handler();
             return; // Exit interval after completion
           }
