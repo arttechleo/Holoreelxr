@@ -158,6 +158,8 @@ async function loadMainFeed() {
     (controls as any).musicPanel = xrMusicPanel;
     // Disable FeedControls during onboarding tutorial
     controls.setOnboardingTutorial(onboarding);
+    // Pass FeedControls reference to tutorial for state checking
+    (onboarding as any).setFeedControls(controls);
     
     app.start();
   } catch (error) {

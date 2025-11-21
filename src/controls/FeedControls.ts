@@ -680,17 +680,23 @@ export class FeedControls {
 
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
-    // Skip if onboarding tutorial is active - completely disable interactions
+    // Skip if onboarding tutorial is active - but allow grab/transform for tutorial steps
     if (this.onboardingTutorial) {
-      if (this.onboardingTutorial.isVisible && this.onboardingTutorial.isVisible()) {
-        return;
+      const tutorial = this.onboardingTutorial as any;
+      if (tutorial.isVisible && tutorial.isVisible()) {
+        const currentStep = tutorial.steps?.[tutorial.currentStepIndex];
+        const currentGesture = currentStep?.gesture;
+        
+        // Allow grab, two-hand rotate, and two-hand scale during tutorial
+        if (currentGesture === 'grab' || currentGesture === 'twohandrotate' || currentGesture === 'twohandscale') {
+          // Allow these interactions to proceed
+        } else {
+          // Block other interactions during tutorial
+          return;
+        }
       }
       // Also skip if tutorial is loading (prevent interference during transitions)
-      if ((this.onboardingTutorial as any).isLoading === true) {
-        return;
-      }
-      // Skip if tutorial is processing any step
-      if ((this.onboardingTutorial as any).currentStepIndex !== undefined) {
+      if (tutorial.isLoading === true) {
         return;
       }
     }

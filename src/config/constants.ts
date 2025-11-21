@@ -56,8 +56,8 @@ export const CONTROLS = {
 
 // ========== GRAB & TRANSFORM ==========
 export const TRANSFORM = {
-  /** Distance from object surface for instant grab (m) */
-  INSTANT_GRAB_DISTANCE: 0.14,
+  /** Distance from object surface for instant grab (m) - INCREASED for easier grabbing */
+  INSTANT_GRAB_DISTANCE: 0.20,
   
   /** Hold time before pending grab activates (ms) */
   GRAB_HOLD_MS: 150,
@@ -65,8 +65,8 @@ export const TRANSFORM = {
   /** Movement threshold to cancel pending grab (m) */
   GRAB_CANCEL_MOVEMENT: 0.06,
   
-  /** Max distance for grab to be available (m) */
-  GRAB_MAX_DISTANCE: 0.18,
+  /** Max distance for grab to be available (m) - INCREASED for easier grabbing */
+  GRAB_MAX_DISTANCE: 0.25,
   
   /** Scale limits */
   SCALE_MIN: 0.15,
