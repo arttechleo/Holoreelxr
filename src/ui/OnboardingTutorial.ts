@@ -288,9 +288,11 @@ export class OnboardingTutorial {
     }
     
     if (gesture === 'twohandrotate') {
-      // Check for two-hand rotation by monitoring twoHandActive and rotation changes
+      // Check for two-hand rotation by monitoring rotation changes
       let lastRotY = this.store.rotationY;
       let rotationDetected = false;
+      let rotationStartTime = 0;
+      
       this.twoHandCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
           if (this.twoHandCheckInterval) {
@@ -306,21 +308,24 @@ export class OnboardingTutorial {
         
         if (lp && rp) {
           // Both hands pinching - check if rotation changed
-          if (Math.abs(currentRotY - lastRotY) > 0.1) {
-            rotationDetected = true;
-          }
-          lastRotY = currentRotY;
-          
-          // If rotation detected and held for 1 second, complete step
-          if (rotationDetected) {
-            setTimeout(() => {
-              if (!handlerFired && this.currentStepIndex === stepIndex && lp && rp) {
+          const rotDelta = Math.abs(currentRotY - lastRotY);
+          if (rotDelta > 0.05) { // Rotation detected
+            if (!rotationDetected) {
+              rotationDetected = true;
+              rotationStartTime = Date.now();
+            }
+            // If rotation detected and held for 500ms, complete step
+            if (rotationDetected && Date.now() - rotationStartTime > 500) {
+              if (!handlerFired) {
                 console.log(`[Tutorial] Two-hand rotate detected on step ${stepIndex}`);
                 handler();
               }
-            }, 1000);
+            }
           }
+          lastRotY = currentRotY;
         } else {
+          // Reset if hands not pinching
+          rotationDetected = false;
           lastRotY = currentRotY;
         }
       }, 100);
@@ -329,6 +334,8 @@ export class OnboardingTutorial {
       // Check for two-hand scale by monitoring scale changes
       let lastScale = this.store.scale;
       let scaleDetected = false;
+      let scaleStartTime = 0;
+      
       this.twoHandCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
           if (this.twoHandCheckInterval) {
@@ -344,21 +351,24 @@ export class OnboardingTutorial {
         
         if (lp && rp) {
           // Both hands pinching - check if scale changed
-          if (Math.abs(currentScale - lastScale) > 0.05) {
-            scaleDetected = true;
-          }
-          lastScale = currentScale;
-          
-          // If scale detected and held for 1 second, complete step
-          if (scaleDetected) {
-            setTimeout(() => {
-              if (!handlerFired && this.currentStepIndex === stepIndex && lp && rp) {
+          const scaleDelta = Math.abs(currentScale - lastScale);
+          if (scaleDelta > 0.05) { // Scale detected
+            if (!scaleDetected) {
+              scaleDetected = true;
+              scaleStartTime = Date.now();
+            }
+            // If scale detected and held for 500ms, complete step
+            if (scaleDetected && Date.now() - scaleStartTime > 500) {
+              if (!handlerFired) {
                 console.log(`[Tutorial] Two-hand scale detected on step ${stepIndex}`);
                 handler();
               }
-            }, 1000);
+            }
           }
+          lastScale = currentScale;
         } else {
+          // Reset if hands not pinching
+          scaleDetected = false;
           lastScale = currentScale;
         }
       }, 100);
