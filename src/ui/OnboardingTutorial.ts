@@ -303,6 +303,8 @@ export class OnboardingTutorial {
       let lastRotY = this.store.rotationY;
       let rotationDetected = false;
       let rotationStartTime = 0;
+      let totalRotation = 0; // Track cumulative rotation
+      let lastCheckTime = Date.now();
       
       this.twoHandCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
@@ -316,19 +318,35 @@ export class OnboardingTutorial {
         const lp = this.hands.state.left.pinch;
         const rp = this.hands.state.right.pinch;
         const currentRotY = this.store.rotationY;
+        const now = Date.now();
         
         if (lp && rp) {
           // Both hands pinching - check if rotation changed
-          const rotDelta = Math.abs(currentRotY - lastRotY);
-          if (rotDelta > 0.05) { // Rotation detected
+          // Handle wrap-around (rotation goes from 2π to 0 or vice versa)
+          let rotDelta = Math.abs(currentRotY - lastRotY);
+          // Handle wrap-around: if delta > π, it's actually the shorter path around
+          if (rotDelta > Math.PI) {
+            rotDelta = 2 * Math.PI - rotDelta;
+          }
+          
+          // Lower threshold for easier detection (0.02 radians ≈ 1.15 degrees)
+          if (rotDelta > 0.02) {
+            totalRotation += rotDelta;
+            
             if (!rotationDetected) {
               rotationDetected = true;
-              rotationStartTime = Date.now();
+              rotationStartTime = now;
+              console.log(`[Tutorial] Rotation started: delta=${rotDelta.toFixed(4)}, total=${totalRotation.toFixed(4)}`);
             }
-            // If rotation detected and held for 500ms, complete step immediately
-            if (rotationDetected && Date.now() - rotationStartTime > 500) {
+            
+            // Complete if: rotation detected AND (held for 500ms OR total rotation > 0.2 radians ≈ 11.5 degrees)
+            const timeHeld = now - rotationStartTime;
+            const hasEnoughRotation = totalRotation > 0.2; // ~11.5 degrees total
+            const hasHeldTime = timeHeld > 500;
+            
+            if (rotationDetected && (hasHeldTime || hasEnoughRotation)) {
               if (!handlerFired) {
-                console.log(`[Tutorial] ✅ Two-hand rotate detected on step ${stepIndex} - marking complete!`);
+                console.log(`[Tutorial] ✅ Two-hand rotate detected on step ${stepIndex} - delta=${rotDelta.toFixed(4)}, total=${totalRotation.toFixed(4)}, time=${timeHeld}ms - marking complete!`);
                 handlerFired = true; // Set immediately to prevent multiple calls
                 handler();
                 return; // Exit interval after completion
@@ -336,9 +354,14 @@ export class OnboardingTutorial {
             }
           }
           lastRotY = currentRotY;
+          lastCheckTime = now;
         } else {
           // Reset if hands not pinching
+          if (rotationDetected) {
+            console.log(`[Tutorial] Hands released, resetting rotation detection`);
+          }
           rotationDetected = false;
+          totalRotation = 0;
           lastRotY = currentRotY;
         }
       }, 100);
@@ -348,6 +371,7 @@ export class OnboardingTutorial {
       let lastScale = this.store.scale;
       let scaleDetected = false;
       let scaleStartTime = 0;
+      let totalScaleChange = 0; // Track cumulative scale change
       
       this.twoHandCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
@@ -365,15 +389,24 @@ export class OnboardingTutorial {
         if (lp && rp) {
           // Both hands pinching - check if scale changed
           const scaleDelta = Math.abs(currentScale - lastScale);
-          if (scaleDelta > 0.05) { // Scale detected
+          // Lower threshold for easier detection (0.02 = 2% change)
+          if (scaleDelta > 0.02) {
+            totalScaleChange += scaleDelta;
+            
             if (!scaleDetected) {
               scaleDetected = true;
               scaleStartTime = Date.now();
+              console.log(`[Tutorial] Scale started: delta=${scaleDelta.toFixed(4)}, total=${totalScaleChange.toFixed(4)}`);
             }
-            // If scale detected and held for 500ms, complete step immediately
-            if (scaleDetected && Date.now() - scaleStartTime > 500) {
+            
+            // Complete if: scale detected AND (held for 500ms OR total change > 0.1 = 10%)
+            const timeHeld = Date.now() - scaleStartTime;
+            const hasEnoughChange = totalScaleChange > 0.1; // 10% total change
+            const hasHeldTime = timeHeld > 500;
+            
+            if (scaleDetected && (hasHeldTime || hasEnoughChange)) {
               if (!handlerFired) {
-                console.log(`[Tutorial] ✅ Two-hand scale detected on step ${stepIndex} - marking complete!`);
+                console.log(`[Tutorial] ✅ Two-hand scale detected on step ${stepIndex} - delta=${scaleDelta.toFixed(4)}, total=${totalScaleChange.toFixed(4)}, time=${timeHeld}ms - marking complete!`);
                 handlerFired = true; // Set immediately to prevent multiple calls
                 handler();
                 return; // Exit interval after completion
@@ -383,7 +416,11 @@ export class OnboardingTutorial {
           lastScale = currentScale;
         } else {
           // Reset if hands not pinching
+          if (scaleDetected) {
+            console.log(`[Tutorial] Hands released, resetting scale detection`);
+          }
           scaleDetected = false;
+          totalScaleChange = 0;
           lastScale = currentScale;
         }
       }, 100);
