@@ -70,6 +70,7 @@ export class OnboardingTutorial {
   private store: FeedStore;
   private onComplete?: () => void;
   private tutorialItemIndices: number[] = []; // Indices of tutorial items in feed
+  private isLoading = false; // Prevent gesture handlers during loading
   private currentGestureHandlers: Array<{ event: string; handler: () => void }> = []; // Track active handlers
 
   constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore) {
@@ -126,12 +127,26 @@ export class OnboardingTutorial {
     this.currentStepIndex = index;
     const step = this.steps[index];
     
+    // Set loading state to prevent gesture handlers from firing during transition
+    this.isLoading = true;
+    this.clearGestureHandlers();
+    
     // Use FeedStore to show the corresponding tutorial item
     // Map step index to tutorial item index (first 3 steps use feed items)
     if (index < this.tutorialItemIndices.length) {
       const feedIndex = this.tutorialItemIndices[index];
-      this.store.index = feedIndex;
-      await this.store.showCurrent();
+      
+      // Only change index if it's different to avoid unnecessary reloads
+      if (this.store.index !== feedIndex) {
+        this.store.index = feedIndex;
+        try {
+          // Load model asynchronously without blocking
+          await this.store.showCurrent();
+        } catch (error) {
+          console.error('Failed to load tutorial item:', error);
+          // Continue anyway - don't block tutorial
+        }
+      }
       
       // Ensure the shape has proper material (not wireframe)
       // Wait a frame for the shape to be added to the scene
@@ -147,15 +162,25 @@ export class OnboardingTutorial {
             }
           }
         }
+        // Clear loading state after shape is ready
+        this.isLoading = false;
       });
+    } else {
+      // No model to load, clear loading immediately
+      this.isLoading = false;
     }
 
     // Update panel
     this.updatePanel();
 
-    // Listen for gesture completion
+    // Listen for gesture completion (only after loading is complete)
     if (step.gesture) {
-      this.waitForGesture(step.gesture);
+      // Wait a bit for loading to complete before setting up gesture handlers
+      setTimeout(() => {
+        if (this.currentStepIndex === index && !this.isLoading) {
+          this.waitForGesture(step.gesture);
+        }
+      }, 100);
     } else {
       // Auto-advance after 3 seconds for welcome step
       setTimeout(() => {
@@ -167,6 +192,12 @@ export class OnboardingTutorial {
   }
 
   private waitForGesture(gesture: string) {
+    // Don't set up handlers if we're loading
+    if (this.isLoading) {
+      setTimeout(() => this.waitForGesture(gesture), 100);
+      return;
+    }
+    
     // Clean up any existing gesture handlers first
     this.clearGestureHandlers();
     
@@ -176,7 +207,7 @@ export class OnboardingTutorial {
     
     // Add timeout to prevent freezing - auto-skip after 30 seconds
     const timeoutId = setTimeout(() => {
-      if (!handlerFired && this.currentStepIndex === stepIndex) {
+      if (!handlerFired && this.currentStepIndex === stepIndex && !this.isLoading) {
         console.warn(`Tutorial step ${stepIndex} timed out, auto-advancing...`);
         handlerFired = true;
         this.steps[stepIndex].completed = true;
@@ -186,8 +217,8 @@ export class OnboardingTutorial {
     }, 30000); // 30 second timeout
     
     const handler = () => {
-      // Prevent multiple fires
-      if (handlerFired) return;
+      // Don't fire if loading or already fired
+      if (handlerFired || this.isLoading) return;
       
       // Only proceed if we're still on the same step
       if (this.currentStepIndex === stepIndex && this.steps[stepIndex].gesture === expectedGesture) {

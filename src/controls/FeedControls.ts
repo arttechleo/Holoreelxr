@@ -681,13 +681,18 @@ export class FeedControls {
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
     // Skip if onboarding tutorial is active - completely disable interactions
-    if (this.onboardingTutorial && this.onboardingTutorial.isVisible && this.onboardingTutorial.isVisible()) {
-      return;
-    }
-    
-    // Additional check: if tutorial is processing, skip
-    if (this.onboardingTutorial && (this.onboardingTutorial as any).currentStepIndex !== undefined) {
-      return;
+    if (this.onboardingTutorial) {
+      if (this.onboardingTutorial.isVisible && this.onboardingTutorial.isVisible()) {
+        return;
+      }
+      // Also skip if tutorial is loading (prevent interference during transitions)
+      if ((this.onboardingTutorial as any).isLoading === true) {
+        return;
+      }
+      // Skip if tutorial is processing any step
+      if ((this.onboardingTutorial as any).currentStepIndex !== undefined) {
+        return;
+      }
     }
     
     // PRIORITY 1: Try clicking the MR HUD
