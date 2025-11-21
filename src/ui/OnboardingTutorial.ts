@@ -70,6 +70,7 @@ export class OnboardingTutorial {
   private store: FeedStore;
   private onComplete?: () => void;
   private tutorialItemIndices: number[] = []; // Indices of tutorial items in feed
+  private currentGestureHandlers: Array<{ event: string; handler: () => void }> = []; // Track active handlers
 
   constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore) {
     this.hands = hands;
@@ -131,6 +132,22 @@ export class OnboardingTutorial {
       const feedIndex = this.tutorialItemIndices[index];
       this.store.index = feedIndex;
       await this.store.showCurrent();
+      
+      // Ensure the shape has proper material (not wireframe)
+      // Wait a frame for the shape to be added to the scene
+      requestAnimationFrame(() => {
+        const obj = this.store.getObject();
+        if (obj && obj.type === 'Mesh') {
+          const mesh = obj as THREE.Mesh;
+          if (mesh.material) {
+            const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+            if (mat instanceof THREE.MeshStandardMaterial) {
+              mat.wireframe = false;
+              mat.needsUpdate = true;
+            }
+          }
+        }
+      });
     }
 
     // Update panel
@@ -150,14 +167,45 @@ export class OnboardingTutorial {
   }
 
   private waitForGesture(gesture: string) {
+    // Clean up any existing gesture handlers first
+    this.clearGestureHandlers();
+    
+    const stepIndex = this.currentStepIndex; // Capture current step
+    const expectedGesture = this.steps[stepIndex].gesture;
+    
     const handler = () => {
-      if (this.steps[this.currentStepIndex].gesture === gesture) {
-        this.steps[this.currentStepIndex].completed = true;
-        this.hands.off(gesture + 'start', handler);
+      // Only proceed if we're still on the same step
+      if (this.currentStepIndex === stepIndex && this.steps[stepIndex].gesture === expectedGesture) {
+        this.steps[stepIndex].completed = true;
+        this.clearGestureHandlers();
         setTimeout(() => this.nextStep(), 1000);
       }
     };
-    this.hands.on(gesture + 'start', handler);
+    
+    // Register appropriate listeners based on gesture type
+    if (gesture === 'pinch' || gesture === 'scroll') {
+      // For pinch/scroll, listen to both left and right (scroll is just a pinch)
+      this.hands.on('leftpinchstart', handler);
+      this.hands.on('rightpinchstart', handler);
+      this.currentGestureHandlers.push(
+        { event: 'leftpinchstart', handler },
+        { event: 'rightpinchstart', handler }
+      );
+    } else if (gesture === 'thumbsup') {
+      this.hands.on('thumbsupstart', handler);
+      this.currentGestureHandlers.push({ event: 'thumbsupstart', handler });
+    } else if (gesture === 'heart') {
+      this.hands.on('heartstart', handler);
+      this.currentGestureHandlers.push({ event: 'heartstart', handler });
+    }
+  }
+  
+  private clearGestureHandlers() {
+    // Remove all active gesture handlers
+    this.currentGestureHandlers.forEach(({ event, handler }) => {
+      this.hands.off(event, handler);
+    });
+    this.currentGestureHandlers = [];
   }
 
   private nextStep() {
@@ -198,6 +246,7 @@ export class OnboardingTutorial {
   }
 
   private complete() {
+    this.clearGestureHandlers(); // Clean up handlers when tutorial completes
     this.group.visible = false;
     if (this.onComplete) {
       this.onComplete();
