@@ -110,10 +110,26 @@ export class FeedStore {
 
     // remove prior content meshes
     this.parent.children.slice().forEach((child) => {
-      if (child.name === 'content-shape' || child.name === 'content-mesh') {
+      if (child.name === 'content-shape' || child.name === 'content-mesh' || child.name === 'content-gltf') {
         this.parent.remove(child);
-        (child as any).geometry?.dispose?.();
-        (child as any).material?.dispose?.();
+        // Dispose geometry
+        if ((child as any).geometry) {
+          (child as any).geometry.dispose();
+        }
+        // Dispose material(s)
+        const mat = (child as any).material;
+        if (mat) {
+          if (Array.isArray(mat)) {
+            mat.forEach(m => m.dispose());
+          } else {
+            mat.dispose();
+          }
+        }
+        // Dispose GLTF scene if it has a mixer
+        if ((child as any).mixer) {
+          (child as any).mixer.stopAllAction();
+          (child as any).mixer = null;
+        }
       }
     });
 
@@ -173,9 +189,14 @@ export class FeedStore {
       logError(error, 'FeedStore.showCurrent');
       this.toast('❌ Failed to load content');
       
-      // Show error placeholder
+      // Show error placeholder (solid, not wireframe for better visibility)
       const geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
-      const mat = new THREE.MeshStandardMaterial({ color: 0xff3344, wireframe: true });
+      const mat = new THREE.MeshStandardMaterial({ 
+        color: 0xff3344, 
+        wireframe: false,
+        emissive: 0x330000,
+        roughness: 0.5
+      });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.name = 'content-error';
       mesh.position.copy(spawnPos);
