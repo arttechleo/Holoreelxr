@@ -172,12 +172,6 @@ export class FeedControls {
     this.hands.on('rightpinchstart', () => this.onPinchStart('right'));
     this.hands.on('leftpinchend', () => this.onPinchEnd('left'));
     this.hands.on('rightpinchend', () => this.onPinchEnd('right'));
-  }
-
-  // Set onboarding tutorial reference to disable controls during tutorial
-  setOnboardingTutorial(tutorial: any) {
-    this.onboardingTutorial = tutorial;
-  }
 
     // Like gesture - thumbs up
     this.hands.on('thumbsupstart', (detail?: any) => {
@@ -321,6 +315,10 @@ export class FeedControls {
     });
   }
 
+  // Set onboarding tutorial reference to disable controls during tutorial
+  setOnboardingTutorial(tutorial: any) {
+    this.onboardingTutorial = tutorial;
+  }
 
   // ---------- gesture cooldown helpers ----------
   /**
