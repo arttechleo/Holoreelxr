@@ -265,12 +265,23 @@ export class OnboardingTutorial {
           this.steps[stepIndex]?.gesture === expectedGesture) {
         handlerFired = true;
         clearTimeout(timeoutId); // Clear timeout since gesture was detected
+        
+        // Mark step as completed
         if (this.steps[stepIndex]) {
           this.steps[stepIndex].completed = true;
         }
+        
+        // Clear handlers immediately
         this.clearGestureHandlers();
-        console.log(`Tutorial step ${stepIndex} completed!`);
-        setTimeout(() => this.nextStep(), 1000);
+        
+        // Show success feedback
+        console.log(`✅ Tutorial step ${stepIndex + 1}/${this.steps.length} completed!`);
+        this.updatePanel(); // Update panel to show completion
+        
+        // Advance to next step after brief delay for visual feedback
+        setTimeout(() => {
+          this.nextStep();
+        }, 1500); // Slightly longer delay to show completion
       }
     };
     
@@ -314,11 +325,13 @@ export class OnboardingTutorial {
               rotationDetected = true;
               rotationStartTime = Date.now();
             }
-            // If rotation detected and held for 500ms, complete step
+            // If rotation detected and held for 500ms, complete step immediately
             if (rotationDetected && Date.now() - rotationStartTime > 500) {
               if (!handlerFired) {
-                console.log(`[Tutorial] Two-hand rotate detected on step ${stepIndex}`);
+                console.log(`[Tutorial] ✅ Two-hand rotate detected on step ${stepIndex} - marking complete!`);
+                handlerFired = true; // Set immediately to prevent multiple calls
                 handler();
+                return; // Exit interval after completion
               }
             }
           }
@@ -357,11 +370,13 @@ export class OnboardingTutorial {
               scaleDetected = true;
               scaleStartTime = Date.now();
             }
-            // If scale detected and held for 500ms, complete step
+            // If scale detected and held for 500ms, complete step immediately
             if (scaleDetected && Date.now() - scaleStartTime > 500) {
               if (!handlerFired) {
-                console.log(`[Tutorial] Two-hand scale detected on step ${stepIndex}`);
+                console.log(`[Tutorial] ✅ Two-hand scale detected on step ${stepIndex} - marking complete!`);
+                handlerFired = true; // Set immediately to prevent multiple calls
                 handler();
+                return; // Exit interval after completion
               }
             }
           }
@@ -386,8 +401,12 @@ export class OnboardingTutorial {
         
         // Check if grab is active in FeedControls
         if (this.feedControls && (this.feedControls as any).grabbing === true) {
-          console.log(`[Tutorial] Grab detected on step ${stepIndex}`);
-          handler();
+          if (!handlerFired) {
+            console.log(`[Tutorial] ✅ Grab detected on step ${stepIndex} - marking complete!`);
+            handlerFired = true; // Set immediately to prevent multiple calls
+            handler();
+            return; // Exit interval after completion
+          }
         }
       }, 200);
       console.log(`[Tutorial] Registered grab detector for step ${stepIndex}`);
@@ -454,27 +473,47 @@ export class OnboardingTutorial {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     const step = this.steps[this.currentStepIndex];
+    if (!step) return;
     
-    // Background
-    ctx.fillStyle = 'rgba(20, 20, 30, 0.95)';
+    // Background - green tint if completed
+    if (step.completed) {
+      ctx.fillStyle = 'rgba(20, 50, 30, 0.95)';
+    } else {
+      ctx.fillStyle = 'rgba(20, 20, 30, 0.95)';
+    }
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
     // Title
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = step.completed ? '#4ade80' : '#fff';
     ctx.font = 'bold 48px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(step.title, this.canvas.width / 2, 80);
+    
+    // Success checkmark if completed
+    if (step.completed) {
+      ctx.fillStyle = '#4ade80';
+      ctx.font = 'bold 60px sans-serif';
+      ctx.fillText('✓', this.canvas.width / 2 + 200, 80);
+    }
 
     // Description
     ctx.font = '24px sans-serif';
-    ctx.fillStyle = '#aaa';
+    ctx.fillStyle = step.completed ? '#4ade80' : '#aaa';
     ctx.fillText(step.description, this.canvas.width / 2, 140);
+    
+    // Completion message
+    if (step.completed) {
+      ctx.font = 'bold 28px sans-serif';
+      ctx.fillStyle = '#4ade80';
+      ctx.fillText('Step Complete!', this.canvas.width / 2, 180);
+    }
 
-    // Progress
+    // Progress with completed count
     ctx.font = '18px sans-serif';
     ctx.fillStyle = '#888';
+    const completedCount = this.steps.filter(s => s.completed).length;
     ctx.fillText(
-      `${this.currentStepIndex + 1} / ${this.steps.length}`,
+      `Step ${this.currentStepIndex + 1} / ${this.steps.length} (${completedCount} completed)`,
       this.canvas.width / 2,
       this.canvas.height - 30
     );
