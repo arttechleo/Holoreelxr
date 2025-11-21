@@ -204,13 +204,24 @@ export class FeedStore {
       this.parent.add(mesh);
     }
 
-    this.ensurePlatform();
-    this.updatePlatformPose();
+    // Defer platform update to next frame to avoid blocking
+    requestAnimationFrame(() => {
+      try {
+        this.ensurePlatform();
+        this.updatePlatformPose();
+      } catch (error) {
+        logError(error, 'FeedStore.showCurrent platform update');
+      }
+    });
 
-    // Safe string formatting
-    const title = item.title || 'Untitled';
-    const author = item.author || 'Unknown';
-    this.toast(`${title} — @${author}`);
+    // Safe string formatting - don't toast during tutorial to avoid blocking
+    // Only toast if not in tutorial mode (we can detect this by checking if index is in first 3 items)
+    const isTutorialItem = this.index < 3 && this.items[this.index]?.type === 'shape';
+    if (!isTutorialItem) {
+      const title = item.title || 'Untitled';
+      const author = item.author || 'Unknown';
+      this.toast(`${title} — @${author}`);
+    }
   }
 
   next(delta: number) {
