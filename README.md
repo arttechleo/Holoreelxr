@@ -177,6 +177,11 @@ Contributions welcome! Please ensure:
 - Code follows existing style conventions
 - Test on at least one WebXR device
 
+## 📚 Documentation
+
+- **[Adding Assets Guide](docs/ADDING_ASSETS.md)** - Learn how to add 3D model links to your feed (`public/feed.json`)
+- See `docs/` directory for detailed architecture and development guides
+
 ## 🔗 Resources
 
 - [WebXR Device API Spec](https://immersiveweb.dev/)

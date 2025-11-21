@@ -63,13 +63,13 @@ export class OnboardingTutorial {
     },
   ];
 
-  private currentShape?: THREE.Mesh;
   private canvas: HTMLCanvasElement;
   private texture: THREE.CanvasTexture;
   private panel?: THREE.Mesh;
   private hands: HandEngine;
   private store: FeedStore;
   private onComplete?: () => void;
+  private tutorialItemIndices: number[] = []; // Indices of tutorial items in feed
 
   constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore) {
     this.hands = hands;
@@ -97,14 +97,26 @@ export class OnboardingTutorial {
     this.group.add(this.panel);
     
     scene.add(this.group);
-    this.showStep(0);
+    // Tutorial items will be found when show() is called (after feed loads)
+  }
+  
+  private findTutorialItems() {
+    // Find the first 3 shape items (sphere, box, pyramid) from feed
+    this.tutorialItemIndices = [];
+    for (let i = 0; i < this.store.items.length && this.tutorialItemIndices.length < 3; i++) {
+      const item = this.store.items[i];
+      if (item.type === 'shape') {
+        this.tutorialItemIndices.push(i);
+      }
+    }
+    return this.tutorialItemIndices.length > 0;
   }
 
   setOnComplete(callback: () => void) {
     this.onComplete = callback;
   }
 
-  showStep(index: number) {
+  async showStep(index: number) {
     if (index >= this.steps.length) {
       this.complete();
       return;
@@ -113,32 +125,13 @@ export class OnboardingTutorial {
     this.currentStepIndex = index;
     const step = this.steps[index];
     
-    // Remove previous shape
-    if (this.currentShape) {
-      this.group.remove(this.currentShape);
-      (this.currentShape as any).geometry?.dispose?.();
-      (this.currentShape as any).material?.dispose?.();
+    // Use FeedStore to show the corresponding tutorial item
+    // Map step index to tutorial item index (first 3 steps use feed items)
+    if (index < this.tutorialItemIndices.length) {
+      const feedIndex = this.tutorialItemIndices[index];
+      this.store.index = feedIndex;
+      await this.store.showCurrent();
     }
-
-    // Create new shape
-    let geometry: THREE.BufferGeometry;
-    if (step.shape === 'sphere') {
-      geometry = new THREE.SphereGeometry(0.2, 32, 32);
-    } else if (step.shape === 'pyramid') {
-      geometry = new THREE.ConeGeometry(0.2, 0.4, 4);
-    } else {
-      geometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-    }
-
-    const material = new THREE.MeshStandardMaterial({
-      color: step.color,
-      metalness: 0.3,
-      roughness: 0.7,
-    });
-
-    this.currentShape = new THREE.Mesh(geometry, material);
-    this.currentShape.position.set(0, 0, 0);
-    this.group.add(this.currentShape);
 
     // Update panel
     this.updatePanel();
@@ -211,7 +204,16 @@ export class OnboardingTutorial {
     }
   }
 
-  show(camera: THREE.Camera) {
+  async show(camera: THREE.Camera) {
+    // Find tutorial items in feed (must be called after feed loads)
+    const hasTutorialItems = this.findTutorialItems();
+    
+    if (!hasTutorialItems) {
+      // No tutorial items found, skip tutorial
+      this.complete();
+      return;
+    }
+    
     this.group.visible = true;
     
     // Position 1.5m in front of camera
@@ -224,6 +226,9 @@ export class OnboardingTutorial {
     
     // Face camera
     this.group.lookAt(camera.position);
+    
+    // Start showing tutorial steps
+    await this.showStep(0);
   }
 
   hide() {
