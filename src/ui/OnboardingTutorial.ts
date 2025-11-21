@@ -257,18 +257,21 @@ export class OnboardingTutorial {
     const handler = () => {
       // Don't fire if loading or already fired
       if (handlerFired || this.isLoading) {
+        console.log(`[Tutorial] Handler blocked: handlerFired=${handlerFired}, isLoading=${this.isLoading}`);
         return;
       }
       
       // Only proceed if we're still on the same step and gesture matches
       if (this.currentStepIndex === stepIndex && 
           this.steps[stepIndex]?.gesture === expectedGesture) {
+        console.log(`[Tutorial] Handler executing for step ${stepIndex}, gesture: ${expectedGesture}`);
         handlerFired = true;
         clearTimeout(timeoutId); // Clear timeout since gesture was detected
         
         // Mark step as completed
         if (this.steps[stepIndex]) {
           this.steps[stepIndex].completed = true;
+          console.log(`[Tutorial] Step ${stepIndex} marked as completed`);
         }
         
         // Clear handlers immediately
@@ -280,8 +283,11 @@ export class OnboardingTutorial {
         
         // Advance to next step after brief delay for visual feedback
         setTimeout(() => {
+          console.log(`[Tutorial] Advancing to next step from step ${stepIndex}`);
           this.nextStep();
         }, 1500); // Slightly longer delay to show completion
+      } else {
+        console.log(`[Tutorial] Handler skipped: currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, gesture=${this.steps[stepIndex]?.gesture}, expected=${expectedGesture}`);
       }
     };
     
@@ -305,7 +311,7 @@ export class OnboardingTutorial {
       let rotationStartTime = 0;
       let totalRotation = 0; // Track cumulative rotation
       let initialRotY = this.store.rotationY; // Track starting rotation
-      let lastCheckTime = Date.now();
+      let lastProgressLog = 0; // Track last progress log to avoid spam
       const FULL_ROTATION = 2 * Math.PI; // 360 degrees in radians
       
       this.twoHandCheckInterval = window.setInterval(() => {
@@ -335,14 +341,15 @@ export class OnboardingTutorial {
           const absDelta = Math.abs(rotDelta);
           
           // Only count significant rotation (ignore jitter)
-          if (absDelta > 0.01) {
+          if (absDelta > 0.005) {
             totalRotation += absDelta;
             
             if (!rotationDetected) {
               rotationDetected = true;
               rotationStartTime = now;
               initialRotY = lastRotY;
-              console.log(`[Tutorial] Rotation started: initial=${initialRotY.toFixed(4)}, delta=${absDelta.toFixed(4)}, total=${totalRotation.toFixed(4)}`);
+              totalRotation = 0; // Reset when starting fresh
+              console.log(`[Tutorial] 🔄 Rotation started: initial=${initialRotY.toFixed(4)}`);
             }
             
             // Calculate progress percentage
@@ -352,33 +359,46 @@ export class OnboardingTutorial {
             if (totalRotation >= FULL_ROTATION) {
               if (!handlerFired) {
                 const timeHeld = now - rotationStartTime;
-                console.log(`[Tutorial] ✅ FULL ROTATION COMPLETE! Step ${stepIndex} - total=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°), time=${timeHeld}ms - marking complete!`);
+                console.log(`[Tutorial] ✅ FULL ROTATION COMPLETE! Step ${stepIndex} - total=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°), time=${timeHeld}ms`);
+                console.log(`[Tutorial] Calling handler() to mark step complete...`);
                 handlerFired = true; // Set immediately to prevent multiple calls
-                handler();
-                return; // Exit interval after completion
+                
+                // Call handler and verify it's called
+                try {
+                  handler();
+                  console.log(`[Tutorial] Handler called successfully`);
+                } catch (error) {
+                  console.error(`[Tutorial] Error calling handler:`, error);
+                }
+                
+                // Clear interval
+                if (this.twoHandCheckInterval) {
+                  clearInterval(this.twoHandCheckInterval);
+                  this.twoHandCheckInterval = null;
+                }
+                return;
               }
             } else {
-              // Log progress every 25% for feedback
+              // Log progress every 25% for feedback (avoid spam)
               const progressPercent = Math.floor(progress / 25) * 25;
-              if (progressPercent > 0 && progressPercent % 25 === 0 && progressPercent !== Math.floor((totalRotation - absDelta) / FULL_ROTATION * 100 / 25) * 25) {
-                console.log(`[Tutorial] Rotation progress: ${progressPercent}% (${totalRotation.toFixed(4)} rad / ${FULL_ROTATION.toFixed(4)} rad)`);
+              if (progressPercent > lastProgressLog && progressPercent > 0) {
+                lastProgressLog = progressPercent;
+                console.log(`[Tutorial] Rotation progress: ${progressPercent}% (${totalRotation.toFixed(4)} rad / ${FULL_ROTATION.toFixed(4)} rad = ${(totalRotation * 180 / Math.PI).toFixed(1)}° / 360°)`);
               }
             }
           }
           lastRotY = currentRotY;
-          lastCheckTime = now;
         } else {
           // Reset if hands not pinching - but keep progress if they resume quickly
           if (rotationDetected) {
             const timeSinceStart = now - rotationStartTime;
             // If hands released but rotation was in progress, reset after 2 seconds
             if (timeSinceStart > 2000) {
-              console.log(`[Tutorial] Hands released, resetting rotation detection (progress lost)`);
+              console.log(`[Tutorial] Hands released for >2s, resetting rotation detection (progress lost: ${totalRotation.toFixed(4)} rad)`);
               rotationDetected = false;
               totalRotation = 0;
+              lastProgressLog = 0;
               initialRotY = currentRotY;
-            } else {
-              console.log(`[Tutorial] Hands released briefly, keeping progress (${totalRotation.toFixed(4)} rad / ${FULL_ROTATION.toFixed(4)} rad)`);
             }
           }
           lastRotY = currentRotY;
