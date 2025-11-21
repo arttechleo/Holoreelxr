@@ -156,6 +156,8 @@ async function loadMainFeed() {
     // Wire up 3D panels to controls
     (controls as any).authPanel = xrAuthPanel;
     (controls as any).musicPanel = xrMusicPanel;
+    // Disable FeedControls during onboarding tutorial
+    controls.setOnboardingTutorial(onboarding);
     
     app.start();
   } catch (error) {

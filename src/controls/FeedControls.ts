@@ -128,6 +128,8 @@ export class FeedControls {
   private lastStableCheckAt = 0;
   private lastStableKind: 'like' | 'heart' | 'repost' | null = null;
 
+  private onboardingTutorial: any = null; // Reference to onboarding tutorial
+
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
     this.app.scene.add(this.rayGroup);
     this.initRay('left');
@@ -170,6 +172,12 @@ export class FeedControls {
     this.hands.on('rightpinchstart', () => this.onPinchStart('right'));
     this.hands.on('leftpinchend', () => this.onPinchEnd('left'));
     this.hands.on('rightpinchend', () => this.onPinchEnd('right'));
+  }
+
+  // Set onboarding tutorial reference to disable controls during tutorial
+  setOnboardingTutorial(tutorial: any) {
+    this.onboardingTutorial = tutorial;
+  }
 
     // Like gesture - thumbs up
     this.hands.on('thumbsupstart', (detail?: any) => {
@@ -674,6 +682,11 @@ export class FeedControls {
 
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
+    // Skip if onboarding tutorial is active
+    if (this.onboardingTutorial && this.onboardingTutorial.isVisible && this.onboardingTutorial.isVisible()) {
+      return;
+    }
+    
     // PRIORITY 1: Try clicking the MR HUD
     if (this.tryClickHud(side)) return;
 
@@ -718,6 +731,11 @@ export class FeedControls {
   }
 
   private onPinchEnd(side: 'left' | 'right') {
+    // Skip if onboarding tutorial is active
+    if (this.onboardingTutorial && this.onboardingTutorial.isVisible && this.onboardingTutorial.isVisible()) {
+      return;
+    }
+    
     this.setRayVisible(side, false);
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
     if (this.grabbing && this.grabSide === side) {
