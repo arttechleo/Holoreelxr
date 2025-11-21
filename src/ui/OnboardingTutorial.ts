@@ -299,12 +299,14 @@ export class OnboardingTutorial {
     }
     
     if (gesture === 'twohandrotate') {
-      // Check for two-hand rotation by monitoring rotation changes
+      // Check for two-hand rotation - require FULL rotation (360° / 2π radians)
       let lastRotY = this.store.rotationY;
       let rotationDetected = false;
       let rotationStartTime = 0;
       let totalRotation = 0; // Track cumulative rotation
+      let initialRotY = this.store.rotationY; // Track starting rotation
       let lastCheckTime = Date.now();
+      const FULL_ROTATION = 2 * Math.PI; // 360 degrees in radians
       
       this.twoHandCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
@@ -323,49 +325,66 @@ export class OnboardingTutorial {
         if (lp && rp) {
           // Both hands pinching - check if rotation changed
           // Handle wrap-around (rotation goes from 2π to 0 or vice versa)
-          let rotDelta = Math.abs(currentRotY - lastRotY);
-          // Handle wrap-around: if delta > π, it's actually the shorter path around
-          if (rotDelta > Math.PI) {
-            rotDelta = 2 * Math.PI - rotDelta;
-          }
+          let rotDelta = currentRotY - lastRotY;
           
-          // Lower threshold for easier detection (0.02 radians ≈ 1.15 degrees)
-          if (rotDelta > 0.02) {
-            totalRotation += rotDelta;
+          // Handle wrap-around: normalize to [-π, π] range
+          while (rotDelta > Math.PI) rotDelta -= 2 * Math.PI;
+          while (rotDelta < -Math.PI) rotDelta += 2 * Math.PI;
+          
+          // Track rotation direction (positive = clockwise, negative = counter-clockwise)
+          const absDelta = Math.abs(rotDelta);
+          
+          // Only count significant rotation (ignore jitter)
+          if (absDelta > 0.01) {
+            totalRotation += absDelta;
             
             if (!rotationDetected) {
               rotationDetected = true;
               rotationStartTime = now;
-              console.log(`[Tutorial] Rotation started: delta=${rotDelta.toFixed(4)}, total=${totalRotation.toFixed(4)}`);
+              initialRotY = lastRotY;
+              console.log(`[Tutorial] Rotation started: initial=${initialRotY.toFixed(4)}, delta=${absDelta.toFixed(4)}, total=${totalRotation.toFixed(4)}`);
             }
             
-            // Complete if: rotation detected AND (held for 500ms OR total rotation > 0.2 radians ≈ 11.5 degrees)
-            const timeHeld = now - rotationStartTime;
-            const hasEnoughRotation = totalRotation > 0.2; // ~11.5 degrees total
-            const hasHeldTime = timeHeld > 500;
+            // Calculate progress percentage
+            const progress = (totalRotation / FULL_ROTATION) * 100;
             
-            if (rotationDetected && (hasHeldTime || hasEnoughRotation)) {
+            // Complete when FULL rotation (360°) is achieved
+            if (totalRotation >= FULL_ROTATION) {
               if (!handlerFired) {
-                console.log(`[Tutorial] ✅ Two-hand rotate detected on step ${stepIndex} - delta=${rotDelta.toFixed(4)}, total=${totalRotation.toFixed(4)}, time=${timeHeld}ms - marking complete!`);
+                const timeHeld = now - rotationStartTime;
+                console.log(`[Tutorial] ✅ FULL ROTATION COMPLETE! Step ${stepIndex} - total=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°), time=${timeHeld}ms - marking complete!`);
                 handlerFired = true; // Set immediately to prevent multiple calls
                 handler();
                 return; // Exit interval after completion
+              }
+            } else {
+              // Log progress every 25% for feedback
+              const progressPercent = Math.floor(progress / 25) * 25;
+              if (progressPercent > 0 && progressPercent % 25 === 0 && progressPercent !== Math.floor((totalRotation - absDelta) / FULL_ROTATION * 100 / 25) * 25) {
+                console.log(`[Tutorial] Rotation progress: ${progressPercent}% (${totalRotation.toFixed(4)} rad / ${FULL_ROTATION.toFixed(4)} rad)`);
               }
             }
           }
           lastRotY = currentRotY;
           lastCheckTime = now;
         } else {
-          // Reset if hands not pinching
+          // Reset if hands not pinching - but keep progress if they resume quickly
           if (rotationDetected) {
-            console.log(`[Tutorial] Hands released, resetting rotation detection`);
+            const timeSinceStart = now - rotationStartTime;
+            // If hands released but rotation was in progress, reset after 2 seconds
+            if (timeSinceStart > 2000) {
+              console.log(`[Tutorial] Hands released, resetting rotation detection (progress lost)`);
+              rotationDetected = false;
+              totalRotation = 0;
+              initialRotY = currentRotY;
+            } else {
+              console.log(`[Tutorial] Hands released briefly, keeping progress (${totalRotation.toFixed(4)} rad / ${FULL_ROTATION.toFixed(4)} rad)`);
+            }
           }
-          rotationDetected = false;
-          totalRotation = 0;
           lastRotY = currentRotY;
         }
       }, 100);
-      console.log(`[Tutorial] Registered two-hand rotate detector for step ${stepIndex}`);
+      console.log(`[Tutorial] Registered two-hand rotate detector for step ${stepIndex} - requires FULL rotation (360° / ${FULL_ROTATION.toFixed(4)} rad)`);
     } else if (gesture === 'twohandscale') {
       // Check for two-hand scale by monitoring scale changes
       let lastScale = this.store.scale;
