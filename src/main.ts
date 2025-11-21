@@ -10,6 +10,8 @@ import { AssetLinkManager } from './feed/AssetLinkManager';
 import { AuthManager } from './auth/AuthManager';
 import { MusicManager } from './music/MusicManager';
 import { AssetLinkUI } from './ui/AssetLinkUI';
+import { AuthUI } from './ui/AuthUI';
+import { MusicUI } from './ui/MusicUI';
 import { XRAuthPanel } from './ui/XRAuthPanel';
 import { XRMusicPanel } from './ui/XRMusicPanel';
 import { OnboardingTutorial } from './ui/OnboardingTutorial';
@@ -40,11 +42,11 @@ musicUI.hide();
 const xrAuthPanel = new XRAuthPanel(authMgr, app.scene);
 const xrMusicPanel = new XRMusicPanel(musicMgr, app.scene);
 
-// Onboarding tutorial
+// Onboarding tutorial (only shows in XR)
 const onboarding = new OnboardingTutorial(app.scene, hands, store);
 onboarding.setOnComplete(() => {
   onboarding.hide();
-  // Start loading feed after tutorial
+  // Start loading feed after tutorial completes
   loadMainFeed();
 });
 
@@ -93,8 +95,11 @@ async function loadMainFeed() {
   }
 }
 
+// Load feed immediately for desktop, or wait for onboarding in XR
 (async () => {
   try {
+    // Load feed for desktop (onboarding only shows in XR)
+    await loadMainFeed();
 
   // Keep joints flowing
   app.onFrame((info) => { 

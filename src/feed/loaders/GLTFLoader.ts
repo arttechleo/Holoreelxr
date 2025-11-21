@@ -1,26 +1,14 @@
 // src/feed/loaders/GLTFLoader.ts
 import * as THREE from 'three';
 import { retry, logError, AssetLoadError } from '../../utils/errors';
-
-// Type declaration for GLTFLoader
-declare module 'three/examples/jsm/loaders/GLTFLoader.js' {
-  import * as THREE from 'three';
-  export class GLTFLoader {
-    load(
-      url: string,
-      onLoad: (gltf: { scene: THREE.Group; animations: THREE.AnimationClip[] }) => void,
-      onProgress?: (ev: ProgressEvent<EventTarget>) => void,
-      onError?: (err: unknown) => void
-    ): void;
-  }
-}
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export class GLTFModelLoader {
-  private loader: any;
+  private loader: GLTFLoader;
   private disposed = false;
 
   constructor() {
-    this.loader = new ThreeGLTFLoader();
+    this.loader = new GLTFLoader();
   }
 
   async load(url: string): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
