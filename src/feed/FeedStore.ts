@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { SplatSequence } from './loaders/SplatSequence';
+import { GLTFModelLoader } from './loaders/GLTFLoader';
 import { logError } from '../utils/errors';
 
 type ShapeKind = 'box' | 'sphere' | 'pyramid';
