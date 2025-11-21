@@ -164,6 +164,10 @@ export class OnboardingTutorial {
         }
         // Clear loading state after shape is ready
         this.isLoading = false;
+        // Set up gesture handlers now that loading is complete
+        if (this.currentStepIndex === index && step.gesture) {
+          this.waitForGesture(step.gesture);
+        }
       });
     } else {
       // No model to load, clear loading immediately
@@ -173,14 +177,13 @@ export class OnboardingTutorial {
     // Update panel
     this.updatePanel();
 
-    // Listen for gesture completion (only after loading is complete)
+    // Listen for gesture completion
     if (step.gesture) {
-      // Wait a bit for loading to complete before setting up gesture handlers
-      setTimeout(() => {
-        if (this.currentStepIndex === index && !this.isLoading) {
-          this.waitForGesture(step.gesture);
-        }
-      }, 100);
+      // If no model to load, set up handlers immediately
+      if (index >= this.tutorialItemIndices.length) {
+        this.waitForGesture(step.gesture);
+      }
+      // Otherwise, handlers will be set up in requestAnimationFrame above
     } else {
       // Auto-advance after 3 seconds for welcome step
       setTimeout(() => {
@@ -192,9 +195,9 @@ export class OnboardingTutorial {
   }
 
   private waitForGesture(gesture: string) {
-    // Don't set up handlers if we're loading
+    // Don't set up handlers if we're loading - retry after a short delay
     if (this.isLoading) {
-      setTimeout(() => this.waitForGesture(gesture), 100);
+      setTimeout(() => this.waitForGesture(gesture), 200);
       return;
     }
     
@@ -202,35 +205,51 @@ export class OnboardingTutorial {
     this.clearGestureHandlers();
     
     const stepIndex = this.currentStepIndex; // Capture current step
-    const expectedGesture = this.steps[stepIndex].gesture;
+    const expectedGesture = this.steps[stepIndex]?.gesture;
+    
+    if (!expectedGesture) {
+      console.warn('No gesture expected for step', stepIndex);
+      return;
+    }
+    
     let handlerFired = false; // Prevent multiple fires
     
-    // Add timeout to prevent freezing - auto-skip after 30 seconds
+    // Add timeout to prevent freezing - auto-skip after 15 seconds (reduced from 30)
     const timeoutId = setTimeout(() => {
       if (!handlerFired && this.currentStepIndex === stepIndex && !this.isLoading) {
         console.warn(`Tutorial step ${stepIndex} timed out, auto-advancing...`);
         handlerFired = true;
-        this.steps[stepIndex].completed = true;
+        if (this.steps[stepIndex]) {
+          this.steps[stepIndex].completed = true;
+        }
         this.clearGestureHandlers();
         this.nextStep();
       }
-    }, 30000); // 30 second timeout
+    }, 15000); // 15 second timeout (reduced for faster progression)
     
     const handler = () => {
       // Don't fire if loading or already fired
-      if (handlerFired || this.isLoading) return;
+      if (handlerFired || this.isLoading) {
+        return;
+      }
       
-      // Only proceed if we're still on the same step
-      if (this.currentStepIndex === stepIndex && this.steps[stepIndex].gesture === expectedGesture) {
+      // Only proceed if we're still on the same step and gesture matches
+      if (this.currentStepIndex === stepIndex && 
+          this.steps[stepIndex]?.gesture === expectedGesture) {
         handlerFired = true;
         clearTimeout(timeoutId); // Clear timeout since gesture was detected
-        this.steps[stepIndex].completed = true;
+        if (this.steps[stepIndex]) {
+          this.steps[stepIndex].completed = true;
+        }
         this.clearGestureHandlers();
+        console.log(`Tutorial step ${stepIndex} completed!`);
         setTimeout(() => this.nextStep(), 1000);
       }
     };
     
     // Register appropriate listeners based on gesture type
+    console.log(`[Tutorial] Setting up gesture handler for step ${stepIndex}: ${gesture}`);
+    
     if (gesture === 'pinch' || gesture === 'scroll') {
       // For pinch/scroll, listen to both left and right (scroll is just a pinch)
       // Use a debounced handler to prevent rapid fires
@@ -239,6 +258,7 @@ export class OnboardingTutorial {
         const now = Date.now();
         if (now - lastFireTime < 500) return; // Debounce 500ms
         lastFireTime = now;
+        console.log(`[Tutorial] Pinch gesture detected on step ${stepIndex}`);
         handler();
       };
       
@@ -248,12 +268,17 @@ export class OnboardingTutorial {
         { event: 'leftpinchstart', handler: debouncedHandler },
         { event: 'rightpinchstart', handler: debouncedHandler }
       );
+      console.log(`[Tutorial] Registered pinch handlers for step ${stepIndex}`);
     } else if (gesture === 'thumbsup') {
       this.hands.on('thumbsupstart', handler);
       this.currentGestureHandlers.push({ event: 'thumbsupstart', handler });
+      console.log(`[Tutorial] Registered thumbsup handler for step ${stepIndex}`);
     } else if (gesture === 'heart') {
       this.hands.on('heartstart', handler);
       this.currentGestureHandlers.push({ event: 'heartstart', handler });
+      console.log(`[Tutorial] Registered heart handler for step ${stepIndex}`);
+    } else {
+      console.warn(`[Tutorial] Unknown gesture type: ${gesture}`);
     }
   }
   
@@ -266,6 +291,7 @@ export class OnboardingTutorial {
   }
 
   private nextStep() {
+    console.log(`[Tutorial] Moving from step ${this.currentStepIndex} to step ${this.currentStepIndex + 1}`);
     this.showStep(this.currentStepIndex + 1);
   }
 
