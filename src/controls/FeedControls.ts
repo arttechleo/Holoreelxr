@@ -1027,22 +1027,47 @@ export class FeedControls {
   }
   private updateGrabDrag() {
     if (!this.grabbing || !this.grabSide) return;
-    const other = this.grabSide === 'left' ? 'right' : 'left';
-    if (this.hands.state[this.grabSide].pinch && this.hands.state[other].pinch) {
+    
+    try {
+      const other = this.grabSide === 'left' ? 'right' : 'left';
+      if (this.hands.state[this.grabSide].pinch && this.hands.state[other].pinch) {
+        this.grabbing = false;
+        this.grabSide = null;
+        this.store.notify('Grab canceled (two-hand mode)');
+        return;
+      }
+      if (!this.hands.state[this.grabSide].pinch) {
+        this.grabbing = false;
+        this.grabSide = null;
+        this.store.notify('Placed');
+        return;
+      }
+      const mid = this.hands.pinchMid(this.grabSide);
+      if (!mid) {
+        // If we lose hand tracking, cancel grab to prevent freeze
+        this.grabbing = false;
+        this.grabSide = null;
+        return;
+      }
+      
+      // Only update position if object exists
+      const objPos = this.store.getObjectWorldPos();
+      if (!objPos) {
+        // Object doesn't exist, cancel grab
+        this.grabbing = false;
+        this.grabSide = null;
+        return;
+      }
+      
+      // Update position safely
+      const newPos = mid.clone().add(this.grabOffset);
+      this.store.setPosition(newPos);
+    } catch (error) {
+      // If any error occurs, cancel grab to prevent freeze
+      logError(error, 'FeedControls.updateGrabDrag');
       this.grabbing = false;
       this.grabSide = null;
-      this.store.notify('Grab canceled (two-hand mode)');
-      return;
     }
-    if (!this.hands.state[this.grabSide].pinch) {
-      this.grabbing = false;
-      this.grabSide = null;
-      this.store.notify('Placed');
-      return;
-    }
-    const mid = this.hands.pinchMid(this.grabSide);
-    if (!mid) return;
-    this.store.setPosition(mid.clone().add(this.grabOffset));
   }
 
   // helpers
