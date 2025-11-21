@@ -255,16 +255,19 @@ export class OnboardingTutorial {
     }, 15000); // 15 second timeout (reduced for faster progression)
     
     const handler = () => {
-      // Don't fire if loading or already fired
-      if (handlerFired || this.isLoading) {
-        console.log(`[Tutorial] Handler blocked: handlerFired=${handlerFired}, isLoading=${this.isLoading}`);
+      // Don't fire if loading or already fired - but allow if handlerFired was set by interval
+      if (this.isLoading) {
+        console.log(`[Tutorial] Handler blocked: isLoading=${this.isLoading}`);
         return;
       }
       
       // Only proceed if we're still on the same step and gesture matches
       if (this.currentStepIndex === stepIndex && 
-          this.steps[stepIndex]?.gesture === expectedGesture) {
+          this.steps[stepIndex]?.gesture === expectedGesture &&
+          !this.steps[stepIndex]?.completed) {
         console.log(`[Tutorial] Handler executing for step ${stepIndex}, gesture: ${expectedGesture}`);
+        
+        // Set handlerFired to prevent multiple calls
         handlerFired = true;
         clearTimeout(timeoutId); // Clear timeout since gesture was detected
         
@@ -274,7 +277,7 @@ export class OnboardingTutorial {
           console.log(`[Tutorial] Step ${stepIndex} marked as completed`);
         }
         
-        // Clear handlers immediately
+        // Clear handlers immediately to prevent interference
         this.clearGestureHandlers();
         
         // Show success feedback
@@ -283,11 +286,16 @@ export class OnboardingTutorial {
         
         // Advance to next step after brief delay for visual feedback
         setTimeout(() => {
-          console.log(`[Tutorial] Advancing to next step from step ${stepIndex}`);
-          this.nextStep();
+          // Double-check we're still on the same step before advancing
+          if (this.currentStepIndex === stepIndex) {
+            console.log(`[Tutorial] Advancing to next step from step ${stepIndex}`);
+            this.nextStep();
+          } else {
+            console.log(`[Tutorial] Step changed during delay (current: ${this.currentStepIndex}), skipping advance`);
+          }
         }, 1500); // Slightly longer delay to show completion
       } else {
-        console.log(`[Tutorial] Handler skipped: currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, gesture=${this.steps[stepIndex]?.gesture}, expected=${expectedGesture}`);
+        console.log(`[Tutorial] Handler skipped: currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, gesture=${this.steps[stepIndex]?.gesture}, expected=${expectedGesture}, completed=${this.steps[stepIndex]?.completed}`);
       }
     };
     
@@ -370,24 +378,34 @@ export class OnboardingTutorial {
           const hasAnyRotationWithTime = totalRotation > 0.1 && timeHeld > 3000; // At least 0.1 rad (~6°) after 3 seconds
           
           if (hasEnoughRotation || hasAnyRotationWithTime) {
-            if (!handlerFired) {
+            if (!handlerFired && this.currentStepIndex === stepIndex) {
               const rotationType = hasEnoughRotation ? '60° rotation' : 'fallback (any rotation + time)';
               console.log(`[Tutorial] ✅ ROTATION COMPLETE! Step ${stepIndex} - ${rotationType} - total=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°), required=${(REQUIRED_ROTATION * 180 / Math.PI).toFixed(1)}°, time=${timeHeld}ms`);
               console.log(`[Tutorial] Calling handler() to mark step complete...`);
               
-              // Call handler - it will set handlerFired internally to prevent multiple calls
+              // Set handlerFired immediately to prevent multiple calls
+              handlerFired = true;
+              
+              // Clear interval first to prevent further checks
+              if (this.twoHandCheckInterval) {
+                clearInterval(this.twoHandCheckInterval);
+                this.twoHandCheckInterval = null;
+              }
+              
+              // Call handler - it will handle the rest
               try {
                 handler();
                 console.log(`[Tutorial] Handler called successfully`);
               } catch (error) {
                 console.error(`[Tutorial] Error calling handler:`, error);
+                // If handler fails, manually advance step
+                if (this.currentStepIndex === stepIndex && this.steps[stepIndex]) {
+                  this.steps[stepIndex].completed = true;
+                  this.clearGestureHandlers();
+                  setTimeout(() => this.nextStep(), 500);
+                }
               }
               
-              // Clear interval
-              if (this.twoHandCheckInterval) {
-                clearInterval(this.twoHandCheckInterval);
-                this.twoHandCheckInterval = null;
-              }
               return;
             }
           } else {
@@ -456,10 +474,31 @@ export class OnboardingTutorial {
             const hasHeldTime = timeHeld > 500;
             
             if (scaleDetected && (hasHeldTime || hasEnoughChange)) {
-              if (!handlerFired) {
+              if (!handlerFired && this.currentStepIndex === stepIndex) {
                 console.log(`[Tutorial] ✅ Two-hand scale detected on step ${stepIndex} - delta=${scaleDelta.toFixed(4)}, total=${totalScaleChange.toFixed(4)}, time=${timeHeld}ms - marking complete!`);
-                // Call handler - it will set handlerFired internally to prevent multiple calls
-                handler();
+                
+                // Set handlerFired immediately to prevent multiple calls
+                handlerFired = true;
+                
+                // Clear interval first to prevent further checks
+                if (this.twoHandCheckInterval) {
+                  clearInterval(this.twoHandCheckInterval);
+                  this.twoHandCheckInterval = null;
+                }
+                
+                // Call handler - it will handle the rest
+                try {
+                  handler();
+                } catch (error) {
+                  console.error(`[Tutorial] Error calling handler:`, error);
+                  // If handler fails, manually advance step
+                  if (this.currentStepIndex === stepIndex && this.steps[stepIndex]) {
+                    this.steps[stepIndex].completed = true;
+                    this.clearGestureHandlers();
+                    setTimeout(() => this.nextStep(), 500);
+                  }
+                }
+                
                 return; // Exit interval after completion
               }
             }
@@ -489,10 +528,31 @@ export class OnboardingTutorial {
         
         // Check if grab is active in FeedControls
         if (this.feedControls && (this.feedControls as any).grabbing === true) {
-          if (!handlerFired) {
+          if (!handlerFired && this.currentStepIndex === stepIndex) {
             console.log(`[Tutorial] ✅ Grab detected on step ${stepIndex} - marking complete!`);
-            // Call handler - it will set handlerFired internally to prevent multiple calls
-            handler();
+            
+            // Set handlerFired immediately to prevent multiple calls
+            handlerFired = true;
+            
+            // Clear interval first to prevent further checks
+            if (this.grabCheckInterval) {
+              clearInterval(this.grabCheckInterval);
+              this.grabCheckInterval = null;
+            }
+            
+            // Call handler - it will handle the rest
+            try {
+              handler();
+            } catch (error) {
+              console.error(`[Tutorial] Error calling handler:`, error);
+              // If handler fails, manually advance step
+              if (this.currentStepIndex === stepIndex && this.steps[stepIndex]) {
+                this.steps[stepIndex].completed = true;
+                this.clearGestureHandlers();
+                setTimeout(() => this.nextStep(), 500);
+              }
+            }
+            
             return; // Exit interval after completion
           }
         }
