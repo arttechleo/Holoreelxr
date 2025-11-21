@@ -172,10 +172,15 @@ export class OnboardingTutorial {
     
     const stepIndex = this.currentStepIndex; // Capture current step
     const expectedGesture = this.steps[stepIndex].gesture;
+    let handlerFired = false; // Prevent multiple fires
     
     const handler = () => {
+      // Prevent multiple fires
+      if (handlerFired) return;
+      
       // Only proceed if we're still on the same step
       if (this.currentStepIndex === stepIndex && this.steps[stepIndex].gesture === expectedGesture) {
+        handlerFired = true;
         this.steps[stepIndex].completed = true;
         this.clearGestureHandlers();
         setTimeout(() => this.nextStep(), 1000);
