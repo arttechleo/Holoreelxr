@@ -46,8 +46,9 @@ const xrMusicPanel = new XRMusicPanel(musicMgr, app.scene);
 const onboarding = new OnboardingTutorial(app.scene, hands, store);
 onboarding.setOnComplete(() => {
   onboarding.hide();
-  // Start loading feed after tutorial completes
-  loadMainFeed();
+  // After tutorial, continue with remaining feed items
+  // Feed is already loaded, just show current item
+  store.showCurrent().catch(err => logError(err, 'Show current after tutorial'));
 });
 
 // Sync asset links to feed when added
@@ -98,8 +99,16 @@ async function loadMainFeed() {
 // Load feed immediately for desktop, or wait for onboarding in XR
 (async () => {
   try {
-    // Load feed for desktop (onboarding only shows in XR)
+    // Load feed first (needed for onboarding tutorial items)
     await loadMainFeed();
+    
+    // Show onboarding in XR, or show first item on desktop
+    if (app.renderer.xr.isPresenting) {
+      onboarding.show(app.camera);
+    } else {
+      // Desktop: show first item immediately
+      await store.showCurrent();
+    }
 
   // Keep joints flowing
   app.onFrame((info) => { 
@@ -138,6 +147,9 @@ async function loadMainFeed() {
 
     store.setPosition(target);
     hud.toast(`${mode.toUpperCase()} ready - Model placed in front of you`);
+    
+    // Show onboarding tutorial in XR
+    onboarding.show(cam);
   });
 
     const controls = new FeedControls(app, hands, store);
