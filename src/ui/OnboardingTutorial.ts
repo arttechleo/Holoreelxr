@@ -174,6 +174,17 @@ export class OnboardingTutorial {
     const expectedGesture = this.steps[stepIndex].gesture;
     let handlerFired = false; // Prevent multiple fires
     
+    // Add timeout to prevent freezing - auto-skip after 30 seconds
+    const timeoutId = setTimeout(() => {
+      if (!handlerFired && this.currentStepIndex === stepIndex) {
+        console.warn(`Tutorial step ${stepIndex} timed out, auto-advancing...`);
+        handlerFired = true;
+        this.steps[stepIndex].completed = true;
+        this.clearGestureHandlers();
+        this.nextStep();
+      }
+    }, 30000); // 30 second timeout
+    
     const handler = () => {
       // Prevent multiple fires
       if (handlerFired) return;
@@ -181,6 +192,7 @@ export class OnboardingTutorial {
       // Only proceed if we're still on the same step
       if (this.currentStepIndex === stepIndex && this.steps[stepIndex].gesture === expectedGesture) {
         handlerFired = true;
+        clearTimeout(timeoutId); // Clear timeout since gesture was detected
         this.steps[stepIndex].completed = true;
         this.clearGestureHandlers();
         setTimeout(() => this.nextStep(), 1000);
@@ -190,11 +202,20 @@ export class OnboardingTutorial {
     // Register appropriate listeners based on gesture type
     if (gesture === 'pinch' || gesture === 'scroll') {
       // For pinch/scroll, listen to both left and right (scroll is just a pinch)
-      this.hands.on('leftpinchstart', handler);
-      this.hands.on('rightpinchstart', handler);
+      // Use a debounced handler to prevent rapid fires
+      let lastFireTime = 0;
+      const debouncedHandler = () => {
+        const now = Date.now();
+        if (now - lastFireTime < 500) return; // Debounce 500ms
+        lastFireTime = now;
+        handler();
+      };
+      
+      this.hands.on('leftpinchstart', debouncedHandler);
+      this.hands.on('rightpinchstart', debouncedHandler);
       this.currentGestureHandlers.push(
-        { event: 'leftpinchstart', handler },
-        { event: 'rightpinchstart', handler }
+        { event: 'leftpinchstart', handler: debouncedHandler },
+        { event: 'rightpinchstart', handler: debouncedHandler }
       );
     } else if (gesture === 'thumbsup') {
       this.hands.on('thumbsupstart', handler);
