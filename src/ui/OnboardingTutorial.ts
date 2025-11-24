@@ -1416,7 +1416,16 @@ export class OnboardingTutorial {
     
     // Use window.setTimeout and store for cleanup if needed
     window.setTimeout(() => {
+      // CRITICAL: Hide tutorial and mark as inactive BEFORE navigating
+      // This ensures isTutorialActive() returns false immediately
       this.group.visible = false;
+      this.isLoading = false; // Ensure loading is false
+      
+      // Reset all tutorial step indices to ensure checks return false
+      this.grabStepIndex = -1;
+      this.scrollStepIndex = -1;
+      
+      console.log('[Tutorial] ✅ Tutorial completed - all features re-enabled');
       
       const targetIndex = this.firstNonTutorialIndex > 0 ? 
         Math.min(this.firstNonTutorialIndex, this.store.items.length - 1) : 
