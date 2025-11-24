@@ -842,42 +842,28 @@ export class FeedControls {
 
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
-    // CRITICAL: Check tutorial steps FIRST - before doing ANYTHING
-    // This prevents FeedControls from interfering with tutorial interactions
+    // CRITICAL: Only check tutorial if it's ACTUALLY active
+    // After tutorial completion, isTutorialActive() returns false, so all checks pass
     if (this.onboardingTutorial) {
       const tutorial = this.onboardingTutorial as any;
-      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
-        // Tutorial is handling grab - completely disable FeedControls grab
-        console.log(`[FeedControls] Tutorial grab step active - disabling FeedControls grab`);
-        return;
-      }
-      if (tutorial.isScrollStepActive && tutorial.isScrollStepActive()) {
-        // Tutorial is handling scroll - completely disable FeedControls scroll
-        console.log(`[FeedControls] Tutorial scroll step active - disabling FeedControls scroll`);
-        return;
-      }
-    }
-    
-    // CRITICAL: Only block if tutorial is ACTUALLY active (not just visible)
-    // After tutorial completion, isTutorialActive() returns false, so FeedControls works normally
-    if (this.onboardingTutorial) {
-      const tutorial = this.onboardingTutorial as any;
-      // Use isTutorialActive() instead of isVisible() - more accurate
+      // Use isTutorialActive() as primary check - more reliable
       if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
-        const currentStep = tutorial.steps?.[tutorial.currentStepIndex];
-        const currentGesture = currentStep?.gesture;
-        
-        // Always allow grab, two-hand rotate, and two-hand scale during tutorial
-        // These are essential interactions that should always work
-        if (currentGesture === 'grab' || currentGesture === 'twohandrotate' || currentGesture === 'twohandscale') {
-          // Allow these interactions to proceed - don't block
-        } else if (currentGesture) {
-          // Block other interactions during tutorial (like scroll)
+        // Tutorial is active - check specific steps
+        if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+          // Tutorial is handling grab - completely disable FeedControls grab
+          console.log(`[FeedControls] Tutorial grab step active - disabling FeedControls grab`);
           return;
         }
-        // If no gesture specified, allow interactions (e.g., welcome step)
+        if (tutorial.isScrollStepActive && tutorial.isScrollStepActive()) {
+          // Tutorial is handling scroll - completely disable FeedControls scroll
+          console.log(`[FeedControls] Tutorial scroll step active - disabling FeedControls scroll`);
+          return;
+        }
+        
+        // For other tutorial steps, allow grab/scroll to work normally
+        // This ensures users can still interact during tutorial
       }
-      // Don't block if tutorial is not active - FeedControls should work normally
+      // If tutorial is not active, proceed normally - FeedControls works fully
     }
     
     // PRIORITY 1: Try clicking the MR HUD
@@ -1026,19 +1012,37 @@ export class FeedControls {
     const distSurf = this.distanceToObjectSurface(mid);
     if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) {
       // Too close to object - might be trying to grab
-      return;
-    }
-
-    // Auto-arm scroll if hand is far enough from object
-    if (!this.scrollArmed && distSurf != null && distSurf >= this.SCROLL_START_FAR) {
-      this.scrollArmed = true;
+      // But allow scroll to arm on movement even if close
+      if (!this.scrollArmed) {
+        // Check if we have vertical movement - arm on movement
+        if (this.lastPinchY != null) {
+          const y = mid.y;
+          const dy = Math.abs(y - this.lastPinchY);
+          if (dy > 0.01) { // 1cm movement = arm scroll
+            this.scrollArmed = true;
+            console.log(`[Scroll] Armed by movement: ${(dy * 100).toFixed(1)}cm`);
+          }
+        }
+        if (!this.scrollArmed) {
+          return; // Not armed yet, wait for movement
+        }
+      }
+    } else {
+      // Auto-arm scroll if hand is far enough from object
+      if (!this.scrollArmed && distSurf != null && distSurf >= this.SCROLL_START_FAR) {
+        this.scrollArmed = true;
+        console.log(`[Scroll] Armed by distance: ${distSurf.toFixed(3)}m`);
+      }
     }
     
     // Must be armed to scroll
     if (!this.scrollArmed) {
-      // Reset scroll state if not armed
-      this.lastPinchY = null;
-      this.filtPinchY = null;
+      // Initialize tracking even if not armed yet
+      const y = mid.y;
+      if (this.lastPinchY == null && y != null) {
+        this.lastPinchY = y;
+        this.filtPinchY = y;
+      }
       if (this.scrollRay) this.scrollRay.visible = false;
       return;
     }
@@ -1209,13 +1213,18 @@ export class FeedControls {
     }
   }
   private tryStartGrabPending(side: 'left' | 'right') {
-    // CRITICAL: Disable FeedControls grab during tutorial grab step
+    // CRITICAL: Only disable if tutorial is ACTUALLY active and on grab step
+    // After tutorial completion, isGrabStepActive() returns false, so grab works normally
     if (this.onboardingTutorial) {
       const tutorial = this.onboardingTutorial as any;
-      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
-        // Tutorial is handling grab - don't interfere
-        return;
+      // Use isTutorialActive() as primary check - more reliable
+      if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
+        if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+          // Tutorial is handling grab - don't interfere
+          return;
+        }
       }
+      // If tutorial is not active, grab works normally
     }
     
     if (this.grabbing || this.grabPending) return;
@@ -1288,18 +1297,23 @@ export class FeedControls {
     // We only cancel if user releases pinch or other hand pinches
   }
   private updateGrabDrag() {
-    // CRITICAL: Disable FeedControls grab during tutorial grab step
+    // CRITICAL: Only disable if tutorial is ACTUALLY active and on grab step
+    // After tutorial completion, isGrabStepActive() returns false, so grab works normally
     if (this.onboardingTutorial) {
       const tutorial = this.onboardingTutorial as any;
-      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
-        // Tutorial is handling grab - disable FeedControls grab
-        if (this.grabbing) {
-          this.grabbing = false;
-          this.grabSide = null;
-          console.log(`[FeedControls] Grab disabled - tutorial is handling grab`);
+      // Use isTutorialActive() as primary check - more reliable
+      if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
+        if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+          // Tutorial is handling grab - disable FeedControls grab
+          if (this.grabbing) {
+            this.grabbing = false;
+            this.grabSide = null;
+            console.log(`[FeedControls] Grab disabled - tutorial is handling grab`);
+          }
+          return;
         }
-        return;
       }
+      // If tutorial is not active, grab works normally
     }
     
     if (!this.grabbing || !this.grabSide) {
