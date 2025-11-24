@@ -118,7 +118,8 @@ async function loadMainFeed() {
     xrMusicPanel.update(app.camera);
     
     // Update tutorial panel position to the right of the 3D model
-    if (onboarding.isVisible()) {
+    // CRITICAL: Only update if tutorial is actually active
+    if (onboarding.isVisible() && (onboarding as any).isTutorialActive?.()) {
       const objPos = store.getObjectWorldPos();
       const camPos = new THREE.Vector3();
       app.camera.getWorldPosition(camPos);
@@ -127,6 +128,7 @@ async function loadMainFeed() {
       }
       
       // Update tutorial grab system (frame-based, reliable)
+      // Only call if tutorial is actually active
       (onboarding as any).updateGrab?.(info);
     }
   });
