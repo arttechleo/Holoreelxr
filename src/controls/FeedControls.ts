@@ -895,13 +895,13 @@ export class FeedControls {
     // const pinch = this.hands.pinchMid(side);
     // const d = pinch ? this.distanceToObjectSurface(pinch) : null;
     
-    // CRITICAL: Always try grab first if object exists, regardless of distance
-    // This makes grab more reliable - user can grab from any distance
+    // CRITICAL: Scroll has priority - activate quickly for feed navigation
+    // Only start grab if user is very close to object (clear intent to grab)
     const objPosNow = this.store.getObjectWorldPos();
     const objExists = !!this.store.getObject();
     
     if (objExists && objPosNow && pinch) {
-      // Instant grab if very close to object
+      // Instant grab if VERY close to object (clear grab intent)
       if (d != null && d <= this.INSTANT_GRAB_DIST) {
         console.log(`[FeedControls] ✅ Instant grab activated! Distance: ${d.toFixed(3)}m`);
         this.grabbing = true;
@@ -912,21 +912,19 @@ export class FeedControls {
         return;
       }
       
-      // If not instant grab, try grab pending (works from any distance)
-      // This ensures grab always works, even if far from object
-      this.scrollDisarmedThisPinch = true;
-      this.tryStartGrabPending(side);
-    } else if (d != null && d >= this.SCROLL_START_FAR) {
-      // Far from object - arm scroll (but wait for hold time before actually scrolling)
-      // Don't set scrollArmed immediately - let updateScroll handle it after hold time
-      // This ensures grab has priority if user moves closer
-      console.log(`[FeedControls] Far from object (${d.toFixed(3)}m) - scroll will arm after hold time`);
-    } else {
-      // Close to object or unknown distance - prioritize grab
-      if (d != null) {
-        this.scrollDisarmedThisPinch = true;
+      // If moderately close, start grab pending but allow scroll to override
+      // Scroll can still trigger if user moves hand vertically (feed navigation intent)
+      if (d != null && d <= 0.15) { // Within 15cm - likely grab intent
         this.tryStartGrabPending(side);
+        // Don't disarm scroll - let user's movement decide (scroll vs grab)
+      } else {
+        // Far from object - prioritize scroll (feed navigation)
+        // Don't start grab pending - scroll is the primary action
+        console.log(`[FeedControls] Far from object (${d.toFixed(3)}m) - scroll prioritized`);
       }
+    } else if (d != null && d >= this.SCROLL_START_FAR) {
+      // Very far from object - definitely scroll
+      console.log(`[FeedControls] Very far from object (${d.toFixed(3)}m) - scroll prioritized`);
     }
   }
 
@@ -961,10 +959,26 @@ export class FeedControls {
   private updateScroll(now: number) {
     if (now < this.scrollCooldownUntil) return;
     
-    // CRITICAL: Block scroll if grab is pending or active - grab has priority
-    if (this.grabPending || this.grabbing) {
+    // CRITICAL: Scroll has priority - only block if actively grabbing (not just pending)
+    // This allows scroll to trigger even if grab is pending, giving scroll priority
+    if (this.grabbing) {
+      // Actively grabbing - block scroll
       if (this.scrollRay) this.scrollRay.visible = false;
       return;
+    }
+    
+    // If grab is pending but user is moving vertically, cancel grab and allow scroll
+    // This gives scroll priority for feed navigation
+    if (this.grabPending && this.lastPinchY != null) {
+      const mid = this.hands.pinchMid(this.hands.state.left.pinch ? 'left' : 'right');
+      if (mid) {
+        const y = mid.y;
+        const dy = Math.abs(y - this.lastPinchY);
+        if (dy > 0.01) { // 1cm vertical movement = scroll intent
+          console.log(`[Scroll] Vertical movement detected (${(dy * 100).toFixed(1)}cm) - canceling grab, prioritizing scroll`);
+          this.cancelGrabPending();
+        }
+      }
     }
     
     // CRITICAL: After tutorial completion, FeedControls handles scroll
@@ -999,16 +1013,17 @@ export class FeedControls {
     // Prefer right hand, fallback to left
     const side: 'left' | 'right' = rp ? 'right' : 'left';
 
-    // CRITICAL: If scroll was disarmed this pinch, don't scroll (grab has priority)
-    if (this.scrollDisarmedThisPinch) {
+    // CRITICAL: Scroll has priority - only disarm if actively grabbing
+    // Don't disarm for grab pending - scroll can override
+    if (this.scrollDisarmedThisPinch && this.grabbing) {
       if (this.scrollRay) this.scrollRay.visible = false;
       return;
     }
     
-    // CRITICAL: Need minimum hold time before scrolling - must be longer than grab hold time
-    // This ensures grab has time to activate before scroll can trigger
+    // CRITICAL: Scroll activates quickly (80ms) - faster than grab (150ms)
+    // This gives scroll priority for feed navigation
     if (this.pinchStartAt && now - this.pinchStartAt < this.SCROLL_MIN_HOLD_MS) {
-      // During the hold period, don't arm scroll - wait to see if grab activates
+      // During the short hold period, initialize tracking but don't scroll yet
       return;
     }
 
@@ -1018,28 +1033,27 @@ export class FeedControls {
     // Check distance from object - more lenient for easier scrolling
     const distSurf = this.distanceToObjectSurface(mid);
     
-    // CRITICAL: Only arm scroll if we're past the hold time AND no grab is pending
-    // This ensures grab has priority and time to activate
+    // CRITICAL: Scroll has priority - arm quickly for feed navigation
     if (!this.scrollArmed) {
-      // Double-check grab isn't pending (safety check)
-      if (this.grabPending || this.grabbing) {
+      // Only block if actively grabbing (not just pending)
+      if (this.grabbing) {
         if (this.scrollRay) this.scrollRay.visible = false;
         return;
       }
       
-      // Method 1: Distance-based arming (if far from object)
+      // Method 1: Distance-based arming (if far from object) - immediate
       if (distSurf != null && distSurf >= this.SCROLL_START_FAR) {
         this.scrollArmed = true;
         console.log(`[Scroll] Armed by distance: ${distSurf.toFixed(3)}m`);
       }
-      // Method 2: Movement-based arming (if hand moves vertically, even if close)
-      // BUT only if we're past the hold time (grab has had time to activate)
+      // Method 2: Movement-based arming (if hand moves vertically)
+      // Scroll activates quickly (80ms) - faster than grab (150ms)
       else if (this.lastPinchY != null && this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS)) {
         const y = mid.y;
         const dy = Math.abs(y - this.lastPinchY);
-        if (dy > 0.008) { // 0.8cm movement = arm scroll (more sensitive)
+        if (dy > 0.008) { // 0.8cm movement = arm scroll
           this.scrollArmed = true;
-          console.log(`[Scroll] Armed by movement: ${(dy * 100).toFixed(1)}cm after ${(now - this.pinchStartAt).toFixed(0)}ms`);
+          console.log(`[Scroll] Armed by movement: ${(dy * 100).toFixed(1)}cm after ${(now - this.pinchStartAt).toFixed(0)}ms (scroll priority)`);
         }
       }
       
