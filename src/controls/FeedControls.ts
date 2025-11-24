@@ -917,11 +917,12 @@ export class FeedControls {
       this.scrollDisarmedThisPinch = true;
       this.tryStartGrabPending(side);
     } else if (d != null && d >= this.SCROLL_START_FAR) {
-      // Only arm scroll if we're far from object AND object doesn't exist or is too far
-      this.scrollArmed = true;
-      console.log(`[FeedControls] Scroll armed by distance: ${d.toFixed(3)}m`);
+      // Far from object - arm scroll (but wait for hold time before actually scrolling)
+      // Don't set scrollArmed immediately - let updateScroll handle it after hold time
+      // This ensures grab has priority if user moves closer
+      console.log(`[FeedControls] Far from object (${d.toFixed(3)}m) - scroll will arm after hold time`);
     } else {
-      // Fallback: try grab pending anyway if we have a distance
+      // Close to object or unknown distance - prioritize grab
       if (d != null) {
         this.scrollDisarmedThisPinch = true;
         this.tryStartGrabPending(side);
@@ -959,7 +960,12 @@ export class FeedControls {
 
   private updateScroll(now: number) {
     if (now < this.scrollCooldownUntil) return;
-    if (this.grabPending || this.grabbing) return;
+    
+    // CRITICAL: Block scroll if grab is pending or active - grab has priority
+    if (this.grabPending || this.grabbing) {
+      if (this.scrollRay) this.scrollRay.visible = false;
+      return;
+    }
     
     // CRITICAL: After tutorial completion, FeedControls handles scroll
     // Only block if tutorial is actively handling scroll/grab
@@ -993,11 +999,18 @@ export class FeedControls {
     // Prefer right hand, fallback to left
     const side: 'left' | 'right' = rp ? 'right' : 'left';
 
-    // If scroll was disarmed this pinch, don't scroll
-    if (this.scrollDisarmedThisPinch) return;
+    // CRITICAL: If scroll was disarmed this pinch, don't scroll (grab has priority)
+    if (this.scrollDisarmedThisPinch) {
+      if (this.scrollRay) this.scrollRay.visible = false;
+      return;
+    }
     
-    // Need minimum hold time before scrolling
-    if (this.pinchStartAt && now - this.pinchStartAt < this.SCROLL_MIN_HOLD_MS) return;
+    // CRITICAL: Need minimum hold time before scrolling - must be longer than grab hold time
+    // This ensures grab has time to activate before scroll can trigger
+    if (this.pinchStartAt && now - this.pinchStartAt < this.SCROLL_MIN_HOLD_MS) {
+      // During the hold period, don't arm scroll - wait to see if grab activates
+      return;
+    }
 
     const mid = this.hands.pinchMid(side);
     if (!mid) return;
@@ -1005,18 +1018,28 @@ export class FeedControls {
     // Check distance from object - more lenient for easier scrolling
     const distSurf = this.distanceToObjectSurface(mid);
     
-    // Auto-arm scroll if hand is far enough from object OR if we detect vertical movement
+    // CRITICAL: Only arm scroll if we're past the hold time AND no grab is pending
+    // This ensures grab has priority and time to activate
     if (!this.scrollArmed) {
+      // Double-check grab isn't pending (safety check)
+      if (this.grabPending || this.grabbing) {
+        if (this.scrollRay) this.scrollRay.visible = false;
+        return;
+      }
+      
       // Method 1: Distance-based arming (if far from object)
       if (distSurf != null && distSurf >= this.SCROLL_START_FAR) {
         this.scrollArmed = true;
+        console.log(`[Scroll] Armed by distance: ${distSurf.toFixed(3)}m`);
       }
       // Method 2: Movement-based arming (if hand moves vertically, even if close)
-      else if (this.lastPinchY != null) {
+      // BUT only if we're past the hold time (grab has had time to activate)
+      else if (this.lastPinchY != null && this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS)) {
         const y = mid.y;
         const dy = Math.abs(y - this.lastPinchY);
         if (dy > 0.008) { // 0.8cm movement = arm scroll (more sensitive)
           this.scrollArmed = true;
+          console.log(`[Scroll] Armed by movement: ${(dy * 100).toFixed(1)}cm after ${(now - this.pinchStartAt).toFixed(0)}ms`);
         }
       }
       
