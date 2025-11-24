@@ -21,6 +21,7 @@ export class FeedControls {
   private pinchStartAt: number | null = null;
   private scrollArmed = false;
   private scrollDisarmedThisPinch = false;
+  private scrollSide: 'left' | 'right' | null = null; // Track which hand is scrolling
 
   // Scroll control constants
   private readonly SCROLL_MIN_HOLD_MS = CONTROLS.SCROLL_MIN_HOLD_MS;
@@ -428,6 +429,7 @@ export class FeedControls {
     this.scrollAccum = 0;
     this.scrollArmed = false;
     this.scrollDisarmedThisPinch = false;
+    this.scrollSide = null;
     this.pinchStartAt = null;
     this.scrollCooldownUntil = 0;
     if (this.scrollRay) this.scrollRay.visible = false;
@@ -833,6 +835,14 @@ export class FeedControls {
     const update = (side: 'left' | 'right', line?: THREE.Line) => {
       if (!line) return;
       const pinching = this.hands.state[side].pinch;
+      
+      // FIXED: Don't show ray for non-scrolling hand when scroll is active
+      // If scrolling is armed and this is NOT the scrolling hand, hide the ray
+      if (this.scrollArmed && this.scrollSide && this.scrollSide !== side) {
+        line.visible = false;
+        return;
+      }
+      
       const show =
         pinching && !this.scrollDisarmedThisPinch && !this.grabbing && !this.hudMgr.isComposing();
       if (!show) {
@@ -993,6 +1003,7 @@ export class FeedControls {
     }
     this.scrollDisarmedThisPinch = false;
     this.scrollArmed = false;
+    this.scrollSide = null; // Reset scrolling hand on new pinch
 
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) {
@@ -1054,6 +1065,7 @@ export class FeedControls {
     }
     this.scrollArmed = false;
     this.scrollDisarmedThisPinch = false;
+    this.scrollSide = null; // Clear scrolling hand
     this.lastPinchY = null;
     this.filtPinchY = null;
     this.scrollAccum = 0;
@@ -1119,12 +1131,18 @@ export class FeedControls {
       this.lastPinchY = null;
       this.filtPinchY = null;
       this.scrollArmed = false;
+      this.scrollSide = null; // Clear scrolling hand
       if (this.scrollRay) this.scrollRay.visible = false;
       return;
     }
     
     // Prefer right hand, fallback to left
     const side: 'left' | 'right' = rp ? 'right' : 'left';
+    
+    // Track which hand is scrolling (only set when armed)
+    if (this.scrollArmed) {
+      this.scrollSide = side;
+    }
 
     // CRITICAL: Scroll has priority - only disarm if actively grabbing
     // Don't disarm for grab pending - scroll can override

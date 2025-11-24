@@ -41,8 +41,8 @@ export const CONTROLS = {
   /** Scroll threshold: vertical displacement to trigger feed change (m) - REDUCED for easier scrolling */
   SCROLL_DISPLACEMENT: 0.008,
   
-  /** Cooldown between scroll actions (ms) - REDUCED for faster scrolling */
-  SCROLL_COOLDOWN_MS: 120,
+  /** Cooldown between scroll actions (ms) - Set to 180ms for smoother, more controlled scrolling */
+  SCROLL_COOLDOWN_MS: 180,
   
   /** Minimum vertical velocity to register scroll (m/s) */
   SCROLL_MIN_VELOCITY: 0.002,
