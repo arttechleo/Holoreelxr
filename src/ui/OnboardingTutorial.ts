@@ -288,28 +288,36 @@ export class OnboardingTutorial {
   }
   
   private clearTutorialGrabHandlers() {
+    console.log(`[Tutorial] Clearing ${this.grabEventHandlers.length} tutorial grab handlers`);
     this.grabEventHandlers.forEach(({ event, handler }) => {
       this.hands.off(event, handler);
+      console.log(`[Tutorial] Removed handler for ${event}`);
     });
     this.grabEventHandlers = [];
+    console.log(`[Tutorial] ✅ All tutorial grab handlers cleared`);
   }
   
   private onTutorialPinchStart(side: 'left' | 'right') {
     // CRITICAL: If tutorial is completed, NEVER handle events - let FeedControls handle everything
     if (this.tutorialCompleted) {
+      console.log(`[Tutorial] onTutorialPinchStart(${side}) - tutorial completed, returning immediately`);
       return; // Tutorial completed - don't interfere at all
     }
     
     // CRITICAL: Only handle if tutorial is actually active
     // If tutorial is not visible, don't interfere - let FeedControls handle it
     if (!this.group.visible || this.isLoading) {
+      console.log(`[Tutorial] onTutorialPinchStart(${side}) - tutorial not visible/loading, returning`);
       return; // Don't consume event - let FeedControls handle it
     }
     
     // Double-check tutorial is actually active
     if (!this.isTutorialActive()) {
+      console.log(`[Tutorial] onTutorialPinchStart(${side}) - tutorial not active, returning`);
       return; // Tutorial not active - don't interfere
     }
+    
+    console.log(`[Tutorial] onTutorialPinchStart(${side}) - tutorial active, handling`);
     
     const now = performance.now();
     const pinch = this.hands.pinchMid(side);
