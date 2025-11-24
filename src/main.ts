@@ -125,6 +125,9 @@ async function loadMainFeed() {
       if (objPos) {
         (onboarding as any).updatePosition?.(objPos, camPos);
       }
+      
+      // Update tutorial grab system (frame-based, reliable)
+      (onboarding as any).updateGrab?.(info);
     }
   });
 
