@@ -109,14 +109,25 @@ export class FeedStore {
       this.seq = undefined;
     }
 
-    // remove prior content meshes
+    // CRITICAL: Remove ALL prior content meshes to prevent overlap
+    // This includes shapes, meshes, GLTF models, and error placeholders
     this.parent.children.slice().forEach((child) => {
-      if (child.name === 'content-shape' || child.name === 'content-mesh' || child.name === 'content-gltf') {
+      if (child.name === 'content-shape' || child.name === 'content-mesh' || 
+          child.name === 'content-gltf' || child.name === 'content-error') {
+        // Dispose GLTF scene if it has a mixer (must be done before removal)
+        if ((child as any).mixer) {
+          (child as any).mixer.stopAllAction();
+          (child as any).mixer = null;
+        }
+        
+        // Remove from parent first
         this.parent.remove(child);
-        // Dispose geometry
+        
+        // Then dispose geometry
         if ((child as any).geometry) {
           (child as any).geometry.dispose();
         }
+        
         // Dispose material(s)
         const mat = (child as any).material;
         if (mat) {
@@ -126,16 +137,24 @@ export class FeedStore {
             mat.dispose();
           }
         }
-        // Dispose GLTF scene if it has a mixer
-        if ((child as any).mixer) {
-          (child as any).mixer.stopAllAction();
-          (child as any).mixer = null;
-        }
       }
     });
+    
+    // CRITICAL: Clear currentGLTF reference to prevent stale references
+    this.currentGLTF = undefined;
 
-    // spawn at lastPlaced (if any) otherwise at origin
-    const spawnPos = this.lastPlaced ? this.lastPlaced.clone() : new THREE.Vector3(0, 0, 0);
+    // CRITICAL: Reset spawn position when switching items to prevent overlap
+    // Only use lastPlaced if it's very recent (within 100ms) - otherwise reset to origin
+    // This ensures new models don't spawn on top of old ones
+    let spawnPos: THREE.Vector3;
+    if (this.lastPlaced && (performance.now() - (this.lastPlaced as any)._timestamp < 100)) {
+      // Very recent placement - use it (user just placed it)
+      spawnPos = this.lastPlaced.clone();
+    } else {
+      // Reset to origin or use camera-relative position
+      spawnPos = new THREE.Vector3(0, 0.5, -1.0); // Default position in front of user
+      this.lastPlaced = null; // Clear stale position
+    }
 
     try {
       if (item.type === 'shape') {
@@ -240,6 +259,11 @@ export class FeedStore {
     
     // Only update if index actually changed
     if (this.index !== oldIndex) {
+      // CRITICAL: Reset position when switching items to prevent overlap
+      // This ensures new models spawn at a clean position, not on top of old ones
+      this.lastPlaced = null;
+      
+      // Reset transform to default
       this.setTargetTransform(1, 0);
       this.showCurrent();
     }
@@ -344,34 +368,24 @@ export class FeedStore {
         }
         
         // Set the position
-        const oldPos = obj.position.clone();
         obj.position.copy(localPos);
         
         // Update this object's local matrix
         obj.updateMatrix();
         // Force update this object's world matrix to reflect the new position
         obj.updateMatrixWorld(true);
-        
-        // Verify the position was set correctly
-        const actualWorldPos = new THREE.Vector3().setFromMatrixPosition(obj.matrixWorld);
-        const positionError = actualWorldPos.distanceTo(worldPos);
-        
-        // Debug: log position updates (more frequently for debugging)
-        if (Math.random() < 0.2 || positionError > 0.01) { // 20% of calls, or if error > 1cm
-          console.log(`[FeedStore] setPosition: targetWorld=${worldPos.toArray().map(v => v.toFixed(3)).join(',')}, local=${localPos.toArray().map(v => v.toFixed(3)).join(',')}, actualWorld=${actualWorldPos.toArray().map(v => v.toFixed(3)).join(',')}, error=${positionError.toFixed(3)}m, obj=${obj.name}, parent=${actualParent?.name || 'none'}`);
-          
-          if (positionError > 0.01) {
-            console.warn(`[FeedStore] ⚠️ Position error detected: ${positionError.toFixed(3)}m - object may not be moving correctly!`);
-          }
-        }
       } else {
-        // Debug: log when object not found - always log this
-        console.warn(`[FeedStore] setPosition: Object not found! Available children:`, this.parent.children.map(c => c.name).join(', '));
+        // Debug: log when object not found
+        if (Math.random() < 0.1) { // Throttle logging
+          console.warn(`[FeedStore] setPosition: Object not found! Available children:`, this.parent.children.map(c => c.name).join(', '));
+        }
       }
       if (this.seq) {
         this.seq.setPosition(worldPos);
       }
+      // Store last placed position with timestamp to detect recent placements
       this.lastPlaced = worldPos.clone();
+      (this.lastPlaced as any)._timestamp = performance.now();
       this.updatePlatformPose();
     } catch (error) {
       logError(error, 'FeedStore.setPosition');
