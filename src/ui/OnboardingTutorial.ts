@@ -134,6 +134,26 @@ export class OnboardingTutorial {
   private grabHasMoved: boolean = false;
   private grabEventHandlers: Array<{ event: string; handler: () => void }> = [];
   
+  // EXACT COPY OF FEEDCONTROLS SCROLL SYSTEM - proven to work!
+  private scrollStepIndex: number = -1;
+  private lastPinchY: number | null = null;
+  private filtPinchY: number | null = null;
+  private scrollAccum = 0;
+  private scrollCooldownUntil = 0;
+  private pinchStartAt: number | null = null;
+  private scrollArmed = false;
+  private scrollDisarmedThisPinch = false;
+  private lastScrollIndex: number = -1;
+  
+  // Scroll constants - EXACT same as FeedControls
+  private readonly SCROLL_MIN_HOLD_MS = 80;
+  private readonly SCROLL_DISP = 0.022;
+  private readonly SCROLL_COOLDOWN_MS = 250;
+  private readonly SCROLL_VEL_MIN = 0.006;
+  private readonly SCROLL_IN_AIR_DIST = 0.25;
+  private readonly SCROLL_START_FAR = 0.15;
+  private readonly LPF_SCROLL_ALPHA = 0.28;
+  
   // Old interval-based system (to be removed)
   private tutorialGrabActive: boolean = false;
   private tutorialGrabSide: 'left' | 'right' | null = null;
@@ -189,6 +209,15 @@ export class OnboardingTutorial {
     return this.grabStepIndex === this.currentStepIndex && this.group.visible;
   }
   
+  /**
+   * Check if we're currently on the scroll step
+   * This allows FeedControls to disable its scroll system
+   */
+  isScrollStepActive(): boolean {
+    if (this.scrollStepIndex < 0) return false;
+    return this.scrollStepIndex === this.currentStepIndex && this.group.visible;
+  }
+  
   // ========== NEW FRAME-BASED GRAB SYSTEM ==========
   // Simple, reliable, frame-by-frame updates - no intervals!
   
@@ -240,31 +269,56 @@ export class OnboardingTutorial {
   }
   
   private onTutorialPinchStart(side: 'left' | 'right') {
-    // Verify we're on grab step
-    if (this.grabStepIndex < 0 || this.grabStepIndex !== this.currentStepIndex) {
-      return;
-    }
-    
     if (!this.group.visible || this.isLoading) {
       return;
     }
     
-    // EXACT same logic as FeedControls onPinchStart
+    const now = performance.now();
     const pinch = this.hands.pinchMid(side);
     if (!pinch) return;
     
-    const objPos = this.store.getObjectWorldPos();
-    if (!objPos) return;
+    // Handle GRAB step
+    if (this.grabStepIndex >= 0 && this.grabStepIndex === this.currentStepIndex) {
+      const objPos = this.store.getObjectWorldPos();
+      if (!objPos) return;
+      
+      // INSTANT GRAB - no distance check, just grab immediately!
+      console.log(`[Tutorial Grab] ✅ Instant grab activated! ${side} hand`);
+      this.isGrabbing = true;
+      this.grabHand = side;
+      this.grabOffset.copy(objPos).sub(pinch);
+      this.grabStartTime = now;
+      this.grabStartPosition = objPos.clone();
+      this.grabHasMoved = false;
+      this.scrollDisarmedThisPinch = true; // Disable scroll during grab
+      console.log(`[Tutorial Grab] Grabbed! Object: ${objPos.toArray().map(v => v.toFixed(3)).join(',')}, Hand: ${pinch.toArray().map(v => v.toFixed(3)).join(',')}`);
+      return;
+    }
     
-    // INSTANT GRAB - no distance check, just grab immediately!
-    console.log(`[Tutorial Grab] ✅ Instant grab activated! ${side} hand`);
-    this.isGrabbing = true;
-    this.grabHand = side;
-    this.grabOffset.copy(objPos).sub(pinch);
-    this.grabStartTime = performance.now();
-    this.grabStartPosition = objPos.clone();
-    this.grabHasMoved = false;
-    console.log(`[Tutorial Grab] Grabbed! Object: ${objPos.toArray().map(v => v.toFixed(3)).join(',')}, Hand: ${pinch.toArray().map(v => v.toFixed(3)).join(',')}`);
+    // Handle SCROLL step - EXACT same logic as FeedControls
+    if (this.scrollStepIndex >= 0 && this.scrollStepIndex === this.currentStepIndex) {
+      // Initialize scroll state - EXACT same as FeedControls
+      this.pinchStartAt = now;
+      const y = pinch.y;
+      if (y != null) {
+        this.lastPinchY = y;
+        this.filtPinchY = y;
+        this.scrollAccum = 0;
+      }
+      this.scrollDisarmedThisPinch = false;
+      this.scrollArmed = false;
+      
+      // Check distance from object - EXACT same logic as FeedControls
+      const dist = this.distanceToObjectSurface(pinch);
+      if (dist != null && dist >= this.SCROLL_START_FAR) {
+        this.scrollArmed = true;
+        console.log(`[Tutorial Scroll] Scroll armed! Distance: ${dist.toFixed(3)}m`);
+      } else if (dist != null && dist < this.SCROLL_IN_AIR_DIST) {
+        // Too close - might be trying to grab
+        this.scrollDisarmedThisPinch = true;
+        console.log(`[Tutorial Scroll] Too close to object (${dist.toFixed(3)}m) - move away to scroll`);
+      }
+    }
   }
   
   private onTutorialPinchEnd(side: 'left' | 'right') {
@@ -273,12 +327,138 @@ export class OnboardingTutorial {
       this.checkGrabCompletion();
       this.stopGrab();
     }
+    
+    // Reset scroll state on pinch end - EXACT same as FeedControls
+    if (this.scrollStepIndex >= 0 && this.scrollStepIndex === this.currentStepIndex) {
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      this.scrollArmed = false;
+      this.scrollDisarmedThisPinch = false;
+      this.pinchStartAt = null;
+    }
+  }
+  
+  /**
+   * EXACT COPY OF FeedControls.updateScroll - called every frame during scroll step
+   */
+  private updateTutorialScroll() {
+    const now = performance.now();
+    if (now < this.scrollCooldownUntil) return;
+    if (this.isGrabbing) return; // Don't scroll while grabbing
+    
+    const lp = this.hands.state.left.pinch;
+    const rp = this.hands.state.right.pinch;
+    
+    // Allow scrolling with either hand, prefer right hand
+    if (!lp && !rp) {
+      // Reset scroll state when no pinch
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      this.scrollArmed = false;
+      return;
+    }
+    
+    // Prefer right hand, fallback to left
+    const side: 'left' | 'right' = rp ? 'right' : 'left';
+    
+    // If scroll was disarmed this pinch, don't scroll
+    if (this.scrollDisarmedThisPinch) return;
+    
+    // Need minimum hold time before scrolling
+    if (this.pinchStartAt && now - this.pinchStartAt < this.SCROLL_MIN_HOLD_MS) return;
+    
+    const mid = this.hands.pinchMid(side);
+    if (!mid) return;
+    
+    // Check distance from object - if too close, don't scroll (might be grabbing)
+    const distSurf = this.distanceToObjectSurface(mid);
+    if (distSurf != null && distSurf < this.SCROLL_IN_AIR_DIST) {
+      // Too close to object - might be trying to grab
+      return;
+    }
+    
+    // Auto-arm scroll if hand is far enough from object
+    if (!this.scrollArmed && distSurf != null && distSurf >= this.SCROLL_START_FAR) {
+      this.scrollArmed = true;
+    }
+    
+    // Must be armed to scroll
+    if (!this.scrollArmed) {
+      // Reset scroll state if not armed
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      return;
+    }
+    
+    const y = mid.y;
+    if (this.filtPinchY == null) {
+      this.filtPinchY = y;
+      this.lastPinchY = y;
+      return;
+    }
+    
+    // Smooth the Y position
+    const dt = 0.016; // Assume ~60fps
+    this.filtPinchY = this.filtPinchY + (y - this.filtPinchY) * this.LPF_SCROLL_ALPHA;
+    
+    if (this.lastPinchY == null) {
+      this.lastPinchY = this.filtPinchY;
+      return;
+    }
+    
+    const dy = this.filtPinchY - this.lastPinchY;
+    this.lastPinchY = this.filtPinchY;
+    
+    // Check minimum velocity to avoid jitter
+    if (Math.abs(dy) < this.SCROLL_VEL_MIN) return;
+    
+    // Accumulate scroll displacement
+    this.scrollAccum += dy;
+    
+    // Trigger scroll when threshold reached
+    if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP) {
+      const dir = this.scrollAccum < 0 ? +1 : -1;
+      this.store.next(dir);
+      this.scrollAccum = 0;
+      this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
+      
+      console.log(`[Tutorial Scroll] ✅ Scrolled! Direction: ${dir > 0 ? 'Next' : 'Previous'}`);
+      
+      // Check if index changed to complete step
+      if (this.lastScrollIndex >= 0 && this.store.index !== this.lastScrollIndex) {
+        console.log(`[Tutorial Scroll] ✅✅✅ COMPLETED! Index changed from ${this.lastScrollIndex} to ${this.store.index}`);
+        
+        // Mark step as completed
+        if (this.steps[this.scrollStepIndex]) {
+          this.steps[this.scrollStepIndex].completed = true;
+        }
+        this.updatePanel();
+        
+        // Advance to next step
+        if (this.currentStepIndex === this.scrollStepIndex) {
+          setTimeout(() => {
+            if (this.currentStepIndex === this.scrollStepIndex) {
+              this.nextStep();
+            }
+          }, 1000);
+        }
+      }
+      
+      this.lastScrollIndex = this.store.index;
+    }
   }
   
   /**
    * EXACT COPY OF FeedControls.updateGrabDrag - called every frame
+   * Also handles scroll - EXACT copy of FeedControls.updateScroll
    */
   updateGrab(info?: any) {
+    // Update scroll if on scroll step
+    if (this.scrollStepIndex >= 0 && this.scrollStepIndex === this.currentStepIndex && this.group.visible && !this.isLoading) {
+      this.updateTutorialScroll();
+    }
+    
+    // Update grab if on grab step
     // Verify we're on grab step
     if (this.grabStepIndex < 0 || this.grabStepIndex !== this.currentStepIndex) {
       if (this.isGrabbing) {
@@ -661,8 +841,10 @@ export class OnboardingTutorial {
     // Stop tutorial grab system (both old and new)
     this.stopTutorialGrab();
     this.stopGrab();
-    // Reset grab step index when leaving grab step
+    // Reset grab and scroll step indices when leaving steps
     this.grabStepIndex = -1;
+    this.scrollStepIndex = -1;
+    this.lastScrollIndex = -1;
     if (this.interactionMonitorInterval) {
       clearInterval(this.interactionMonitorInterval);
       this.interactionMonitorInterval = null;
@@ -911,24 +1093,27 @@ export class OnboardingTutorial {
       // Setup event handlers - EXACT same pattern as FeedControls
       this.setupTutorialGrab();
     }
-    // Scroll detection
+    // Scroll detection - EXACT COPY OF FEEDCONTROLS PATTERN
     else if (gesture === 'scroll') {
-      let lastIndex = this.store.index;
-      this.grabCheckInterval = window.setInterval(() => {
-        if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
-          if (this.grabCheckInterval) {
-            clearInterval(this.grabCheckInterval);
-            this.grabCheckInterval = null;
-          }
-          return;
-        }
-        
-        if (this.store.index !== lastIndex && !handlerFired) {
-          console.log(`[Tutorial] ✅ Scroll detected!`);
-          handler();
-        }
-        lastIndex = this.store.index;
-      }, 200);
+      // Initialize scroll system
+      this.scrollStepIndex = stepIndex;
+      this.lastScrollIndex = this.store.index;
+      
+      // Reset scroll state
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      this.scrollAccum = 0;
+      this.scrollCooldownUntil = 0;
+      this.pinchStartAt = null;
+      this.scrollArmed = false;
+      this.scrollDisarmedThisPinch = false;
+      
+      console.log(`[Tutorial Scroll] ✅ Initialized for step ${stepIndex}`);
+      console.log(`  Current index: ${this.store.index}`);
+      console.log(`  Ready to scroll! Pinch away from object and move UP/DOWN`);
+      
+      // Scroll logic runs in updateTutorialScroll() called from updateGrab() frame loop
+      // Uses EXACT same pattern as FeedControls.updateScroll()
     }
     // Gesture-based detections (thumbsup, heart, peace)
     else if (gesture === 'thumbsup') {
