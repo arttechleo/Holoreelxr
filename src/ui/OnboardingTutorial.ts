@@ -124,14 +124,13 @@ export class OnboardingTutorial {
   private userHasInteracted = false; // Track if user has interacted with model
   private modelLoaded = false;
   
-  // NEW: Frame-based grab system - simple and reliable
-  private grabState: 'idle' | 'holding' | 'grabbing' | 'completed' = 'idle';
+  // COMPLETE REFACTOR: Ultra-simple grab system
+  private isGrabbing: boolean = false;
   private grabHand: 'left' | 'right' | null = null;
-  private grabHoldStartTime: number = 0;
+  private grabOffset: THREE.Vector3 = new THREE.Vector3();
   private grabStartTime: number = 0;
   private grabStartPosition: THREE.Vector3 | null = null;
-  private grabOffset: THREE.Vector3 = new THREE.Vector3();
-  private grabStepIndex: number = -1; // Track which step this grab is for
+  private grabStepIndex: number = -1;
   
   // Old interval-based system (to be removed)
   private tutorialGrabActive: boolean = false;
@@ -200,14 +199,14 @@ export class OnboardingTutorial {
   }
   
   /**
-   * NEW: Frame-based grab update - called from main app loop
-   * This is much more reliable than interval-based systems
+   * COMPLETE REFACTOR: Ultra-simple, direct grab system
+   * No complex state machine - just grab when close, update every frame, release when pinch ends
    */
   updateGrab(info?: any) {
     // Only process if we're on a grab step
     if (this.grabStepIndex < 0 || this.grabStepIndex !== this.currentStepIndex) {
-      if (this.grabState !== 'idle') {
-        this.resetGrab();
+      if (this.isGrabbing) {
+        this.stopGrab();
       }
       return;
     }
@@ -217,167 +216,60 @@ export class OnboardingTutorial {
       return;
     }
     
-    // ALWAYS process - don't skip frames
-    // This ensures grab works reliably
-    
     try {
       const now = performance.now();
-      const GRAB_MAX_DISTANCE = 0.3; // 30cm - generous distance
-      const HOLD_TIME_MS = 200; // 200ms to activate grab (very responsive)
-      const REQUIRED_HOLD_MS = 1500; // 1.5 seconds total hold
-      const MIN_MOVEMENT = 0.05; // 5cm movement required
+      const GRAB_MAX_DISTANCE = 0.4; // 40cm - very generous
+      const REQUIRED_HOLD_MS = 1500; // 1.5 seconds
+      const MIN_MOVEMENT = 0.05; // 5cm
       
       // Get hand states
       const leftPinch = this.hands.state.left.pinch;
       const rightPinch = this.hands.state.right.pinch;
       
-      // State machine: idle -> holding -> grabbing -> completed
-      
-      if (this.grabState === 'idle') {
-        // Look for pinch near object
-        const side: 'left' | 'right' | null = leftPinch && !rightPinch ? 'left' : (!leftPinch && rightPinch ? 'right' : null);
-        
-        if (side) {
-          const pinchPos = this.hands.pinchMid(side);
-          if (pinchPos) {
-            const dist = this.distanceToObjectSurface(pinchPos);
-            if (dist !== null && dist <= GRAB_MAX_DISTANCE) {
-              // Start holding
-              this.grabState = 'holding';
-              this.grabHand = side;
-              this.grabHoldStartTime = now;
-              console.log(`[Tutorial Grab] Holding started - ${side} hand, distance: ${dist.toFixed(3)}m, pinchPos: ${pinchPos.toArray().map(v => v.toFixed(3)).join(',')}`);
-            } else {
-              // Debug: log why not holding (throttled)
-              if (Math.random() < 0.05) { // 5% of calls
-                console.log(`[Tutorial Grab] Too far: dist=${dist?.toFixed(3)}m (max=${GRAB_MAX_DISTANCE}m), pinchPos: ${pinchPos.toArray().map(v => v.toFixed(3)).join(',')}`);
-              }
-            }
-          }
-        }
-      }
-      else if (this.grabState === 'holding') {
-        // Check if still pinching and in range
-        if (!this.grabHand) {
-          this.resetGrab();
-          return;
-        }
-        
+      // If already grabbing, update position
+      if (this.isGrabbing && this.grabHand) {
         const stillPinching = this.hands.state[this.grabHand].pinch;
         const otherPinching = this.hands.state[this.grabHand === 'left' ? 'right' : 'left'].pinch;
         
-        // Cancel if other hand pinches
-        if (otherPinching) {
-          this.resetGrab();
+        // Release if other hand pinches or pinch released
+        if (otherPinching || !stillPinching) {
+          console.log(`[Tutorial Grab] Released - otherPinch=${otherPinching}, stillPinch=${stillPinching}`);
+          this.stopGrab();
           return;
         }
         
-        if (!stillPinching) {
-          this.resetGrab();
-          return;
-        }
-        
+        // Get current hand position
         const pinchPos = this.hands.pinchMid(this.grabHand);
         if (!pinchPos) {
-          this.resetGrab();
+          console.log(`[Tutorial Grab] Lost hand tracking - releasing`);
+          this.stopGrab();
           return;
         }
         
-        const dist = this.distanceToObjectSurface(pinchPos);
-        if (dist === null || dist > GRAB_MAX_DISTANCE) {
-          this.resetGrab();
-          return;
-        }
-        
-        // Check if hold time met to activate grab
-        if (now - this.grabHoldStartTime >= HOLD_TIME_MS) {
-          // Activate grab! Get fresh positions
-          const objPos = this.store.getObjectWorldPos();
-          const currentPinchPos = this.hands.pinchMid(this.grabHand);
-          
-          if (objPos && currentPinchPos) {
-            this.grabState = 'grabbing';
-            this.grabStartTime = now;
-            this.grabStartPosition = objPos.clone();
-            // Calculate offset: object position - hand position
-            this.grabOffset.copy(objPos).sub(currentPinchPos);
-            console.log(`[Tutorial Grab] ✅ GRABBING! Hand: ${this.grabHand}, Object: ${objPos.toArray().map(v => v.toFixed(3)).join(',')}, Hand: ${currentPinchPos.toArray().map(v => v.toFixed(3)).join(',')}, Offset: ${this.grabOffset.toArray().map(v => v.toFixed(3)).join(',')}`);
-          } else {
-            console.warn(`[Tutorial Grab] Cannot activate - missing positions: objPos=${!!objPos}, pinchPos=${!!currentPinchPos}`);
-            this.resetGrab();
-          }
-        }
-      }
-      else if (this.grabState === 'grabbing') {
-        // Update object position while grabbing
-        if (!this.grabHand) {
-          this.resetGrab();
-          return;
-        }
-        
-        const stillPinching = this.hands.state[this.grabHand].pinch;
-        const otherPinching = this.hands.state[this.grabHand === 'left' ? 'right' : 'left'].pinch;
-        
-        // Cancel if other hand pinches
-        if (otherPinching) {
-          console.log(`[Tutorial Grab] Canceled - two-hand mode`);
-          this.resetGrab();
-          return;
-        }
-        
-        // Cancel if pinch released
-        if (!stillPinching) {
-          this.resetGrab();
-          return;
-        }
-        
-        const pinchPos = this.hands.pinchMid(this.grabHand);
-        if (!pinchPos) {
-          console.log(`[Tutorial Grab] Lost hand tracking`);
-          this.resetGrab();
-          return;
-        }
-        
-        // Calculate new object position
+        // Calculate and set new object position
         const newObjPos = pinchPos.clone().add(this.grabOffset);
         
-        // Debug logging (more frequent for troubleshooting)
-        if (Math.random() < 0.2) { // 20% of calls
-          const currentObjPos = this.store.getObjectWorldPos();
-          console.log(`[Tutorial Grab] Updating: hand=${pinchPos.toArray().map(v => v.toFixed(3)).join(',')}, offset=${this.grabOffset.toArray().map(v => v.toFixed(3)).join(',')}, newPos=${newObjPos.toArray().map(v => v.toFixed(3)).join(',')}, current=${currentObjPos?.toArray().map(v => v.toFixed(3)).join(',')}`);
+        // Update position immediately
+        this.store.setPosition(newObjPos);
+        
+        // Debug (throttled)
+        if (Math.random() < 0.1) {
+          const currentPos = this.store.getObjectWorldPos();
+          console.log(`[Tutorial Grab] Moving: hand=${pinchPos.toArray().map(v => v.toFixed(2)).join(',')}, obj=${currentPos?.toArray().map(v => v.toFixed(2)).join(',')}`);
         }
         
-        // CRITICAL: Update object position EVERY FRAME while grabbing
-        // This is the core of the grab functionality
-        try {
-          this.store.setPosition(newObjPos);
-          
-          // Verify position was set (throttled)
-          if (Math.random() < 0.05) { // 5% of calls
-            const verifyPos = this.store.getObjectWorldPos();
-            const error = verifyPos ? verifyPos.distanceTo(newObjPos) : Infinity;
-            if (error > 0.01) {
-              console.warn(`[Tutorial Grab] ⚠️ Position error: ${error.toFixed(3)}m - expected=${newObjPos.toArray().map(v => v.toFixed(3)).join(',')}, actual=${verifyPos?.toArray().map(v => v.toFixed(3)).join(',')}`);
-            }
-          }
-        } catch (error) {
-          console.error(`[Tutorial Grab] Error setting position:`, error);
-        }
-        
-        // Check completion conditions
+        // Check completion
         if (this.grabStartPosition) {
-          const currentObjPos = this.store.getObjectWorldPos();
-          if (currentObjPos) {
+          const currentPos = this.store.getObjectWorldPos();
+          if (currentPos) {
             const holdTime = now - this.grabStartTime;
-            const movement = currentObjPos.distanceTo(this.grabStartPosition);
+            const movement = currentPos.distanceTo(this.grabStartPosition);
             
             if (holdTime >= REQUIRED_HOLD_MS && movement >= MIN_MOVEMENT) {
-              // Completed!
-              console.log(`[Tutorial Grab] ✅ COMPLETED! Hold: ${holdTime}ms, Movement: ${(movement * 100).toFixed(1)}cm`);
-              this.grabState = 'completed';
-              this.resetGrab();
+              console.log(`[Tutorial Grab] ✅ COMPLETED! Hold: ${holdTime}ms, Moved: ${(movement * 100).toFixed(1)}cm`);
+              this.stopGrab();
               
-              // Advance to next step
+              // Advance step
               if (this.currentStepIndex === this.grabStepIndex) {
                 this.nextStep();
               }
@@ -385,21 +277,57 @@ export class OnboardingTutorial {
           }
         }
       }
+      // If not grabbing, check if we should start
+      else {
+        // Only allow one hand
+        if (leftPinch && rightPinch) return;
+        
+        const side: 'left' | 'right' | null = leftPinch ? 'left' : (rightPinch ? 'right' : null);
+        if (!side) return;
+        
+        const pinchPos = this.hands.pinchMid(side);
+        if (!pinchPos) return;
+        
+        const dist = this.distanceToObjectSurface(pinchPos);
+        if (dist === null || dist > GRAB_MAX_DISTANCE) {
+          // Too far - log occasionally
+          if (Math.random() < 0.02) {
+            console.log(`[Tutorial Grab] Too far: ${dist?.toFixed(3)}m (need < ${GRAB_MAX_DISTANCE}m)`);
+          }
+          return;
+        }
+        
+        // Close enough - GRAB IMMEDIATELY!
+        const objPos = this.store.getObjectWorldPos();
+        if (!objPos) {
+          console.warn(`[Tutorial Grab] Cannot grab - object not found`);
+          return;
+        }
+        
+        // Start grabbing
+        this.isGrabbing = true;
+        this.grabHand = side;
+        this.grabOffset.copy(objPos).sub(pinchPos);
+        this.grabStartTime = now;
+        this.grabStartPosition = objPos.clone();
+        
+        console.log(`[Tutorial Grab] ✅ GRABBED! ${side} hand, dist=${dist.toFixed(3)}m, obj=${objPos.toArray().map(v => v.toFixed(2)).join(',')}, offset=${this.grabOffset.toArray().map(v => v.toFixed(2)).join(',')}`);
+      }
     } catch (error) {
-      console.error('[Tutorial Grab] Error in updateGrab:', error);
-      this.resetGrab();
+      console.error('[Tutorial Grab] Error:', error);
+      this.stopGrab();
     }
   }
   
-  private resetGrab() {
-    if (this.grabState !== 'idle') {
-      this.grabState = 'idle';
-      this.grabHand = null;
-      this.grabHoldStartTime = 0;
-      this.grabStartTime = 0;
-      this.grabStartPosition = null;
-      this.grabOffset.set(0, 0, 0);
+  private stopGrab() {
+    if (this.isGrabbing) {
+      console.log(`[Tutorial Grab] Stopped`);
     }
+    this.isGrabbing = false;
+    this.grabHand = null;
+    this.grabOffset.set(0, 0, 0);
+    this.grabStartTime = 0;
+    this.grabStartPosition = null;
   }
   
   private startTutorialGrabMonitoring() {
@@ -901,21 +829,15 @@ export class OnboardingTutorial {
         }
       }, 100);
     }
-    // Grab detection - NEW frame-based system (100% reliable)
+    // Grab detection - COMPLETE REFACTOR: Ultra-simple system
     else if (gesture === 'grab') {
-      // Initialize grab system for this step
-      this.grabState = 'idle';
-      this.grabHand = null;
+      // Initialize grab system
+      this.stopGrab(); // Clear any existing grab
       this.grabStepIndex = stepIndex;
-      this.grabHoldStartTime = 0;
-      this.grabStartTime = 0;
-      this.grabStartPosition = null;
-      this.grabOffset.set(0, 0, 0);
+      console.log(`[Tutorial Grab] ✅ Initialized for step ${stepIndex} - ready to grab!`);
       
-      console.log(`[Tutorial Grab] Initialized for step ${stepIndex}`);
-      
-      // The actual grab logic runs in updateGrab() called from main frame loop
-      // No intervals needed - frame-based is more reliable
+      // Grab logic runs in updateGrab() called from main frame loop
+      // Simple: if pinching near object, grab immediately and update every frame
     }
     // Scroll detection
     else if (gesture === 'scroll') {
