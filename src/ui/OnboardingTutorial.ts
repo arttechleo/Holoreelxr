@@ -239,7 +239,12 @@ export class OnboardingTutorial {
               this.grabState = 'holding';
               this.grabHand = side;
               this.grabHoldStartTime = now;
-              console.log(`[Tutorial Grab] Holding started - ${side} hand, distance: ${dist.toFixed(3)}m`);
+              console.log(`[Tutorial Grab] Holding started - ${side} hand, distance: ${dist.toFixed(3)}m, pinchPos: ${pinchPos.toArray().map(v => v.toFixed(3)).join(',')}`);
+            } else {
+              // Debug: log why not holding (throttled)
+              if (Math.random() < 0.05) { // 5% of calls
+                console.log(`[Tutorial Grab] Too far: dist=${dist?.toFixed(3)}m (max=${GRAB_MAX_DISTANCE}m), pinchPos: ${pinchPos.toArray().map(v => v.toFixed(3)).join(',')}`);
+              }
             }
           }
         }
