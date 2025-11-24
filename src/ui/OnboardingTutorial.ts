@@ -895,7 +895,9 @@ export class OnboardingTutorial {
     
     for (let i = 0; i < this.store.items.length; i++) {
       const item = this.store.items[i];
-      if (item.type === 'shape') {
+      // Only tutorial items have id starting with "tutorial-"
+      // Regular shape items (blue sphere, yellow pyramid, red square) are NOT tutorial items
+      if (item.type === 'shape' && item.id.startsWith('tutorial-')) {
         this.tutorialItemIndices.push(i);
       } else if (this.firstNonTutorialIndex === 0) {
         this.firstNonTutorialIndex = i;
