@@ -39,25 +39,25 @@ export const GESTURE = {
 // ========== INTERACTION CONTROLS ==========
 export const CONTROLS = {
   /** Scroll threshold: vertical displacement to trigger feed change (m) */
-  SCROLL_DISPLACEMENT: 0.012,
+  SCROLL_DISPLACEMENT: 0.01,
   
   /** Cooldown between scroll actions (ms) */
-  SCROLL_COOLDOWN_MS: 180,
+  SCROLL_COOLDOWN_MS: 160,
   
   /** Minimum vertical velocity to register scroll (m/s) */
-  SCROLL_MIN_VELOCITY: 0.0025,
+  SCROLL_MIN_VELOCITY: 0.002,
   
   /** Distance from object to allow "in air" scrolling (m) */
-  SCROLL_IN_AIR_DISTANCE: 0.25,
+  SCROLL_IN_AIR_DISTANCE: 0.18,
   
   /** Distance from object to start armed for scrolling (m) */
   SCROLL_START_DISTANCE: 0.10,
   
   /** Minimum pinch hold time before scroll is allowed (ms) */
-  SCROLL_MIN_HOLD_MS: 60,
+  SCROLL_MIN_HOLD_MS: 50,
   
   /** Low-pass filter alpha for scroll smoothing - INCREASED for smoother tracking */
-  SCROLL_LPF_ALPHA: 0.32,
+  SCROLL_LPF_ALPHA: 0.35,
 } as const;
 
 // ========== GRAB & TRANSFORM ==========

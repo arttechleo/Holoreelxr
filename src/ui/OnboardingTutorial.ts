@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { HandEngine } from '../gestures/HandEngine';
 import { FeedStore } from '../feed/FeedStore';
 import { logError } from '../utils/errors';
+import { CONTROLS } from '../config/constants';
 
 interface TutorialStep {
   id: string;
@@ -149,14 +150,14 @@ export class OnboardingTutorial {
   private scrollDisarmedThisPinch = false;
   private lastScrollIndex: number = -1;
   
-  // Scroll constants - MORE RESPONSIVE for tutorial
-  private readonly SCROLL_MIN_HOLD_MS = 50; // REDUCED from 80ms for faster response
-  private readonly SCROLL_DISP = 0.015; // REDUCED from 0.022 (1.5cm instead of 2.2cm)
-  private readonly SCROLL_COOLDOWN_MS = 200; // REDUCED from 250ms
-  private readonly SCROLL_VEL_MIN = 0.003; // REDUCED from 0.006 for more sensitive
-  private readonly SCROLL_IN_AIR_DIST = 0.15; // REDUCED from 0.25m - allow closer scrolling
-  private readonly SCROLL_START_FAR = 0.10; // REDUCED from 0.15m - easier to arm
-  private readonly LPF_SCROLL_ALPHA = 0.35; // INCREASED from 0.28 for smoother tracking
+  // Scroll constants mirror FeedControls (both flows stay in sync)
+  private readonly SCROLL_MIN_HOLD_MS = CONTROLS.SCROLL_MIN_HOLD_MS;
+  private readonly SCROLL_DISP = CONTROLS.SCROLL_DISPLACEMENT;
+  private readonly SCROLL_COOLDOWN_MS = CONTROLS.SCROLL_COOLDOWN_MS;
+  private readonly SCROLL_VEL_MIN = CONTROLS.SCROLL_MIN_VELOCITY;
+  private readonly SCROLL_IN_AIR_DIST = CONTROLS.SCROLL_IN_AIR_DISTANCE;
+  private readonly SCROLL_START_FAR = CONTROLS.SCROLL_START_DISTANCE;
+  private readonly LPF_SCROLL_ALPHA = CONTROLS.SCROLL_LPF_ALPHA;
   
   // Old interval-based system (to be removed)
   private tutorialGrabActive: boolean = false;
