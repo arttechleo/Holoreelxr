@@ -284,9 +284,14 @@ export class OnboardingTutorial {
         
         // Clear loading state after shape is ready
         this.isLoading = false;
+        console.log(`[Tutorial] Loading complete for step ${index}, isLoading=${this.isLoading}`);
+        
         // Set up gesture handlers now that loading is complete
         if (this.currentStepIndex === index && step.gesture) {
+          console.log(`[Tutorial] Setting up gesture handler for step ${index}: ${step.gesture}`);
           this.waitForGesture(step.gesture);
+        } else {
+          console.log(`[Tutorial] Skipping gesture setup: currentStepIndex=${this.currentStepIndex}, index=${index}, gesture=${step.gesture}`);
         }
       });
     } else if (step.id !== 'welcome') {
@@ -489,9 +494,15 @@ export class OnboardingTutorial {
     (this as any).currentTimeoutId = timeoutId; // Store for cleanup
     
     const handler = () => {
-      // Don't fire if loading or already fired - but allow if handlerFired was set by interval
+      // Final validation before proceeding
       if (this.isLoading) {
-        console.log(`[Tutorial] Handler blocked: isLoading=${this.isLoading}`);
+        console.log(`[Tutorial] Handler blocked: isLoading=${this.isLoading} - will retry`);
+        // Retry after a short delay if still loading
+        setTimeout(() => {
+          if (!this.isLoading && this.currentStepIndex === stepIndex) {
+            handler();
+          }
+        }, 100);
         return;
       }
       
@@ -536,7 +547,7 @@ export class OnboardingTutorial {
           }
         }, 1500); // Slightly longer delay to show completion
       } else {
-        console.log(`[Tutorial] Handler skipped: currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, gesture=${this.steps[stepIndex]?.gesture}, expected=${expectedGesture}, completed=${this.steps[stepIndex]?.completed}`);
+        console.log(`[Tutorial] Handler skipped: currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, gesture=${this.steps[stepIndex]?.gesture}, expected=${expectedGesture}, completed=${this.steps[stepIndex]?.completed}, isLoading=${this.isLoading}`);
       }
     };
     
@@ -625,9 +636,10 @@ export class OnboardingTutorial {
           const hasAnyRotationWithTime = totalRotation > 0.1 && timeHeld > 3000; // At least 0.1 rad (~6°) after 3 seconds
           
           if (hasEnoughRotation || hasAnyRotationWithTime) {
-            if (!handlerFired && this.currentStepIndex === stepIndex) {
+            if (!handlerFired && this.currentStepIndex === stepIndex && !this.isLoading) {
               const rotationType = hasEnoughRotation ? '60° rotation' : 'fallback (any rotation + time)';
               console.log(`[Tutorial] ✅ ROTATION COMPLETE! Step ${stepIndex} - ${rotationType} - total=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°), required=${(REQUIRED_ROTATION * 180 / Math.PI).toFixed(1)}°, time=${timeHeld}ms`);
+              console.log(`[Tutorial] State check: handlerFired=${handlerFired}, currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, isLoading=${this.isLoading}`);
               console.log(`[Tutorial] Calling handler() to mark step complete...`);
               
               // Set handlerFired immediately to prevent multiple calls
@@ -639,6 +651,9 @@ export class OnboardingTutorial {
                 this.twoHandCheckInterval = null;
               }
               
+              // Ensure loading state is cleared before calling handler
+              this.isLoading = false;
+              
               // Call handler - it will handle the rest
               try {
                 handler();
@@ -649,11 +664,25 @@ export class OnboardingTutorial {
                 if (this.currentStepIndex === stepIndex && this.steps[stepIndex]) {
                   this.steps[stepIndex].completed = true;
                   this.clearGestureHandlers();
-                  setTimeout(() => this.nextStep(), 500);
+                  this.updatePanel();
+                  setTimeout(() => {
+                    if (this.currentStepIndex === stepIndex) {
+                      this.nextStep();
+                    }
+                  }, 500);
                 }
               }
               
               return;
+            } else {
+              // Log why handler wasn't called
+              if (handlerFired) {
+                console.log(`[Tutorial] Handler already fired, skipping`);
+              } else if (this.currentStepIndex !== stepIndex) {
+                console.log(`[Tutorial] Step changed (${this.currentStepIndex} !== ${stepIndex}), skipping handler`);
+              } else if (this.isLoading) {
+                console.log(`[Tutorial] Still loading, skipping handler`);
+              }
             }
           } else {
             // Log progress every 25% for feedback (avoid spam)
