@@ -912,7 +912,7 @@ export class FeedControls {
     if (d != null && d <= this.INSTANT_GRAB_DIST) {
       const objPosNow = this.store.getObjectWorldPos();
       if (objPosNow && pinch) {
-        console.log(`[Grab] ✅ Instant grab activated! Distance: ${d.toFixed(3)}m`);
+        console.log(`[FeedControls] ✅ Instant grab activated! Distance: ${d.toFixed(3)}m`);
         this.grabbing = true;
         this.grabSide = side;
         this.grabOffset.copy(objPosNow).sub(pinch);
@@ -920,23 +920,25 @@ export class FeedControls {
         this.scrollDisarmedThisPinch = true;
         return;
       } else {
-        console.log(`[Grab] Instant grab failed: d=${d?.toFixed(3)}, objPos=${!!objPosNow}, pinch=${!!pinch}`);
+        console.log(`[FeedControls] Instant grab failed: d=${d?.toFixed(3)}, objPos=${!!objPosNow}, pinch=${!!pinch}`);
       }
     }
 
     // If far from object, arm scroll
     if (d != null && d >= this.SCROLL_START_FAR) {
       this.scrollArmed = true;
+      console.log(`[FeedControls] Scroll armed by distance: ${d.toFixed(3)}m`);
     } else {
       // Otherwise, try to start grab pending (pinch and hold)
       this.scrollDisarmedThisPinch = true;
       if (d != null) {
         // Always try to start grab pending if we're within range
         // This ensures grab works even if instant grab didn't trigger
+        console.log(`[FeedControls] Attempting grab pending, distance: ${d.toFixed(3)}m`);
         this.tryStartGrabPending(side);
       } else {
         // Debug: log when distance is null
-        console.log(`[Grab] Distance is null - pinch=${!!pinch}, object exists=${!!this.store.getObject()}`);
+        console.log(`[FeedControls] Distance is null - pinch=${!!pinch}, object exists=${!!this.store.getObject()}`);
       }
     }
   }
