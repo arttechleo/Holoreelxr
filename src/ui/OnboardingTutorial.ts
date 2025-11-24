@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { HandEngine } from '../gestures/HandEngine';
 import { FeedStore } from '../feed/FeedStore';
+import { logError } from '../utils/errors';
 
 interface TutorialStep {
   id: string;
@@ -982,7 +983,7 @@ export class OnboardingTutorial {
 
   private findTutorialItems() {
     this.tutorialItemIndices = [];
-    this.firstNonTutorialIndex = 0;
+    this.firstNonTutorialIndex = -1; // Use -1 to indicate "not found yet"
     
     for (let i = 0; i < this.store.items.length; i++) {
       const item = this.store.items[i];
@@ -990,10 +991,25 @@ export class OnboardingTutorial {
       // Regular shape items (blue sphere, yellow pyramid, red square) are NOT tutorial items
       if (item.type === 'shape' && item.id.startsWith('tutorial-')) {
         this.tutorialItemIndices.push(i);
-      } else if (this.firstNonTutorialIndex === 0) {
+      } else if (this.firstNonTutorialIndex === -1) {
+        // First non-tutorial item found
         this.firstNonTutorialIndex = i;
+        console.log(`[Tutorial] First non-tutorial item found at index ${i}: ${item.title || item.id}`);
       }
     }
+    
+    // Fallback: if no non-tutorial items found, use last tutorial index + 1
+    if (this.firstNonTutorialIndex === -1) {
+      if (this.tutorialItemIndices.length > 0) {
+        this.firstNonTutorialIndex = Math.max(...this.tutorialItemIndices) + 1;
+        console.log(`[Tutorial] No non-tutorial items found, using fallback index: ${this.firstNonTutorialIndex}`);
+      } else {
+        this.firstNonTutorialIndex = 0;
+        console.warn(`[Tutorial] No items found in feed!`);
+      }
+    }
+    
+    console.log(`[Tutorial] Tutorial items: [${this.tutorialItemIndices.join(', ')}], First non-tutorial: ${this.firstNonTutorialIndex}`);
   }
 
   private clearGestureHandlers() {
@@ -1584,18 +1600,42 @@ export class OnboardingTutorial {
         console.warn('[Tutorial] WARNING: FeedControls reference is null!');
       }
       
-      const targetIndex = this.firstNonTutorialIndex > 0 ? 
-        Math.min(this.firstNonTutorialIndex, this.store.items.length - 1) : 
-        Math.min(this.originalFeedIndex, this.store.items.length - 1);
+      // CRITICAL: Ensure firstNonTutorialIndex is valid
+      let targetIndex = this.firstNonTutorialIndex;
+      if (targetIndex < 0 || targetIndex >= this.store.items.length) {
+        // Fallback to original index or 0
+        targetIndex = this.originalFeedIndex >= 0 && this.originalFeedIndex < this.store.items.length 
+          ? this.originalFeedIndex 
+          : 0;
+        console.warn(`[Tutorial] Invalid firstNonTutorialIndex (${this.firstNonTutorialIndex}), using fallback: ${targetIndex}`);
+      }
+      
+      // Ensure targetIndex is within bounds
+      targetIndex = Math.max(0, Math.min(targetIndex, this.store.items.length - 1));
+      
+      console.log(`[Tutorial] Navigating to feed index ${targetIndex} (firstNonTutorialIndex: ${this.firstNonTutorialIndex}, items.length: ${this.store.items.length})`);
       
       if (targetIndex >= 0 && targetIndex < this.store.items.length) {
+        const item = this.store.items[targetIndex];
+        console.log(`[Tutorial] Target item: ${item?.title || item?.id || 'unknown'} (type: ${item?.type || 'unknown'})`);
+        
         if (this.store.index !== targetIndex) {
           this.store.index = targetIndex;
           this.store.setTargetTransform(1, 0);
           this.store.showCurrent().catch(err => {
             console.error('[Tutorial] Error showing feed:', err);
+            logError(err, 'Tutorial.showCurrent');
+          });
+        } else {
+          // Index is already correct, but ensure content is shown
+          console.log(`[Tutorial] Index already correct (${targetIndex}), ensuring content is shown`);
+          this.store.showCurrent().catch(err => {
+            console.error('[Tutorial] Error showing current feed:', err);
+            logError(err, 'Tutorial.showCurrent');
           });
         }
+      } else {
+        console.error(`[Tutorial] Invalid targetIndex: ${targetIndex} (items.length: ${this.store.items.length})`);
       }
       
       if (this.onComplete) {

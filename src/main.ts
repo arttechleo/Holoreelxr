@@ -46,9 +46,28 @@ const xrMusicPanel = new XRMusicPanel(musicMgr, app.scene);
 const onboarding = new OnboardingTutorial(app.scene, hands, store);
 onboarding.setOnComplete(() => {
   // Tutorial will handle hiding itself and navigating to first non-tutorial item
-  console.log('[Main] Tutorial completed, returning to main feed');
-  // Feed index has already been set by tutorial, just show current
-  store.showCurrent().catch(err => logError(err, 'Show current after tutorial'));
+  console.log('[Main] Tutorial completed callback called');
+  console.log(`[Main] Current feed index: ${store.index}, items.length: ${store.items.length}`);
+  
+  // Ensure feed is properly loaded and index is valid
+  if (store.items.length === 0) {
+    console.error('[Main] Feed is empty after tutorial!');
+    return;
+  }
+  
+  // Validate index is within bounds
+  if (store.index < 0 || store.index >= store.items.length) {
+    console.warn(`[Main] Invalid feed index ${store.index}, resetting to 0`);
+    store.index = 0;
+  }
+  
+  // Feed index has already been set by tutorial, ensure content is shown
+  const item = store.items[store.index];
+  console.log(`[Main] Showing feed item at index ${store.index}: ${item?.title || item?.id || 'unknown'}`);
+  store.showCurrent().catch(err => {
+    console.error('[Main] Error showing current feed after tutorial:', err);
+    logError(err, 'Show current after tutorial');
+  });
 });
 
 // Sync asset links to feed when added
