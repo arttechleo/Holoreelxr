@@ -1191,12 +1191,16 @@ export class FeedControls {
       // Update position safely
       const newPos = mid.clone().add(this.grabOffset);
       
-      // Debug: log position updates (throttled)
-      if (Math.random() < 0.05) { // 5% of calls
-        console.log(`[Grab] Moving object: hand=${mid.toArray().map(v => v.toFixed(2)).join(',')}, newPos=${newPos.toArray().map(v => v.toFixed(2)).join(',')}`);
+      // Debug: log position updates (more frequently for debugging)
+      if (Math.random() < 0.2) { // 20% of calls for better visibility
+        console.log(`[Grab] Moving object: hand=${mid.toArray().map(v => v.toFixed(2)).join(',')}, offset=${this.grabOffset.toArray().map(v => v.toFixed(2)).join(',')}, newPos=${newPos.toArray().map(v => v.toFixed(2)).join(',')}, currentObjPos=${objPos.toArray().map(v => v.toFixed(2)).join(',')}`);
       }
       
-      this.store.setPosition(newPos);
+      // Only update if position actually changed (avoid unnecessary updates)
+      const posChanged = newPos.distanceTo(objPos) > 0.001; // 1mm threshold
+      if (posChanged) {
+        this.store.setPosition(newPos);
+      }
     } catch (error) {
       // If any error occurs, cancel grab to prevent freeze
       logError(error, 'FeedControls.updateGrabDrag');

@@ -328,23 +328,37 @@ export class FeedStore {
       const obj = this.getObject();
       if (obj) {
         // Convert world position to local position relative to parent
-        // The parent is typically the scene root, so we need to convert world to local
+        // contentRoot is typically at origin with no transforms, but we convert to be safe
         const localPos = worldPos.clone();
         const actualParent = obj.parent || this.parent;
+        
         if (actualParent) {
+          // Convert world position to local space of the parent
           actualParent.worldToLocal(localPos);
         }
+        
+        // Set the position
+        const oldPos = obj.position.clone();
         obj.position.copy(localPos);
         
-        // Debug: log position updates (throttled)
-        if (Math.random() < 0.05) { // 5% of calls
-          console.log(`[FeedStore] setPosition: world=${worldPos.toArray().map(v => v.toFixed(2)).join(',')}, local=${localPos.toArray().map(v => v.toFixed(2)).join(',')}, obj=${obj.name}`);
+        // CRITICAL: Update matrices to ensure position change is visible
+        // Update this object's matrix
+        obj.updateMatrix();
+        // Update parent's matrix if needed
+        if (actualParent) {
+          actualParent.updateMatrixWorld(true);
+        }
+        // Force update this object's world matrix
+        obj.updateMatrixWorld(true);
+        
+        // Debug: log position updates (more frequently for debugging)
+        if (Math.random() < 0.15) { // 15% of calls
+          const currentWorldPos = new THREE.Vector3().setFromMatrixPosition(obj.matrixWorld);
+          console.log(`[FeedStore] setPosition: targetWorld=${worldPos.toArray().map(v => v.toFixed(2)).join(',')}, local=${localPos.toArray().map(v => v.toFixed(2)).join(',')}, actualWorld=${currentWorldPos.toArray().map(v => v.toFixed(2)).join(',')}, obj=${obj.name}`);
         }
       } else {
-        // Debug: log when object not found
-        if (Math.random() < 0.1) { // 10% of calls
-          console.log(`[FeedStore] setPosition: Object not found!`);
-        }
+        // Debug: log when object not found - always log this
+        console.warn(`[FeedStore] setPosition: Object not found! Available children:`, this.parent.children.map(c => c.name).join(', '));
       }
       if (this.seq) {
         this.seq.setPosition(worldPos);
@@ -353,6 +367,7 @@ export class FeedStore {
       this.updatePlatformPose();
     } catch (error) {
       logError(error, 'FeedStore.setPosition');
+      console.error('[FeedStore] setPosition error:', error);
     }
   }
 
