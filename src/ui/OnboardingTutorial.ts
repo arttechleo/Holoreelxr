@@ -1262,7 +1262,8 @@ export class OnboardingTutorial {
       return;
     }
     
-    this.clearGestureHandlers();
+    const preserveTwoHand = gesture === 'twohandrotate' || gesture === 'twohandscale';
+    this.clearGestureHandlers({ preserveTwoHandTracking: preserveTwoHand });
     
     const stepIndex = this.currentStepIndex;
     const expectedGesture = this.steps[stepIndex]?.gesture;
