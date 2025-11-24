@@ -270,7 +270,7 @@ export class FeedStore {
     // Only update if index actually changed
     if (this.index !== oldIndex) {
       const item = this.items[this.index];
-      console.log(`[FeedStore] Scrolling: index ${oldIndex} → ${this.index}, item: ${item?.title || 'unknown'} (type: ${item?.type || 'unknown'})`);
+      console.log(`[FeedStore] ✅ Scrolling: index ${oldIndex} → ${this.index}, item: ${item?.title || 'unknown'} (type: ${item?.type || 'unknown'})`);
       
       // CRITICAL: Reset position when switching items to prevent overlap
       // This ensures new models spawn at a clean position, not on top of old ones
@@ -278,10 +278,15 @@ export class FeedStore {
       
       // Reset transform to default
       this.setTargetTransform(1, 0);
+      
+      // CRITICAL: Always call showCurrent - don't let errors prevent scrolling
       this.showCurrent().catch(err => {
-        console.error(`[FeedStore] Error showing item at index ${this.index}:`, err);
+        console.error(`[FeedStore] ❌ Error showing item at index ${this.index}:`, err);
         logError(err, 'FeedStore.next');
+        // Continue anyway - don't block scrolling
       });
+    } else {
+      console.log(`[FeedStore] ⚠️ Scroll called but index didn't change (${oldIndex} = ${this.index})`);
     }
   }
 
