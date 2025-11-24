@@ -47,6 +47,10 @@ export class FeedStore {
     metalness: 0,
   });
 
+  private textureLoader = new THREE.TextureLoader();
+  private earthTexture?: THREE.Texture;
+  private earthTextureFailed = false;
+
   constructor(parent: THREE.Object3D, onHud?: (text: string) => void) {
     this.parent = parent;
     this.onHud = onHud;
@@ -159,7 +163,7 @@ export class FeedStore {
 
     try {
       if (item.type === 'shape') {
-        const obj = this.makeShape(item.shape, item.color);
+        const obj = this.makeShape(item.shape, item.color, item.id);
         obj.name = 'content-shape';
         obj.position.copy(spawnPos);
         obj.rotation.y = this._rotY;
@@ -642,21 +646,73 @@ export class FeedStore {
   }
 
   // ---------- Shapes ----------
-  private makeShape(kind: ShapeKind, colorHex?: string) {
+  // NASA Blue Marble imagery (public domain) stored at /assets/earth_daymap.jpg.
+  private getEarthTexture(): THREE.Texture | undefined {
+    if (this.earthTextureFailed) return undefined;
+    if (!this.earthTexture) {
+      try {
+        const texture = this.textureLoader.load(
+          '/assets/earth_daymap.jpg',
+          (loaded) => {
+            loaded.colorSpace = THREE.SRGBColorSpace;
+            loaded.needsUpdate = true;
+          },
+          undefined,
+          (error) => {
+            console.warn('[FeedStore] Failed to load Earth texture', error);
+            this.earthTexture = undefined;
+            this.earthTextureFailed = true;
+          }
+        );
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+        texture.center.set(0.5, 0.5);
+        texture.repeat.set(1, 1);
+        this.earthTexture = texture;
+      } catch (error) {
+        console.warn('[FeedStore] Error initializing Earth texture', error);
+        this.earthTexture = undefined;
+        this.earthTextureFailed = true;
+      }
+    }
+    return this.earthTexture;
+  }
+
+  private makeShape(kind: ShapeKind, colorHex?: string, sourceId?: string) {
     const color = new THREE.Color(colorHex ?? '#66ccff');
-    const mat = new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.4,
-      metalness: 0.0,
-      emissive: 0x000000,
-    });
+    let mat: THREE.MeshStandardMaterial;
+    if (kind === 'sphere' && sourceId === 'shape-blue-sphere') {
+      const earthTexture = this.getEarthTexture();
+      if (earthTexture) {
+        mat = new THREE.MeshStandardMaterial({
+          map: earthTexture,
+          roughness: 0.55,
+          metalness: 0.05,
+          emissive: 0x000000,
+        });
+      } else {
+        mat = new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.4,
+          metalness: 0.0,
+          emissive: 0x000000,
+        });
+      }
+    } else {
+      mat = new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.4,
+        metalness: 0.0,
+        emissive: 0x000000,
+      });
+    }
     let geo: THREE.BufferGeometry;
     switch (kind) {
       case 'box':
         geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
         break;
       case 'sphere':
-        geo = new THREE.SphereGeometry(0.25, 32, 16);
+        geo = new THREE.SphereGeometry(0.25, 48, 32);
         break;
       case 'pyramid':
         geo = new THREE.ConeGeometry(0.28, 0.5, 4);
