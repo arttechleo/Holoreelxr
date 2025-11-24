@@ -639,10 +639,19 @@ export class OnboardingTutorial {
     
     if (gesture === 'twohandrotate') {
       // Simple rotation detection: track when rotation exceeds 0.5 radians from initial
-      const initialRotY = this.store.rotationY; // Track starting rotation
+      // Capture initial rotation when step actually starts (after a short delay to ensure model is loaded)
+      let initialRotY: number | null = null;
+      let initialRotYSet = false;
       const REQUIRED_ROTATION = 0.5; // 0.5 radians (~28.6 degrees)
       
-      console.log(`[Tutorial] 🔄 Rotation tracking started: initial=${initialRotY.toFixed(4)} rad, target=${REQUIRED_ROTATION} rad (${(REQUIRED_ROTATION * 180 / Math.PI).toFixed(1)}°)`);
+      // Set initial rotation after a short delay to ensure the model is loaded
+      setTimeout(() => {
+        if (this.currentStepIndex === stepIndex && !initialRotYSet) {
+          initialRotY = this.store.rotationY;
+          initialRotYSet = true;
+          console.log(`[Tutorial] 🔄 Rotation tracking started: initial=${initialRotY.toFixed(4)} rad, target=${REQUIRED_ROTATION} rad (${(REQUIRED_ROTATION * 180 / Math.PI).toFixed(1)}°)`);
+        }
+      }, 500); // Wait 500ms for model to load
       
       this.twoHandCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
@@ -650,6 +659,11 @@ export class OnboardingTutorial {
             clearInterval(this.twoHandCheckInterval);
             this.twoHandCheckInterval = null;
           }
+          return;
+        }
+        
+        // Wait for initial rotation to be set
+        if (!initialRotYSet || initialRotY === null) {
           return;
         }
         
@@ -669,14 +683,12 @@ export class OnboardingTutorial {
         const progress = (rotDiff / REQUIRED_ROTATION) * 100;
         this.progressPercentage = Math.min(100, Math.max(0, progress));
         
-        // Update panel to show progress (throttle updates)
-        if (now % 200 < 100) { // Update every ~200ms
-          this.updatePanel();
-        }
+        // Always update panel to show progress
+        this.updatePanel();
         
-        // Debug logging every 2 seconds
-        if (now % 2000 < 100) {
-          console.log(`[Tutorial] Rotation check: current=${currentRotY.toFixed(4)} rad, diff=${rotDiff.toFixed(4)} rad (${(rotDiff * 180 / Math.PI).toFixed(1)}°), progress=${this.progressPercentage.toFixed(1)}%`);
+        // Debug logging every 1 second
+        if (now % 1000 < 100) {
+          console.log(`[Tutorial] Rotation check: current=${currentRotY.toFixed(4)} rad, initial=${initialRotY.toFixed(4)} rad, diff=${rotDiff.toFixed(4)} rad (${(rotDiff * 180 / Math.PI).toFixed(1)}°), progress=${this.progressPercentage.toFixed(1)}%`);
         }
         
         // Complete when rotation exceeds 0.5 radians
@@ -1393,26 +1405,46 @@ export class OnboardingTutorial {
     // this.group.lookAt(cameraPosition);
   }
   
-  // Raycast hit test for button clicks
+  // Raycast hit test for button clicks (hand gesture based)
   raycast(ray: THREE.Ray): { button?: 'prev' | 'next' } | null {
-    if (!this.group.visible || !this.panel) return null;
+    if (!this.group.visible || !this.panel) {
+      return null;
+    }
     
     try {
-      const raycaster = new THREE.Raycaster(ray.origin, ray.direction.normalize());
+      // Normalize ray direction
+      const normalizedDir = ray.direction.clone().normalize();
+      const raycaster = new THREE.Raycaster(ray.origin, normalizedDir);
+      
+      // Set far distance to ensure we can hit the panel
+      raycaster.far = 10; // 10 meters max distance
+      
+      // Try to intersect with the panel
       const intersects = raycaster.intersectObject(this.panel, false);
       
-      if (!intersects || intersects.length === 0) return null;
+      if (!intersects || intersects.length === 0) {
+        // Debug: log when ray doesn't hit (throttled)
+        if (Math.random() < 0.02) { // 2% of calls
+          const panelPos = new THREE.Vector3();
+          this.panel.getWorldPosition(panelPos);
+          const distToPanel = ray.origin.distanceTo(panelPos);
+          console.log(`[Tutorial] Raycast miss: distToPanel=${distToPanel.toFixed(2)}m, panelVisible=${this.group.visible}`);
+        }
+        return null;
+      }
       
       const intersect = intersects[0];
-      if (!intersect.uv) return null;
+      if (!intersect.uv) {
+        return null;
+      }
       
       const uv = intersect.uv;
       const x = uv.x * this.canvas.width;
       const y = (1 - uv.y) * this.canvas.height; // Flip Y coordinate
       
       // Debug logging (throttled)
-      if (Math.random() < 0.01) { // 1% of calls
-        console.log(`[Tutorial] Raycast hit: x=${x.toFixed(0)}, y=${y.toFixed(0)}, buttonRegions=${!!this.buttonRegions}`);
+      if (Math.random() < 0.1) { // 10% of calls when hitting
+        console.log(`[Tutorial] ✅ Raycast hit: x=${x.toFixed(0)}, y=${y.toFixed(0)}, distance=${intersect.distance.toFixed(2)}m`);
       }
       
       // Check button regions
@@ -1421,7 +1453,9 @@ export class OnboardingTutorial {
         if (x >= prev.x && x <= prev.x + prev.w &&
             y >= prev.y && y <= prev.y + prev.h &&
             this.currentStepIndex > 0) {
-          console.log(`[Tutorial] Previous button hit!`);
+          if (Math.random() < 0.2) { // 20% of hits
+            console.log(`[Tutorial] ✅ Previous button hit!`);
+          }
           return { button: 'prev' };
         }
         
@@ -1429,7 +1463,9 @@ export class OnboardingTutorial {
         if (x >= next.x && x <= next.x + next.w &&
             y >= next.y && y <= next.y + next.h &&
             this.currentStepIndex < this.steps.length - 1) {
-          console.log(`[Tutorial] Next button hit!`);
+          if (Math.random() < 0.2) { // 20% of hits
+            console.log(`[Tutorial] ✅ Next button hit!`);
+          }
           return { button: 'next' };
         }
       }

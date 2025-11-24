@@ -525,8 +525,14 @@ export class FeedControls {
       handDir = tip.clone().sub(camPos).normalize();
     }
     
-    // Create ray from hand pointing direction
+    // Create ray from index finger tip in pointing direction
+    // Use a longer ray to ensure it reaches the panel
     const ray = new THREE.Ray(tip, handDir);
+    
+    // Debug raycast (throttled)
+    if (Math.random() < 0.05) { // 5% of calls
+      console.log(`[FeedControls] Raycast: origin=(${tip.x.toFixed(2)}, ${tip.y.toFixed(2)}, ${tip.z.toFixed(2)}), dir=(${handDir.x.toFixed(2)}, ${handDir.y.toFixed(2)}, ${handDir.z.toFixed(2)})`);
+    }
     
     // Check tutorial panel first (if visible) - HAND GESTURE BASED
     if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
