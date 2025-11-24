@@ -415,12 +415,13 @@ export class FeedControls {
   }
 
   /**
-   * Reset scroll state to initial values.
-   * Called after tutorial completion to ensure clean state transition.
-   * Public method to allow external reset without breaking encapsulation.
+   * Comprehensive reset after tutorial completion.
+   * Ensures scroll / grab / scale / rotate / emoji gestures all work again.
    */
   resetScrollState(): void {
-    console.log('[FeedControls] Resetting scroll state after tutorial completion');
+    console.log('[FeedControls] 🔄 Comprehensive reset after tutorial completion');
+
+    // Scroll state
     this.lastPinchY = null;
     this.filtPinchY = null;
     this.scrollAccum = 0;
@@ -428,10 +429,67 @@ export class FeedControls {
     this.scrollDisarmedThisPinch = false;
     this.pinchStartAt = null;
     this.scrollCooldownUntil = 0;
-    // Also reset grab state to ensure clean transition
+    if (this.scrollRay) this.scrollRay.visible = false;
+
+    // Grab state
     this.grabPending = false;
+    this.grabPendingSide = null;
+    this.grabPendingStartY = null;
+    if (this.grabTimer != null) {
+      clearTimeout(this.grabTimer);
+      this.grabTimer = null;
+    }
     this.grabbing = false;
-    console.log('[FeedControls] Scroll state reset complete - ready for main feed');
+    this.grabSide = null;
+    this.grabOffset.set(0, 0, 0);
+
+    // Two-hand transform state
+    this.twoHandActive = false;
+    this.baseDist = 0;
+    this.baseScale = this.store.scale;
+    this.filtDist = 0;
+    this.rotTarget = this.store.rotationY;
+    this.rotVel = 0;
+    this.LStart.set(0, 0, 0);
+    this.RStart.set(0, 0, 0);
+    this.lastL.set(0, 0, 0);
+    this.lastR.set(0, 0, 0);
+
+    // Gesture maps / cooldowns
+    this.gestureTriggered.clear();
+    this.gestureCooldown.clear();
+    this.clusterCooldownUntil = 0;
+    this.lastStableCheckAt = 0;
+    this.lastStableKind = null;
+
+    // UI state
+    this.uiHoverKind = null;
+    this.uiHoverBeganAt = 0;
+    this.uiLastY = null;
+    this.setRayVisible('left', false);
+    this.setRayVisible('right', false);
+
+    console.log('[FeedControls] ✅ Reset complete: scroll, grab, scale, rotate, emoji gestures enabled');
+  }
+
+  /**
+   * Quick verification helper – useful for debugging production issues.
+   */
+  verifyFeaturesEnabled(): boolean {
+    const tutorialDone = this.isTutorialCompleted();
+    const tutorialActive = this.isTutorialActive();
+    const ok = tutorialDone && !tutorialActive;
+    console.log('[FeedControls] 🔍 Feature verification', {
+      tutorialDone,
+      tutorialActive,
+      scrollArmed: this.scrollArmed,
+      grabbing: this.grabbing,
+      twoHandActive: this.twoHandActive,
+    });
+    if (!ok) {
+      console.warn('[FeedControls] ⚠️ Tutorial state invalid - features may still be blocked');
+    }
+    return ok;
   }
 
   // ---------- gesture cooldown helpers ----------
