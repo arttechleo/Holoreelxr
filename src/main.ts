@@ -45,9 +45,9 @@ const xrMusicPanel = new XRMusicPanel(musicMgr, app.scene);
 // Onboarding tutorial (only shows in XR)
 const onboarding = new OnboardingTutorial(app.scene, hands, store);
 onboarding.setOnComplete(() => {
-  onboarding.hide();
-  // After tutorial, continue with remaining feed items
-  // Feed is already loaded, just show current item
+  // Tutorial will handle hiding itself and navigating to first non-tutorial item
+  console.log('[Main] Tutorial completed, returning to main feed');
+  // Feed index has already been set by tutorial, just show current
   store.showCurrent().catch(err => logError(err, 'Show current after tutorial'));
 });
 
@@ -116,6 +116,17 @@ async function loadMainFeed() {
     // Update 3D panels to face camera
     xrAuthPanel.update(app.camera);
     xrMusicPanel.update(app.camera);
+    // Update tutorial panel to face camera when visible
+    if (onboarding.isVisible()) {
+      const camPos = new THREE.Vector3();
+      const camDir = new THREE.Vector3();
+      app.camera.getWorldPosition(camPos);
+      app.camera.getWorldDirection(camDir);
+      // Position tutorial panel 1.5m in front of camera
+      const tutorialPos = camPos.clone().add(camDir.multiplyScalar(1.5));
+      tutorialPos.y += 0.3;
+      (onboarding as any).updatePosition?.(tutorialPos, camPos);
+    }
   });
 
   // When XR session starts, place the current item in front of the user:

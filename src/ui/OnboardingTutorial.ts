@@ -16,7 +16,17 @@ interface TutorialStep {
 export class OnboardingTutorial {
   private group = new THREE.Group();
   private currentStepIndex = 0;
+  private originalFeedIndex: number = 0; // Save original feed index before tutorial
+  private firstNonTutorialIndex: number = 0; // Index of first non-tutorial item
   private steps: TutorialStep[] = [
+    {
+      id: 'welcome',
+      title: '🎉 Welcome to HoloreelXR!',
+      description: 'Learn the basics of 3D interaction in Mixed Reality. Follow along and try each gesture!',
+      shape: 'box',
+      color: '#667eea',
+      completed: false,
+    },
     {
       id: 'rotate',
       title: 'Rotate 3D Object',
@@ -94,6 +104,11 @@ export class OnboardingTutorial {
   private grabCheckInterval: number | null = null; // For detecting grab
   private feedControls: any = null; // Reference to FeedControls for checking state
   private currentGestureHandlers: Array<{ event: string; handler: () => void }> = []; // Track active handlers
+  private progressPercentage: number = 0; // Current progress for progress steps (0-100)
+  private skipTimeout: number | null = null; // Timeout for skip option
+  private panelOpacity: number = 1.0; // For fade transitions
+  private fadeInterval: number | null = null; // Current fade animation interval
+  private currentTimeoutId: number | null = null; // Current step timeout ID
 
   constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore, feedControls?: any) {
     this.hands = hands;
@@ -115,7 +130,11 @@ export class OnboardingTutorial {
       transparent: true,
       side: THREE.DoubleSide,
       depthTest: false,
+      opacity: 1.0,
     });
+    
+    // Store material reference for opacity control
+    (this.group as any).panelMaterial = mat;
     
     this.panel = new THREE.Mesh(geo, mat);
     this.panel.position.set(0, 0.4, 0);
@@ -126,15 +145,41 @@ export class OnboardingTutorial {
   }
   
   private findTutorialItems() {
-    // Find the first 7 shape items for tutorial steps
+    // Reset indices
     this.tutorialItemIndices = [];
+    this.firstNonTutorialIndex = 0;
+    
+    // Safety check: ensure store has items
+    if (!this.store || !this.store.items || this.store.items.length === 0) {
+      console.warn('[Tutorial] Store has no items');
+      return false;
+    }
+    
+    // Find shape items for tutorial steps (skip welcome step which doesn't need an item)
     for (let i = 0; i < this.store.items.length && this.tutorialItemIndices.length < 7; i++) {
       const item = this.store.items[i];
-      if (item.type === 'shape') {
+      if (item && item.type === 'shape') {
         this.tutorialItemIndices.push(i);
       }
     }
-    return this.tutorialItemIndices.length > 0;
+    
+    // Find first non-tutorial item (first item that's not a shape type tutorial)
+    for (let i = 0; i < this.store.items.length; i++) {
+      const item = this.store.items[i];
+      if (item && item.type !== 'shape') {
+        this.firstNonTutorialIndex = i;
+        break;
+      }
+    }
+    
+    // If all items are shapes, use first item after tutorial items
+    if (this.firstNonTutorialIndex === 0 && this.tutorialItemIndices.length > 0) {
+      this.firstNonTutorialIndex = Math.min(this.tutorialItemIndices.length, this.store.items.length);
+    }
+    
+    // Need at least as many tutorial items as steps (minus welcome step)
+    const requiredItems = this.steps.length - 1; // -1 for welcome step
+    return this.tutorialItemIndices.length >= requiredItems;
   }
 
   setOnComplete(callback: () => void) {
@@ -146,22 +191,58 @@ export class OnboardingTutorial {
   }
 
   async showStep(index: number) {
-    if (index >= this.steps.length) {
-      this.complete();
+    // Validate index
+    if (index < 0 || index >= this.steps.length) {
+      if (index >= this.steps.length) {
+        this.complete();
+      }
       return;
     }
 
+    // Reset progress for new step
+    this.progressPercentage = 0;
+    (this as any).stepStartTime = Date.now();
+    
+    // Clear any pending operations before starting new step
+    this.clearGestureHandlers();
+    
+    // Fade transition (skip on first step)
+    try {
+      if (index > 0) {
+        await this.fadeOut();
+      }
+    } catch (error) {
+      console.error('[Tutorial] Error during fade out:', error);
+      // Continue anyway
+    }
+    
     this.currentStepIndex = index;
     const step = this.steps[index];
     
+    if (!step) {
+      console.error(`[Tutorial] Step ${index} not found`);
+      this.complete();
+      return;
+    }
+    
     // Set loading state to prevent gesture handlers from firing during transition
     this.isLoading = true;
-    this.clearGestureHandlers();
     
-    // Use FeedStore to show the corresponding tutorial item
-    // Map step index to tutorial item index (first 3 steps use feed items)
-    if (index < this.tutorialItemIndices.length) {
-      const feedIndex = this.tutorialItemIndices[index];
+    // Clear skip timeout
+    if (this.skipTimeout) {
+      clearTimeout(this.skipTimeout);
+      this.skipTimeout = null;
+    }
+    
+    // Skip welcome step (index 0) - it doesn't need a model
+    // Map tutorial steps (index 1+) to tutorial items (index 0+)
+    const tutorialItemIndex = index - 1; // Subtract 1 to account for welcome step
+    
+    if (step.id === 'welcome') {
+      // Welcome step - no model needed
+      this.isLoading = false;
+    } else if (tutorialItemIndex >= 0 && tutorialItemIndex < this.tutorialItemIndices.length) {
+      const feedIndex = this.tutorialItemIndices[tutorialItemIndex];
       
       // Only change index if it's different to avoid unnecessary reloads
       if (this.store.index !== feedIndex) {
@@ -178,17 +259,29 @@ export class OnboardingTutorial {
       // Ensure the shape has proper material (not wireframe)
       // Wait a frame for the shape to be added to the scene
       requestAnimationFrame(() => {
-        const obj = this.store.getObject();
-        if (obj && obj.type === 'Mesh') {
-          const mesh = obj as THREE.Mesh;
-          if (mesh.material) {
-            const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-            if (mat instanceof THREE.MeshStandardMaterial) {
-              mat.wireframe = false;
-              mat.needsUpdate = true;
+        // Safety check: ensure we're still on the same step
+        if (this.currentStepIndex !== index) {
+          console.log(`[Tutorial] Step changed during loading (was ${index}, now ${this.currentStepIndex}), skipping setup`);
+          this.isLoading = false;
+          return;
+        }
+        
+        try {
+          const obj = this.store.getObject();
+          if (obj && obj.type === 'Mesh') {
+            const mesh = obj as THREE.Mesh;
+            if (mesh.material) {
+              const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+              if (mat instanceof THREE.MeshStandardMaterial) {
+                mat.wireframe = false;
+                mat.needsUpdate = true;
+              }
             }
           }
+        } catch (error) {
+          console.error('[Tutorial] Error setting up shape material:', error);
         }
+        
         // Clear loading state after shape is ready
         this.isLoading = false;
         // Set up gesture handlers now that loading is complete
@@ -196,29 +289,159 @@ export class OnboardingTutorial {
           this.waitForGesture(step.gesture);
         }
       });
-    } else {
-      // No model to load, clear loading immediately
+    } else if (step.id !== 'welcome') {
+      // No model to load for this step (shouldn't happen for non-welcome steps)
+      console.warn(`[Tutorial] No model found for step ${index}: ${step.id}`);
       this.isLoading = false;
+      // Auto-advance if we can't load the step
+      setTimeout(() => {
+        if (this.currentStepIndex === index) {
+          console.log(`[Tutorial] Auto-advancing from step ${index} due to missing model`);
+          this.nextStep();
+        }
+      }, 1000);
     }
 
     // Update panel
     this.updatePanel();
+    
+    // Fade in
+    try {
+      await this.fadeIn();
+    } catch (error) {
+      console.error('[Tutorial] Error during fade in:', error);
+      // Continue anyway - set opacity manually
+      this.panelOpacity = 1.0;
+      if ((this.group as any).panelMaterial) {
+        (this.group as any).panelMaterial.opacity = 1.0;
+      }
+    }
 
     // Listen for gesture completion
     if (step.gesture) {
-      // If no model to load, set up handlers immediately
-      if (index >= this.tutorialItemIndices.length) {
+      // Set up skip gesture (pinch both hands together for 2 seconds)
+      this.setupSkipGesture(index);
+      
+      // If no model to load (shouldn't happen for gesture steps), set up handlers immediately
+      if (step.id === 'welcome') {
+        // This shouldn't happen, but handle it gracefully
         this.waitForGesture(step.gesture);
       }
       // Otherwise, handlers will be set up in requestAnimationFrame above
     } else {
-      // Auto-advance after 3 seconds for welcome step
+      // Auto-advance after 3 seconds for welcome/completion steps (no gesture required)
       setTimeout(() => {
         if (this.currentStepIndex === index) {
           this.nextStep();
         }
       }, 3000);
     }
+  }
+  
+  private async fadeOut(): Promise<void> {
+    return new Promise((resolve) => {
+      // Clear any existing fade animation
+      if (this.fadeInterval) {
+        clearInterval(this.fadeInterval);
+        this.fadeInterval = null;
+      }
+      
+      if (this.panelOpacity <= 0 || !this.group.visible) {
+        this.panelOpacity = 0;
+        resolve();
+        return;
+      }
+      
+      const fadeSpeed = 0.15;
+      this.fadeInterval = window.setInterval(() => {
+        this.panelOpacity = Math.max(0, this.panelOpacity - fadeSpeed);
+        if ((this.group as any).panelMaterial) {
+          (this.group as any).panelMaterial.opacity = this.panelOpacity;
+        }
+        
+        if (this.panelOpacity <= 0) {
+          if (this.fadeInterval) {
+            clearInterval(this.fadeInterval);
+            this.fadeInterval = null;
+          }
+          resolve();
+        }
+      }, 16); // ~60fps
+    });
+  }
+  
+  private async fadeIn(): Promise<void> {
+    return new Promise((resolve) => {
+      // Clear any existing fade animation
+      if (this.fadeInterval) {
+        clearInterval(this.fadeInterval);
+        this.fadeInterval = null;
+      }
+      
+      if (this.panelOpacity >= 1) {
+        this.panelOpacity = 1.0;
+        if ((this.group as any).panelMaterial) {
+          (this.group as any).panelMaterial.opacity = 1.0;
+        }
+        resolve();
+        return;
+      }
+      
+      const fadeSpeed = 0.15;
+      this.fadeInterval = window.setInterval(() => {
+        this.panelOpacity = Math.min(1, this.panelOpacity + fadeSpeed);
+        if ((this.group as any).panelMaterial) {
+          (this.group as any).panelMaterial.opacity = this.panelOpacity;
+        }
+        
+        if (this.panelOpacity >= 1) {
+          if (this.fadeInterval) {
+            clearInterval(this.fadeInterval);
+            this.fadeInterval = null;
+          }
+          resolve();
+        }
+      }, 16); // ~60fps
+    });
+  }
+  
+  private setupSkipGesture(stepIndex: number) {
+    let skipHoldStart: number | null = null;
+    const SKIP_HOLD_MS = 2000; // Hold both hands pinched for 2 seconds to skip
+    
+    const skipCheckInterval = window.setInterval(() => {
+      if (this.currentStepIndex !== stepIndex || this.isLoading) {
+        clearInterval(skipCheckInterval);
+        return;
+      }
+      
+      const lp = this.hands.state.left.pinch;
+      const rp = this.hands.state.right.pinch;
+      
+      if (lp && rp) {
+        if (skipHoldStart === null) {
+          skipHoldStart = Date.now();
+          console.log('[Tutorial] Skip gesture detected, hold for 2 seconds...');
+        } else {
+          const holdTime = Date.now() - skipHoldStart;
+          if (holdTime >= SKIP_HOLD_MS) {
+            clearInterval(skipCheckInterval);
+            console.log(`[Tutorial] Skip gesture completed, skipping step ${stepIndex}`);
+            if (this.steps[stepIndex]) {
+              this.steps[stepIndex].completed = true;
+            }
+            this.clearGestureHandlers();
+            this.updatePanel();
+            setTimeout(() => this.nextStep(), 500);
+          }
+        }
+      } else {
+        skipHoldStart = null;
+      }
+    }, 100);
+    
+    // Store interval so we can clear it
+    (this as any).skipCheckInterval = skipCheckInterval;
   }
 
   private waitForGesture(gesture: string) {
@@ -241,18 +464,29 @@ export class OnboardingTutorial {
     
     let handlerFired = false; // Prevent multiple fires
     
-    // Add timeout to prevent freezing - auto-skip after 15 seconds (reduced from 30)
+    // Add timeout to prevent freezing - show hint after 10s, auto-skip after 20s
+    const hintTimeoutId = setTimeout(() => {
+      if (!handlerFired && this.currentStepIndex === stepIndex && !this.isLoading) {
+        // Show helpful hint on panel
+        this.updatePanel();
+        console.log(`[Tutorial] Step ${stepIndex} taking a while, showing hint...`);
+      }
+    }, 10000); // Show hint after 10 seconds
+    (this as any).hintTimeoutId = hintTimeoutId; // Store for cleanup
+    
     const timeoutId = setTimeout(() => {
       if (!handlerFired && this.currentStepIndex === stepIndex && !this.isLoading) {
-        console.warn(`Tutorial step ${stepIndex} timed out, auto-advancing...`);
+        console.warn(`Tutorial step ${stepIndex} timed out after 20s, auto-advancing...`);
         handlerFired = true;
+        clearTimeout(hintTimeoutId);
         if (this.steps[stepIndex]) {
           this.steps[stepIndex].completed = true;
         }
         this.clearGestureHandlers();
         this.nextStep();
       }
-    }, 15000); // 15 second timeout (reduced for faster progression)
+    }, 20000); // 20 second timeout with hint at 10s
+    (this as any).currentTimeoutId = timeoutId; // Store for cleanup
     
     const handler = () => {
       // Don't fire if loading or already fired - but allow if handlerFired was set by interval
@@ -269,7 +503,14 @@ export class OnboardingTutorial {
         
         // Set handlerFired to prevent multiple calls
         handlerFired = true;
-        clearTimeout(timeoutId); // Clear timeout since gesture was detected
+        if ((this as any).currentTimeoutId) {
+          clearTimeout((this as any).currentTimeoutId);
+          (this as any).currentTimeoutId = null;
+        }
+        if ((this as any).hintTimeoutId) {
+          clearTimeout((this as any).hintTimeoutId);
+          (this as any).hintTimeoutId = null;
+        }
         
         // Mark step as completed
         if (this.steps[stepIndex]) {
@@ -336,9 +577,9 @@ export class OnboardingTutorial {
         const currentRotY = this.store.rotationY;
         const now = Date.now();
         
-        // Debug logging every 2 seconds to help diagnose issues
-        if (now % 2000 < 100) {
-          console.log(`[Tutorial] Rotation check: lp=${lp}, rp=${rp}, currentRotY=${currentRotY.toFixed(4)}, totalRotation=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°), handlerFired=${handlerFired}, isLoading=${this.isLoading}`);
+        // Debug logging every 5 seconds (reduced frequency for performance)
+        if (now % 5000 < 100) {
+          console.log(`[Tutorial] Rotation check: lp=${lp}, rp=${rp}, progress=${this.progressPercentage.toFixed(1)}%, totalRotation=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
         }
         
         if (lp && rp) {
@@ -369,8 +610,14 @@ export class OnboardingTutorial {
             console.log(`[Tutorial] Rotation detected: delta=${absDelta.toFixed(4)} rad (${(absDelta * 180 / Math.PI).toFixed(1)}°), total=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
           }
           
-          // Calculate progress percentage
+          // Calculate progress percentage and update panel
           const progress = (totalRotation / REQUIRED_ROTATION) * 100;
+          this.progressPercentage = Math.min(100, Math.max(0, progress));
+          
+          // Update panel to show progress (throttle updates)
+          if (now % 200 < 100) { // Update every ~200ms
+            this.updatePanel();
+          }
           
           // Complete when 60° rotation is achieved OR any rotation after 3 seconds (fallback for struggling users)
           const timeHeld = now - rotationStartTime;
@@ -433,7 +680,7 @@ export class OnboardingTutorial {
           }
           lastRotY = currentRotY;
         }
-      }, 100);
+      }, 150); // Reduced frequency from 100ms to 150ms for better performance
       console.log(`[Tutorial] Registered two-hand rotate detector for step ${stepIndex} - requires 60° rotation (${REQUIRED_ROTATION.toFixed(4)} rad) for tutorial`);
     } else if (gesture === 'twohandscale') {
       // Check for two-hand scale by monitoring scale changes
@@ -472,6 +719,14 @@ export class OnboardingTutorial {
             const timeHeld = Date.now() - scaleStartTime;
             const hasEnoughChange = totalScaleChange > 0.1; // 10% total change
             const hasHeldTime = timeHeld > 500;
+            
+            // Update progress percentage (max 100%)
+            this.progressPercentage = Math.min(100, (totalScaleChange / 0.1) * 100);
+            
+            // Update panel periodically to show progress
+            if (timeHeld % 200 < 100) {
+              this.updatePanel();
+            }
             
             if (scaleDetected && (hasHeldTime || hasEnoughChange)) {
               if (!handlerFired && this.currentStepIndex === stepIndex) {
@@ -513,7 +768,7 @@ export class OnboardingTutorial {
           totalScaleChange = 0;
           lastScale = currentScale;
         }
-      }, 100);
+      }, 150); // Reduced frequency for better performance
       console.log(`[Tutorial] Registered two-hand scale detector for step ${stepIndex}`);
     } else if (gesture === 'grab') {
       // Check for grab by monitoring FeedControls grab state
@@ -609,6 +864,30 @@ export class OnboardingTutorial {
       clearInterval(this.grabCheckInterval);
       this.grabCheckInterval = null;
     }
+    
+    // Clear skip interval
+    if ((this as any).skipCheckInterval) {
+      clearInterval((this as any).skipCheckInterval);
+      (this as any).skipCheckInterval = null;
+    }
+    
+    // Clear hint timeout
+    if ((this as any).hintTimeoutId) {
+      clearTimeout((this as any).hintTimeoutId);
+      (this as any).hintTimeoutId = null;
+    }
+    
+    // Clear current timeout
+    if ((this as any).currentTimeoutId) {
+      clearTimeout((this as any).currentTimeoutId);
+      (this as any).currentTimeoutId = null;
+    }
+    
+    // Clear fade interval
+    if (this.fadeInterval) {
+      clearInterval(this.fadeInterval);
+      this.fadeInterval = null;
+    }
   }
 
   private nextStep() {
@@ -631,62 +910,281 @@ export class OnboardingTutorial {
     }
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Title
+    // Title with emoji support
     ctx.fillStyle = step.completed ? '#4ade80' : '#fff';
     ctx.font = 'bold 48px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(step.title, this.canvas.width / 2, 80);
+    
+    // Split title into emoji and text if needed
+    const titleParts = step.title.match(/^([\u{1F300}-\u{1F9FF}]+)?\s*(.+)$/u);
+    if (titleParts && titleParts[1]) {
+      // Emoji first, then text
+      ctx.font = 'bold 56px sans-serif';
+      ctx.fillText(titleParts[1], this.canvas.width / 2 - 150, 80);
+      ctx.font = 'bold 48px sans-serif';
+      ctx.fillText(titleParts[2].trim(), this.canvas.width / 2 + 50, 80);
+    } else {
+      ctx.fillText(step.title, this.canvas.width / 2, 80);
+    }
     
     // Success checkmark if completed
     if (step.completed) {
       ctx.fillStyle = '#4ade80';
       ctx.font = 'bold 60px sans-serif';
-      ctx.fillText('✓', this.canvas.width / 2 + 200, 80);
+      ctx.fillText('✓', this.canvas.width / 2 + 250, 80);
+      
+      // Add celebration emoji
+      ctx.font = 'bold 40px sans-serif';
+      ctx.fillText('🎉', this.canvas.width / 2 - 250, 80);
     }
 
-    // Description
+    // Description with helpful hints
     ctx.font = '24px sans-serif';
     ctx.fillStyle = step.completed ? '#4ade80' : '#aaa';
-    ctx.fillText(step.description, this.canvas.width / 2, 140);
     
-    // Completion message
+    // Word wrap description if too long
+    const maxWidth = this.canvas.width - 100;
+    const words = step.description.split(' ');
+    let line = '';
+    let y = 140;
+    const lineHeight = 30;
+    
+    words.forEach((word, i) => {
+      const testLine = line + (line ? ' ' : '') + word;
+      const metrics = ctx.measureText(testLine);
+      
+      if (metrics.width > maxWidth && line !== '') {
+        ctx.fillText(line, this.canvas.width / 2, y);
+        line = word;
+        y += lineHeight;
+      } else {
+        line = testLine;
+      }
+    });
+    if (line) {
+      ctx.fillText(line, this.canvas.width / 2, y);
+    }
+    
+    // Add helpful tips for specific steps
+    let tip = '';
+    if (!step.completed && step.gesture) {
+      if (step.id === 'rotate') {
+        tip = 'Tip: Move your hands in a circular motion';
+      } else if (step.id === 'scale') {
+        tip = 'Tip: Bring hands together to shrink, apart to enlarge';
+      } else if (step.id === 'grab') {
+        tip = 'Tip: Pinch near the object, then move your hand';
+      } else if (step.id === 'heart') {
+        tip = 'Tip: Touch index fingers together, then thumbs';
+      } else if (step.id === 'like') {
+        tip = 'Tip: Extend your thumb while keeping fingers curled';
+      } else if (step.id === 'peace') {
+        tip = 'Tip: Extend index and middle fingers like a peace sign';
+      } else if (step.id === 'scroll') {
+        tip = 'Tip: Pinch away from the object and move up or down';
+      }
+      
+      if (tip) {
+        ctx.font = '18px sans-serif';
+        ctx.fillStyle = '#888';
+        ctx.fillText(tip, this.canvas.width / 2, y + lineHeight + 10);
+      }
+    }
+    
+    // Completion message with animation hint
     if (step.completed) {
       ctx.font = 'bold 28px sans-serif';
       ctx.fillStyle = '#4ade80';
-      ctx.fillText('Step Complete!', this.canvas.width / 2, 180);
+      ctx.fillText('✅ Step Complete!', this.canvas.width / 2, 180);
+      
+      // Pulsing effect for completion
+      const pulse = Math.sin(Date.now() / 200) * 0.1 + 0.9;
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = '#4ade80';
+      ctx.fillRect(
+        this.canvas.width / 2 - 50,
+        185,
+        100,
+        3
+      );
+      ctx.globalAlpha = 1.0;
     }
 
+    // Progress bar for rotation/scale steps
+    if ((step.id === 'rotate' || step.id === 'scale') && !step.completed && this.progressPercentage > 0) {
+      const barWidth = this.canvas.width * 0.8;
+      const barHeight = 8;
+      const barX = (this.canvas.width - barWidth) / 2;
+      const barY = this.canvas.height - 80;
+      
+      // Background bar
+      ctx.fillStyle = 'rgba(100, 100, 100, 0.3)';
+      ctx.fillRect(barX, barY, barWidth, barHeight);
+      
+      // Progress bar
+      const progressWidth = (barWidth * this.progressPercentage) / 100;
+      const gradient = ctx.createLinearGradient(barX, barY, barX + progressWidth, barY);
+      gradient.addColorStop(0, '#4ECDC4');
+      gradient.addColorStop(1, '#95E1D3');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(barX, barY, progressWidth, barHeight);
+      
+      // Progress text
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(this.progressPercentage)}%`, this.canvas.width / 2, barY - 10);
+    }
+    
     // Progress with completed count
     ctx.font = '18px sans-serif';
     ctx.fillStyle = '#888';
     const completedCount = this.steps.filter(s => s.completed).length;
-    ctx.fillText(
-      `Step ${this.currentStepIndex + 1} / ${this.steps.length} (${completedCount} completed)`,
-      this.canvas.width / 2,
-      this.canvas.height - 30
-    );
+    const totalSteps = this.steps.length;
+    
+    // Don't show progress for welcome/completion steps
+    if (step.id !== 'welcome' && step.id !== 'completion') {
+      ctx.fillText(
+        `Step ${this.currentStepIndex + 1} / ${totalSteps} (${completedCount} completed)`,
+        this.canvas.width / 2,
+        this.canvas.height - 30
+      );
+    }
+    
+    // Skip hint after 5 seconds on any step
+    const stepStartTime = (this as any).stepStartTime || 0;
+    const timeOnStep = Date.now() - stepStartTime;
+    if (timeOnStep > 5000 && !step.completed && step.gesture) {
+      ctx.font = '16px sans-serif';
+      ctx.fillStyle = '#666';
+      ctx.textAlign = 'center';
+      ctx.fillText('💡 Pinch both hands for 2s to skip', this.canvas.width / 2, this.canvas.height - 10);
+    }
+    
+    // Timeout warning after 10 seconds
+    if (timeOnStep > 10000 && !step.completed && step.gesture) {
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillStyle = '#ffaa00';
+      ctx.textAlign = 'center';
+      ctx.fillText('⏱️ Taking too long? Try the skip gesture!', this.canvas.width / 2, this.canvas.height - 35);
+    }
 
     this.texture.needsUpdate = true;
   }
 
   private complete() {
     this.clearGestureHandlers(); // Clean up handlers when tutorial completes
-    this.group.visible = false;
+    
+    // Show completion message on panel before hiding
+    this.updateCompletionPanel();
+    
     console.log('[Tutorial] Tutorial completed!');
-    if (this.onComplete) {
-      this.onComplete();
-    }
+    
+    // Wait a moment to show completion screen, then hide and call onComplete
+    setTimeout(() => {
+      this.group.visible = false;
+      
+      // Restore feed to first non-tutorial item (or original index if we have one)
+      const targetIndex = this.firstNonTutorialIndex > 0 ? 
+        Math.min(this.firstNonTutorialIndex, this.store.items.length - 1) : 
+        Math.min(this.originalFeedIndex, this.store.items.length - 1);
+      
+      // Ensure target index is valid
+      if (targetIndex >= 0 && targetIndex < this.store.items.length) {
+        if (this.store.index !== targetIndex) {
+          this.store.index = targetIndex;
+          this.store.setTargetTransform(1, 0); // Reset transform
+          this.store.showCurrent().catch(err => {
+            console.error('[Tutorial] Error showing feed after tutorial:', err);
+          });
+        }
+      } else {
+        console.warn(`[Tutorial] Invalid target index ${targetIndex}, using 0`);
+        if (this.store.items.length > 0) {
+          this.store.index = 0;
+          this.store.setTargetTransform(1, 0);
+          this.store.showCurrent().catch(err => {
+            console.error('[Tutorial] Error showing feed after tutorial:', err);
+          });
+        }
+      }
+      
+      if (this.onComplete) {
+        this.onComplete();
+      }
+    }, 2000); // Show completion for 2 seconds
+  }
+  
+  private updateCompletionPanel() {
+    const ctx = this.canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    
+    // Celebration background
+    const gradient = ctx.createRadialGradient(
+      this.canvas.width / 2, this.canvas.height / 2, 0,
+      this.canvas.width / 2, this.canvas.height / 2, this.canvas.width / 2
+    );
+    gradient.addColorStop(0, 'rgba(34, 197, 94, 0.3)');
+    gradient.addColorStop(1, 'rgba(20, 20, 30, 0.95)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    
+    // Title
+    ctx.fillStyle = '#4ade80';
+    ctx.font = 'bold 56px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🎉 Tutorial Complete!', this.canvas.width / 2, 120);
+    
+    // Success message
+    ctx.font = 'bold 32px sans-serif';
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText('You\'re all set!', this.canvas.width / 2, 180);
+    
+    // Instructions
+    ctx.font = '24px sans-serif';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Explore your feed now', this.canvas.width / 2, 220);
+    
+    // Progress
+    ctx.font = '18px sans-serif';
+    ctx.fillStyle = '#888';
+    const completedCount = this.steps.filter(s => s.completed).length;
+    ctx.fillText(
+      `Completed ${completedCount} / ${this.steps.length} steps`,
+      this.canvas.width / 2,
+      this.canvas.height - 30
+    );
+    
+    this.texture.needsUpdate = true;
   }
 
   async show(camera: THREE.Camera) {
+    // Reset tutorial state
+    this.currentStepIndex = 0;
+    this.progressPercentage = 0;
+    this.panelOpacity = 1.0;
+    this.steps.forEach(step => step.completed = false);
+    
+    // Reset material opacity
+    if ((this.group as any).panelMaterial) {
+      (this.group as any).panelMaterial.opacity = 1.0;
+    }
+    
+    // Save original feed index before starting tutorial
+    this.originalFeedIndex = this.store.index;
+    
     // Find tutorial items in feed (must be called after feed loads)
     const hasTutorialItems = this.findTutorialItems();
     
     if (!hasTutorialItems) {
       // No tutorial items found, skip tutorial
+      console.warn('[Tutorial] No tutorial items found, skipping tutorial');
       this.complete();
       return;
     }
+    
+    console.log(`[Tutorial] Starting tutorial with ${this.steps.length} steps`);
+    console.log(`[Tutorial] Tutorial items: ${this.tutorialItemIndices.length}, First non-tutorial index: ${this.firstNonTutorialIndex}`);
     
     this.group.visible = true;
     
@@ -701,7 +1199,7 @@ export class OnboardingTutorial {
     // Face camera
     this.group.lookAt(camera.position);
     
-    // Start showing tutorial steps
+    // Start showing tutorial steps (starts with welcome step at index 0)
     await this.showStep(0);
   }
 
@@ -711,6 +1209,12 @@ export class OnboardingTutorial {
 
   isVisible(): boolean {
     return this.group.visible;
+  }
+  
+  updatePosition(position: THREE.Vector3, cameraPosition: THREE.Vector3) {
+    // Update tutorial panel position and make it face the camera
+    this.group.position.copy(position);
+    this.group.lookAt(cameraPosition);
   }
 }
 
