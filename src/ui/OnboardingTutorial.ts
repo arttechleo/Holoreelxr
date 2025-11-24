@@ -119,6 +119,7 @@ export class OnboardingTutorial {
   private currentGestureHandlers: Array<{ event: string; handler: () => void }> = [];
   private progressPercentage: number = 0;
   private lastLoggedProgress: number = -1; // Track last logged progress to avoid spam
+  private readonly AUTO_ADVANCE_DELAY_MS = 2600;
   private buttonRegions: { prev: { x: number; y: number; w: number; h: number }; next: { x: number; y: number; w: number; h: number } } | null = null;
   private hoveredButton: 'prev' | 'next' | null = null;
   private rotationInitialValue: number | null = null;
@@ -1288,12 +1289,12 @@ export class OnboardingTutorial {
       
       this.updatePanel();
       
-      // Automatically advance to next step after completion
+      // Automatically advance to next step after completion (with slight pause so it doesn't feel rushed)
       setTimeout(() => {
         if (this.currentStepIndex === stepIndex) {
           this.nextStep();
         }
-      }, 1500);
+      }, this.AUTO_ADVANCE_DELAY_MS);
     };
     
     // Rotation detection - monitor actual rotation changes

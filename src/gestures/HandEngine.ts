@@ -33,6 +33,8 @@ export class HandEngine {
   private lastPos: Record<'left'|'right', Partial<Record<XRHandJointName, THREE.Vector3>>> = { left:{}, right:{} };
 
   private listeners: Record<string, Listener[]> = {};
+  private heartGraceUntil = 0;
+  private lastHeartStable = false;
   on(ev: string, fn: Listener){ (this.listeners[ev] ??= []).push(fn); }
   off(ev: string, fn: Listener){
     const arr = this.listeners[ev];
@@ -61,6 +63,7 @@ export class HandEngine {
   }
 
   update(info: XRFrameInfo){
+    const now = performance.now();
     const session = (this.renderer.xr as any).getSession?.() as XRSession | undefined;
     if (!session || !info.frame || !info.refSpace) return;
     const getJointPose: ((s: XRJointSpace, rs: XRReferenceSpace) => XRJointPose | null) | undefined =
@@ -123,10 +126,18 @@ export class HandEngine {
       this.updateFlag('right.pinch', rightPinch, {side:'right'});
     }
 
-    // heart gesture: ONLY check if BOTH hands are in frame
+    // heart gesture: ONLY check if BOTH hands are in frame (with small grace period)
     if (!leftHandInFrame || !rightHandInFrame) {
-      this.state.heart = false;
-      this.updateFlag('heart', false);
+      if (this.lastHeartStable && now < this.heartGraceUntil) {
+        this.state.heart = true;
+        this.updateFlag('heart', true);
+      } else if (this.lastHeartStable) {
+        this.lastHeartStable = false;
+        this.state.heart = false;
+        this.updateFlag('heart', false);
+      } else {
+        this.state.heart = false;
+      }
     } else {
       // Both hands in frame - check heart gesture
       const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
@@ -134,8 +145,14 @@ export class HandEngine {
       
       // All required joints must be present
       if (!L_i || !R_i || !L_t || !R_t) {
-        this.state.heart = false;
-        this.updateFlag('heart', false);
+        if (this.lastHeartStable && now < this.heartGraceUntil) {
+          this.state.heart = true;
+          this.updateFlag('heart', true);
+        } else {
+          this.lastHeartStable = false;
+          this.state.heart = false;
+          this.updateFlag('heart', false);
+        }
       } else {
         const indexDist = dist(L_i, R_i);
         const thumbDist = dist(L_t, R_t);
@@ -153,6 +170,10 @@ export class HandEngine {
           crossAvg < GESTURE.HEART_CROSS_THRESHOLD;
 
         const heartNow = (indexClose && thumbClose) || relaxedHeart;
+        if (heartNow) {
+          this.heartGraceUntil = now + 220;
+        }
+        this.lastHeartStable = heartNow;
         this.state.heart = heartNow; 
         this.updateFlag('heart', heartNow);
       }
