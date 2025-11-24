@@ -166,6 +166,8 @@ export class OnboardingTutorial {
   private tutorialGrabMonitorInterval: number | null = null;
   private rotationInitTimeout: number | null = null;
   private scaleInitTimeout: number | null = null;
+  private completionTimeout: number | null = null;
+  private postCompletionCheckTimeout: number | null = null;
 
   constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore, feedControls?: any) {
     this.hands = hands;
@@ -1041,6 +1043,24 @@ export class OnboardingTutorial {
       this.interactionMonitorInterval = null;
     }
     
+    // Clear all timeouts to prevent memory leaks
+    if (this.rotationInitTimeout) {
+      clearTimeout(this.rotationInitTimeout);
+      this.rotationInitTimeout = null;
+    }
+    if (this.scaleInitTimeout) {
+      clearTimeout(this.scaleInitTimeout);
+      this.scaleInitTimeout = null;
+    }
+    if (this.completionTimeout) {
+      clearTimeout(this.completionTimeout);
+      this.completionTimeout = null;
+    }
+    if (this.postCompletionCheckTimeout) {
+      clearTimeout(this.postCompletionCheckTimeout);
+      this.postCompletionCheckTimeout = null;
+    }
+    
     this.rotationInitialValue = null;
     this.scaleInitialValue = null;
   }
@@ -1193,8 +1213,19 @@ export class OnboardingTutorial {
   }
 
   private waitForGesture(gesture: string) {
+    // CRITICAL: Don't set up gesture handlers if tutorial is completed
+    if (this.tutorialCompleted) {
+      console.log(`[Tutorial] waitForGesture(${gesture}) - tutorial completed, skipping`);
+      return;
+    }
+    
     if (this.isLoading) {
-      setTimeout(() => this.waitForGesture(gesture), 200);
+      // Use window.setTimeout and check if tutorial is still active before retrying
+      window.setTimeout(() => {
+        if (!this.tutorialCompleted && this.isTutorialActive()) {
+          this.waitForGesture(gesture);
+        }
+      }, 200);
       return;
     }
     
@@ -1534,8 +1565,13 @@ export class OnboardingTutorial {
     
     this.updatePanel();
     
-    // Use window.setTimeout and store for cleanup if needed
-    window.setTimeout(() => {
+    // CRITICAL: Clear any existing completion timeout to prevent leaks
+    if (this.completionTimeout) {
+      clearTimeout(this.completionTimeout);
+    }
+    
+    // Use window.setTimeout and store for cleanup
+    this.completionTimeout = window.setTimeout(() => {
       // CRITICAL: Mark tutorial as completed FIRST - this disables all tutorial handlers
       this.tutorialCompleted = true;
       
@@ -1593,6 +1629,9 @@ export class OnboardingTutorial {
         if (typeof (this.feedControls as any).resetScrollState === 'function') {
           (this.feedControls as any).resetScrollState();
           console.log('[Tutorial] FeedControls scroll state reset - ready for main feed scrolling');
+          if (typeof (this.feedControls as any).verifyFeaturesEnabled === 'function') {
+            (this.feedControls as any).verifyFeaturesEnabled();
+          }
         } else {
           console.warn('[Tutorial] FeedControls.resetScrollState() not available - using fallback');
         }
@@ -1642,15 +1681,26 @@ export class OnboardingTutorial {
         this.onComplete();
       }
       
+      // CRITICAL: Clear any existing post-completion check timeout
+      if (this.postCompletionCheckTimeout) {
+        clearTimeout(this.postCompletionCheckTimeout);
+      }
+      
       // CRITICAL: Force a test to verify FeedControls is working
-      setTimeout(() => {
+      this.postCompletionCheckTimeout = window.setTimeout(() => {
         console.log('[Tutorial] Post-completion check:');
         console.log(`  tutorialCompleted: ${this.tutorialCompleted}`);
         console.log(`  isTutorialActive(): ${this.isTutorialActive()}`);
         console.log(`  group.visible: ${this.group.visible}`);
         console.log(`  grabEventHandlers.length: ${this.grabEventHandlers.length}`);
         console.log(`  FeedControls exists: ${!!this.feedControls}`);
+        if (this.feedControls && typeof (this.feedControls as any).verifyFeaturesEnabled === 'function') {
+          (this.feedControls as any).verifyFeaturesEnabled();
+        }
+        this.postCompletionCheckTimeout = null; // Clear reference after execution
       }, 100);
+      
+      this.completionTimeout = null; // Clear reference after execution
     }, 2000);
   }
 
