@@ -1100,26 +1100,12 @@ export class FeedControls {
       }
     }
     
-    // CRITICAL: Scroll has priority - only block if actively grabbing (not just pending)
-    // This allows scroll to trigger even if grab is pending, giving scroll priority
+    // SCROLL HAS PRIORITY: Only block if actively grabbing an object
+    // Don't let grab pending interfere - scroll cancels pending grabs automatically
     if (this.grabbing) {
       // Actively grabbing - block scroll
       if (this.scrollRay) this.scrollRay.visible = false;
       return;
-    }
-    
-    // If grab is pending but user is moving vertically, cancel grab and allow scroll
-    // This gives scroll priority for feed navigation
-    if (this.grabPending && this.lastPinchY != null) {
-      const mid = this.hands.pinchMid(this.hands.state.left.pinch ? 'left' : 'right');
-      if (mid) {
-        const y = mid.y;
-        const dy = Math.abs(y - this.lastPinchY);
-        if (dy > 0.01) { // 1cm vertical movement = scroll intent
-          console.log(`[Scroll] Vertical movement detected (${(dy * 100).toFixed(1)}cm) - canceling grab, prioritizing scroll`);
-          this.cancelGrabPending();
-        }
-      }
     }
 
     const lp = this.hands.state.left.pinch;
@@ -1166,31 +1152,18 @@ export class FeedControls {
       return;
     }
     
-    // Check distance from object to determine if we're in scroll zone or grab zone
-    const distSurf = this.distanceToObjectSurface(mid);
-    const GRAB_ZONE_DISTANCE = 0.10; // 10cm - close to object = grab zone
-    const inGrabZone = distSurf != null && distSurf < GRAB_ZONE_DISTANCE;
-    
-    // FIXED: Scroll requires actual hand movement, no auto-arming
-    // User must move hand vertically to trigger scroll (no holding pinch without movement)
+    // SIMPLIFIED SCROLL LOGIC: Scroll has priority, arm immediately after hold time
     if (!this.scrollArmed) {
-      // Block scroll in grab zone to prevent conflicts
-      if (inGrabZone || this.grabbing || this.grabPending) {
-        if (this.scrollRay) this.scrollRay.visible = false;
-        return;
-      }
-      
-      // ONLY arm scroll if user actually moves hand vertically
-      // No distance-based, time-based, or emergency auto-arming
-      if (this.lastPinchY != null && this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS)) {
-        const y = mid.y;
-        const dy = Math.abs(y - this.lastPinchY);
-        const MOVEMENT_THRESHOLD = 0.003; // 3mm minimum intentional movement (filters noise)
+      // Check if minimum hold time has passed
+      if (this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS)) {
+        // Arm scroll immediately after hold time - no movement required
+        this.scrollArmed = true;
+        console.log(`[Scroll] ✅ Armed after hold time (${this.SCROLL_MIN_HOLD_MS}ms)`);
         
-        if (dy >= MOVEMENT_THRESHOLD) {
-          // Clear intentional movement detected - arm scroll
-          this.scrollArmed = true;
-          console.log(`[Scroll] ✅ Armed by movement: ${(dy * 100).toFixed(2)}cm vertical movement detected`);
+        // Cancel any pending grab - scroll has priority
+        if (this.grabPending) {
+          console.log(`[Scroll] Canceling grab pending - scroll has priority`);
+          this.cancelGrabPending();
         }
       }
       
@@ -1236,22 +1209,12 @@ export class FeedControls {
     const dy = this.filtPinchY - this.lastPinchY;
     this.lastPinchY = this.filtPinchY;
     
-    // FIXED: Only accumulate clear intentional movements, not hand tracking jitter
-    // Minimum movement per frame to accumulate: 2mm (filters noise)
-    const MIN_ACCUMULATION_THRESHOLD = 0.002; // 2mm - clear intentional movement
-    
-    if (Math.abs(dy) < MIN_ACCUMULATION_THRESHOLD) {
-      // Movement too small (likely hand tracking noise) - ignore it
-      // This prevents scroll from triggering due to jitter when holding still
-      return;
-    }
-
-    // Accumulate only clear, intentional movements
+    // Accumulate all movements once scroll is armed
     this.scrollAccum += dy;
     
-    // Debug: log accumulation progress
-    if (Math.random() < 0.1) { // 10% of calls
-      console.log(`[Scroll] Accumulating: dy=${dy.toFixed(4)}m, total=${this.scrollAccum.toFixed(4)}m, threshold=${this.SCROLL_DISP}m`);
+    // Debug: log accumulation progress (more frequent for debugging)
+    if (Math.random() < 0.2) { // 20% of calls
+      console.log(`[Scroll] Accumulating: dy=${(dy * 100).toFixed(2)}cm, total=${(this.scrollAccum * 100).toFixed(2)}cm, threshold=${(this.SCROLL_DISP * 100).toFixed(2)}cm`);
     }
     
     // Trigger scroll when threshold reached
