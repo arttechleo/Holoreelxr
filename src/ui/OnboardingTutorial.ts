@@ -185,6 +185,12 @@ export class OnboardingTutorial {
     // Stop any existing grab
     this.stopTutorialGrab();
     
+    // Clear any existing monitor interval
+    if (this.tutorialGrabMonitorInterval) {
+      clearInterval(this.tutorialGrabMonitorInterval);
+      this.tutorialGrabMonitorInterval = null;
+    }
+    
     // Monitor for pinch near object
     const checkInterval = 50; // Check every 50ms for responsiveness
     const GRAB_MAX_DISTANCE = 0.25; // 25cm max distance
@@ -192,6 +198,9 @@ export class OnboardingTutorial {
     
     let holdStartTime: number | null = null;
     let holdHand: 'left' | 'right' | null = null;
+    let lastLogTime = 0;
+    
+    console.log(`[Tutorial Grab] Starting monitoring...`);
     
     this.tutorialGrabMonitorInterval = window.setInterval(() => {
       try {
@@ -224,22 +233,34 @@ export class OnboardingTutorial {
           if (pinchPos) {
             const dist = this.distanceToObjectSurface(pinchPos);
             
+            // Debug logging (throttled)
+            const now = Date.now();
+            if (now - lastLogTime > 1000) { // Log every second
+              console.log(`[Tutorial Grab] Monitoring: side=${side}, dist=${dist?.toFixed(3)}m, holdTime=${holdStartTime ? Date.now() - holdStartTime : 0}ms`);
+              lastLogTime = now;
+            }
+            
             if (dist !== null && dist <= GRAB_MAX_DISTANCE) {
               // Within range - start/continue hold timer
               if (holdHand === side) {
                 // Same hand still pinching - check if hold time met
                 if (holdStartTime !== null && Date.now() - holdStartTime >= HOLD_TIME_MS) {
                   // Activate grab!
+                  console.log(`[Tutorial Grab] Hold time met! Activating grab...`);
                   this.activateTutorialGrab(side, pinchPos);
-                  // Monitor interval will be cleared in stopTutorialGrab
+                  return; // Interval will be cleared in activateTutorialGrab
                 }
               } else {
                 // New hand or different hand - reset timer
                 holdStartTime = Date.now();
                 holdHand = side;
+                console.log(`[Tutorial Grab] Starting hold timer for ${side} hand`);
               }
             } else {
               // Too far - reset
+              if (holdHand === side) {
+                console.log(`[Tutorial Grab] Too far from object (${dist?.toFixed(3)}m), resetting`);
+              }
               holdStartTime = null;
               holdHand = null;
             }
@@ -263,15 +284,24 @@ export class OnboardingTutorial {
       return;
     }
     
+    // Clear monitor interval since we're now actively grabbing
+    if (this.tutorialGrabMonitorInterval) {
+      clearInterval(this.tutorialGrabMonitorInterval);
+      this.tutorialGrabMonitorInterval = null;
+    }
+    
     this.tutorialGrabActive = true;
     this.tutorialGrabSide = side;
     this.tutorialGrabOffset.copy(objPos).sub(pinchPos);
     this.tutorialGrabStartTime = Date.now();
     this.tutorialGrabStartPosition = objPos.clone();
     
-    console.log(`[Tutorial Grab] ✅ Activated! Side: ${side}, Object pos: ${objPos.toArray().map(v => v.toFixed(2)).join(',')}`);
+    console.log(`[Tutorial Grab] ✅ Activated! Side: ${side}, Object pos: ${objPos.toArray().map(v => v.toFixed(2)).join(',')}, Offset: ${this.tutorialGrabOffset.toArray().map(v => v.toFixed(2)).join(',')}`);
     
     // Start update loop
+    if (this.tutorialGrabUpdateInterval) {
+      clearInterval(this.tutorialGrabUpdateInterval);
+    }
     this.tutorialGrabUpdateInterval = window.setInterval(() => {
       this.updateTutorialGrab();
     }, 16); // ~60fps
@@ -297,7 +327,6 @@ export class OnboardingTutorial {
       
       // Cancel if pinch released
       if (!stillPinching) {
-        // Don't log on every release - only log if it was active
         this.stopTutorialGrab();
         return;
       }
@@ -312,6 +341,12 @@ export class OnboardingTutorial {
       
       // Calculate new object position
       const newObjPos = pinchPos.clone().add(this.tutorialGrabOffset);
+      
+      // Debug logging (throttled)
+      if (Math.random() < 0.05) { // 5% of calls
+        const currentObjPos = this.store.getObjectWorldPos();
+        console.log(`[Tutorial Grab] Updating: hand=${pinchPos.toArray().map(v => v.toFixed(2)).join(',')}, newPos=${newObjPos.toArray().map(v => v.toFixed(2)).join(',')}, current=${currentObjPos?.toArray().map(v => v.toFixed(2)).join(',')}`);
+      }
       
       // Update object position directly
       this.store.setPosition(newObjPos);
