@@ -133,6 +133,7 @@ export class OnboardingTutorial {
   private grabStepIndex: number = -1;
   private grabHasMoved: boolean = false;
   private grabEventHandlers: Array<{ event: string; handler: () => void }> = [];
+  private tutorialCompleted: boolean = false; // CRITICAL: Flag to completely disable tutorial handlers
   
   // EXACT COPY OF FEEDCONTROLS SCROLL SYSTEM - proven to work!
   private scrollStepIndex: number = -1;
@@ -294,6 +295,11 @@ export class OnboardingTutorial {
   }
   
   private onTutorialPinchStart(side: 'left' | 'right') {
+    // CRITICAL: If tutorial is completed, NEVER handle events - let FeedControls handle everything
+    if (this.tutorialCompleted) {
+      return; // Tutorial completed - don't interfere at all
+    }
+    
     // CRITICAL: Only handle if tutorial is actually active
     // If tutorial is not visible, don't interfere - let FeedControls handle it
     if (!this.group.visible || this.isLoading) {
@@ -376,6 +382,11 @@ export class OnboardingTutorial {
   }
   
   private onTutorialPinchEnd(side: 'left' | 'right') {
+    // CRITICAL: If tutorial is completed, NEVER handle events - let FeedControls handle everything
+    if (this.tutorialCompleted) {
+      return; // Tutorial completed - don't interfere at all
+    }
+    
     // CRITICAL: Only handle if tutorial is actually active
     if (!this.group.visible || !this.isTutorialActive()) {
       return; // Don't consume event - let FeedControls handle it
@@ -551,6 +562,21 @@ export class OnboardingTutorial {
    * CRITICAL: Only active during tutorial - after tutorial, this should NOT interfere
    */
   updateGrab(info?: any) {
+    // CRITICAL: If tutorial is completed, NEVER update - let FeedControls handle everything
+    if (this.tutorialCompleted) {
+      // Stop any active grab/scroll and return immediately
+      if (this.isGrabbing) {
+        this.stopGrab();
+        this.isGrabbing = false;
+        this.grabHand = null;
+      }
+      // Reset scroll state
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      this.scrollArmed = false;
+      return; // Don't interfere with FeedControls
+    }
+    
     // CRITICAL: Only update if tutorial is actually active
     // If tutorial is not active, don't do anything - let FeedControls handle it
     if (!this.isTutorialActive()) {
@@ -1457,6 +1483,9 @@ export class OnboardingTutorial {
     
     // Use window.setTimeout and store for cleanup if needed
     window.setTimeout(() => {
+      // CRITICAL: Mark tutorial as completed FIRST - this disables all tutorial handlers
+      this.tutorialCompleted = true;
+      
       // CRITICAL: Hide tutorial and mark as inactive BEFORE navigating
       // This ensures isTutorialActive() returns false immediately
       this.group.visible = false;
@@ -1479,8 +1508,10 @@ export class OnboardingTutorial {
       this.scrollDisarmedThisPinch = false;
       this.pinchStartAt = null;
       
-      console.log('[Tutorial] ✅ Tutorial completed - all handlers removed, state reset, features re-enabled');
+      console.log('[Tutorial] ✅✅✅ TUTORIAL COMPLETED - ALL HANDLERS DISABLED');
+      console.log(`[Tutorial] tutorialCompleted = ${this.tutorialCompleted}`);
       console.log(`[Tutorial] isTutorialActive() = ${this.isTutorialActive()}, group.visible = ${this.group.visible}, isLoading = ${this.isLoading}`);
+      console.log(`[Tutorial] All tutorial handlers removed - FeedControls should work normally now`);
       
       const targetIndex = this.firstNonTutorialIndex > 0 ? 
         Math.min(this.firstNonTutorialIndex, this.store.items.length - 1) : 
