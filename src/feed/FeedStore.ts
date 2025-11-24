@@ -327,7 +327,24 @@ export class FeedStore {
     try {
       const obj = this.getObject();
       if (obj) {
-        obj.position.copy(worldPos);
+        // Convert world position to local position relative to parent
+        // The parent is typically the scene root, so we need to convert world to local
+        const localPos = worldPos.clone();
+        const actualParent = obj.parent || this.parent;
+        if (actualParent) {
+          actualParent.worldToLocal(localPos);
+        }
+        obj.position.copy(localPos);
+        
+        // Debug: log position updates (throttled)
+        if (Math.random() < 0.05) { // 5% of calls
+          console.log(`[FeedStore] setPosition: world=${worldPos.toArray().map(v => v.toFixed(2)).join(',')}, local=${localPos.toArray().map(v => v.toFixed(2)).join(',')}, obj=${obj.name}`);
+        }
+      } else {
+        // Debug: log when object not found
+        if (Math.random() < 0.1) { // 10% of calls
+          console.log(`[FeedStore] setPosition: Object not found!`);
+        }
       }
       if (this.seq) {
         this.seq.setPosition(worldPos);
