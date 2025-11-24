@@ -883,7 +883,17 @@ export class OnboardingTutorial {
       // Initialize grab system
       this.stopGrab(); // Clear any existing grab
       this.grabStepIndex = stepIndex;
-      console.log(`[Tutorial Grab] ✅ Initialized for step ${stepIndex} - ready to grab!`);
+      
+      // Verify object exists
+      const obj = this.store.getObject();
+      const objPos = this.store.getObjectWorldPos();
+      const bounds = this.store.getObjectBounds();
+      
+      console.log(`[Tutorial Grab] ✅ Initialized for step ${stepIndex}`);
+      console.log(`  Object exists: ${!!obj}, name: ${obj?.name || 'none'}`);
+      console.log(`  Object position: ${objPos?.toArray().map(v => v.toFixed(2)).join(',') || 'null'}`);
+      console.log(`  Object bounds: ${bounds ? `center=${bounds.center.toArray().map(v => v.toFixed(2)).join(',')}, radius=${bounds.radius.toFixed(2)}m` : 'null'}`);
+      console.log(`  Ready to grab! Pinch near the object (within 50cm)`);
       
       // Grab logic runs in updateGrab() called from main frame loop
       // Simple: if pinching near object, grab immediately and update every frame
