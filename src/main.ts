@@ -116,17 +116,7 @@ async function loadMainFeed() {
     // Update 3D panels to face camera
     xrAuthPanel.update(app.camera);
     xrMusicPanel.update(app.camera);
-    // Update tutorial panel to face camera when visible
-    if (onboarding.isVisible()) {
-      const camPos = new THREE.Vector3();
-      const camDir = new THREE.Vector3();
-      app.camera.getWorldPosition(camPos);
-      app.camera.getWorldDirection(camDir);
-      // Position tutorial panel 1.5m in front of camera
-      const tutorialPos = camPos.clone().add(camDir.multiplyScalar(1.5));
-      tutorialPos.y += 0.3;
-      (onboarding as any).updatePosition?.(tutorialPos, camPos);
-    }
+    // Tutorial panel is now fixed position (not floating)
   });
 
   // When XR session starts, place the current item in front of the user:

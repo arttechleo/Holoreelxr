@@ -109,6 +109,7 @@ export class OnboardingTutorial {
   private panelOpacity: number = 1.0; // For fade transitions
   private fadeInterval: number | null = null; // Current fade animation interval
   private currentTimeoutId: number | null = null; // Current step timeout ID
+  private buttonRegions: { prev: { x: number; y: number; w: number; h: number }; next: { x: number; y: number; w: number; h: number } } | null = null; // Button click regions
 
   constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore, feedControls?: any) {
     this.hands = hands;
@@ -140,8 +141,38 @@ export class OnboardingTutorial {
     this.panel.position.set(0, 0.4, 0);
     this.group.add(this.panel);
     
+    // Make panel clickable for button interactions
+    this.panel.userData = { tutorial: this };
+    
     scene.add(this.group);
     // Tutorial items will be found when show() is called (after feed loads)
+  }
+  
+  // Public method to handle button clicks (called from FeedControls raycast)
+  handleButtonClick(buttonType: 'prev' | 'next'): boolean {
+    if (!this.group.visible || this.isLoading) return false;
+    
+    if (buttonType === 'next') {
+      if (this.currentStepIndex < this.steps.length - 1) {
+        console.log(`[Tutorial] Next button clicked, advancing from step ${this.currentStepIndex}`);
+        this.nextStep();
+        return true;
+      }
+    } else if (buttonType === 'prev') {
+      if (this.currentStepIndex > 0) {
+        console.log(`[Tutorial] Previous button clicked, going back to step ${this.currentStepIndex - 1}`);
+        this.previousStep();
+        return true;
+      }
+    }
+    return false;
+  }
+  
+  private previousStep() {
+    if (this.currentStepIndex > 0) {
+      console.log(`[Tutorial] Moving from step ${this.currentStepIndex} to step ${this.currentStepIndex - 1}`);
+      this.showStep(this.currentStepIndex - 1);
+    }
   }
   
   private findTutorialItems() {
@@ -507,9 +538,9 @@ export class OnboardingTutorial {
       }
       
       // Only proceed if we're still on the same step and gesture matches
+      // Note: step might already be marked as completed by rotation detection
       if (this.currentStepIndex === stepIndex && 
-          this.steps[stepIndex]?.gesture === expectedGesture &&
-          !this.steps[stepIndex]?.completed) {
+          this.steps[stepIndex]?.gesture === expectedGesture) {
         console.log(`[Tutorial] Handler executing for step ${stepIndex}, gesture: ${expectedGesture}`);
         
         // Set handlerFired to prevent multiple calls
@@ -523,7 +554,7 @@ export class OnboardingTutorial {
           (this as any).hintTimeoutId = null;
         }
         
-        // Mark step as completed
+        // Mark step as completed (might already be done, but ensure it)
         if (this.steps[stepIndex]) {
           this.steps[stepIndex].completed = true;
           console.log(`[Tutorial] Step ${stepIndex} marked as completed`);
@@ -537,15 +568,33 @@ export class OnboardingTutorial {
         this.updatePanel(); // Update panel to show completion
         
         // Advance to next step after brief delay for visual feedback
-        setTimeout(() => {
+        const advanceTimeout = setTimeout(() => {
           // Double-check we're still on the same step before advancing
-          if (this.currentStepIndex === stepIndex) {
+          if (this.currentStepIndex === stepIndex && this.steps[stepIndex]?.completed) {
             console.log(`[Tutorial] Advancing to next step from step ${stepIndex}`);
-            this.nextStep();
+            try {
+              this.nextStep();
+            } catch (error) {
+              console.error(`[Tutorial] Error in nextStep():`, error);
+              // Force advance if nextStep fails
+              if (this.currentStepIndex === stepIndex) {
+                this.currentStepIndex = stepIndex + 1;
+                if (this.currentStepIndex < this.steps.length) {
+                  this.showStep(this.currentStepIndex).catch(err => {
+                    console.error(`[Tutorial] Error showing next step:`, err);
+                  });
+                } else {
+                  this.complete();
+                }
+              }
+            }
           } else {
-            console.log(`[Tutorial] Step changed during delay (current: ${this.currentStepIndex}), skipping advance`);
+            console.log(`[Tutorial] Step changed during delay (current: ${this.currentStepIndex}, completed: ${this.steps[stepIndex]?.completed}), skipping advance`);
           }
         }, 1500); // Slightly longer delay to show completion
+        
+        // Store timeout for cleanup if needed
+        (this as any).advanceTimeout = advanceTimeout;
       } else {
         console.log(`[Tutorial] Handler skipped: currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, gesture=${this.steps[stepIndex]?.gesture}, expected=${expectedGesture}, completed=${this.steps[stepIndex]?.completed}, isLoading=${this.isLoading}`);
       }
@@ -636,11 +685,11 @@ export class OnboardingTutorial {
           const hasAnyRotationWithTime = totalRotation > 0.1 && timeHeld > 3000; // At least 0.1 rad (~6°) after 3 seconds
           
           if (hasEnoughRotation || hasAnyRotationWithTime) {
-            if (!handlerFired && this.currentStepIndex === stepIndex && !this.isLoading) {
+            // Double-check conditions before proceeding
+            if (!handlerFired && this.currentStepIndex === stepIndex && !this.isLoading && !this.steps[stepIndex]?.completed) {
               const rotationType = hasEnoughRotation ? '60° rotation' : 'fallback (any rotation + time)';
               console.log(`[Tutorial] ✅ ROTATION COMPLETE! Step ${stepIndex} - ${rotationType} - total=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°), required=${(REQUIRED_ROTATION * 180 / Math.PI).toFixed(1)}°, time=${timeHeld}ms`);
-              console.log(`[Tutorial] State check: handlerFired=${handlerFired}, currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, isLoading=${this.isLoading}`);
-              console.log(`[Tutorial] Calling handler() to mark step complete...`);
+              console.log(`[Tutorial] State check: handlerFired=${handlerFired}, currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, isLoading=${this.isLoading}, completed=${this.steps[stepIndex]?.completed}`);
               
               // Set handlerFired immediately to prevent multiple calls
               handlerFired = true;
@@ -654,10 +703,35 @@ export class OnboardingTutorial {
               // Ensure loading state is cleared before calling handler
               this.isLoading = false;
               
+              // Mark step as completed immediately to prevent race conditions
+              if (this.steps[stepIndex]) {
+                this.steps[stepIndex].completed = true;
+                console.log(`[Tutorial] Step ${stepIndex} marked as completed BEFORE handler call`);
+              }
+              
               // Call handler - it will handle the rest
               try {
-                handler();
-                console.log(`[Tutorial] Handler called successfully`);
+                // Ensure we're in a good state before calling handler
+                if (this.currentStepIndex === stepIndex && !this.isLoading) {
+                  handler();
+                  console.log(`[Tutorial] Handler called successfully`);
+                  
+                  // Double-check: if handler didn't advance after a delay, force advance
+                  setTimeout(() => {
+                    if (this.currentStepIndex === stepIndex && this.steps[stepIndex]?.completed) {
+                      console.log(`[Tutorial] Handler completed step but didn't advance, forcing advance...`);
+                      this.nextStep();
+                    }
+                  }, 2000); // Check after 2 seconds
+                } else {
+                  console.warn(`[Tutorial] Cannot call handler: currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, isLoading=${this.isLoading}`);
+                  // Force advance anyway if step is marked complete
+                  if (this.steps[stepIndex]?.completed) {
+                    this.clearGestureHandlers();
+                    this.updatePanel();
+                    setTimeout(() => this.nextStep(), 500);
+                  }
+                }
               } catch (error) {
                 console.error(`[Tutorial] Error calling handler:`, error);
                 // If handler fails, manually advance step
@@ -682,6 +756,8 @@ export class OnboardingTutorial {
                 console.log(`[Tutorial] Step changed (${this.currentStepIndex} !== ${stepIndex}), skipping handler`);
               } else if (this.isLoading) {
                 console.log(`[Tutorial] Still loading, skipping handler`);
+              } else if (this.steps[stepIndex]?.completed) {
+                console.log(`[Tutorial] Step already completed, skipping handler`);
               }
             }
           } else {
@@ -917,6 +993,12 @@ export class OnboardingTutorial {
       clearInterval(this.fadeInterval);
       this.fadeInterval = null;
     }
+    
+    // Clear advance timeout
+    if ((this as any).advanceTimeout) {
+      clearTimeout((this as any).advanceTimeout);
+      (this as any).advanceTimeout = null;
+    }
   }
 
   private nextStep() {
@@ -1097,9 +1179,73 @@ export class OnboardingTutorial {
       ctx.textAlign = 'center';
       ctx.fillText('⏱️ Taking too long? Try the skip gesture!', this.canvas.width / 2, this.canvas.height - 35);
     }
+    
+    // Draw navigation buttons
+    this.drawNavigationButtons(ctx);
 
     this.texture.needsUpdate = true;
   }
+  
+  private drawNavigationButtons(ctx: CanvasRenderingContext2D) {
+    const buttonWidth = 120;
+    const buttonHeight = 40;
+    const buttonY = this.canvas.height - 60;
+    const buttonSpacing = 20;
+    const totalWidth = buttonWidth * 2 + buttonSpacing;
+    const startX = (this.canvas.width - totalWidth) / 2;
+    
+    // Initialize button regions if not already done
+    if (!this.buttonRegions) {
+      this.buttonRegions = { prev: { x: 0, y: 0, w: 0, h: 0 }, next: { x: 0, y: 0, w: 0, h: 0 } };
+    }
+    
+    // Previous button
+    const prevX = startX;
+    const prevEnabled = this.currentStepIndex > 0;
+    const prevAlpha = prevEnabled ? 1.0 : 0.5;
+    
+    ctx.globalAlpha = prevAlpha;
+    ctx.fillStyle = prevEnabled ? '#4ECDC4' : '#666';
+    ctx.fillRect(prevX, buttonY, buttonWidth, buttonHeight);
+    
+    // Button border
+    ctx.strokeStyle = prevEnabled ? '#fff' : '#888';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(prevX, buttonY, buttonWidth, buttonHeight);
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('◀ Previous', prevX + buttonWidth / 2, buttonY + buttonHeight / 2 + 7);
+    
+    // Store button region for click detection
+    this.buttonRegions.prev = { x: prevX, y: buttonY, w: buttonWidth, h: buttonHeight };
+    
+    // Next button
+    const nextX = startX + buttonWidth + buttonSpacing;
+    const nextEnabled = this.currentStepIndex < this.steps.length - 1;
+    const nextAlpha = nextEnabled ? 1.0 : 0.5;
+    
+    ctx.globalAlpha = nextAlpha;
+    ctx.fillStyle = nextEnabled ? '#4ECDC4' : '#666';
+    ctx.fillRect(nextX, buttonY, buttonWidth, buttonHeight);
+    
+    // Button border
+    ctx.strokeStyle = nextEnabled ? '#fff' : '#888';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(nextX, buttonY, buttonWidth, buttonHeight);
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Next ▶', nextX + buttonWidth / 2, buttonY + buttonHeight / 2 + 7);
+    
+    // Store button region for click detection
+    this.buttonRegions.next = { x: nextX, y: buttonY, w: buttonWidth, h: buttonHeight };
+    
+    ctx.globalAlpha = 1.0;
+  }
+  
 
   private complete() {
     this.clearGestureHandlers(); // Clean up handlers when tutorial completes
@@ -1217,7 +1363,8 @@ export class OnboardingTutorial {
     
     this.group.visible = true;
     
-    // Position 1.5m in front of camera
+    // Position tutorial panel at fixed location (not floating)
+    // Place it 1.5m in front of camera at start, but don't update it
     const pos = new THREE.Vector3();
     const dir = new THREE.Vector3();
     camera.getWorldPosition(pos);
@@ -1225,7 +1372,7 @@ export class OnboardingTutorial {
     this.group.position.copy(pos.add(dir.multiplyScalar(1.5)));
     this.group.position.y += 0.3;
     
-    // Face camera
+    // Face camera initially
     this.group.lookAt(camera.position);
     
     // Start showing tutorial steps (starts with welcome step at index 0)
@@ -1242,8 +1389,42 @@ export class OnboardingTutorial {
   
   updatePosition(position: THREE.Vector3, cameraPosition: THREE.Vector3) {
     // Update tutorial panel position and make it face the camera
-    this.group.position.copy(position);
-    this.group.lookAt(cameraPosition);
+    // DISABLED: Tutorial panel is now fixed position, not floating
+    // this.group.position.copy(position);
+    // this.group.lookAt(cameraPosition);
+  }
+  
+  // Raycast hit test for button clicks
+  raycast(ray: THREE.Ray): { button?: 'prev' | 'next' } | null {
+    if (!this.group.visible || !this.panel) return null;
+    
+    const raycaster = new THREE.Raycaster(ray.origin, ray.direction);
+    const intersect = raycaster.intersectObject(this.panel)[0];
+    
+    if (!intersect) return null;
+    
+    const uv = intersect.uv!;
+    const x = uv.x * this.canvas.width;
+    const y = (1 - uv.y) * this.canvas.height; // Flip Y coordinate
+    
+    // Check button regions
+    if (this.buttonRegions) {
+      const prev = this.buttonRegions.prev;
+      if (x >= prev.x && x <= prev.x + prev.w &&
+          y >= prev.y && y <= prev.y + prev.h &&
+          this.currentStepIndex > 0) {
+        return { button: 'prev' };
+      }
+      
+      const next = this.buttonRegions.next;
+      if (x >= next.x && x <= next.x + next.w &&
+          y >= next.y && y <= next.y + next.h &&
+          this.currentStepIndex < this.steps.length - 1) {
+        return { button: 'next' };
+      }
+    }
+    
+    return null;
   }
 }
 
