@@ -895,10 +895,14 @@ export class FeedControls {
     // const pinch = this.hands.pinchMid(side);
     // const d = pinch ? this.distanceToObjectSurface(pinch) : null;
     
-    // Instant grab if very close to object
-    if (d != null && d <= this.INSTANT_GRAB_DIST) {
-      const objPosNow = this.store.getObjectWorldPos();
-      if (objPosNow && pinch) {
+    // CRITICAL: Always try grab first if object exists, regardless of distance
+    // This makes grab more reliable - user can grab from any distance
+    const objPosNow = this.store.getObjectWorldPos();
+    const objExists = !!this.store.getObject();
+    
+    if (objExists && objPosNow && pinch) {
+      // Instant grab if very close to object
+      if (d != null && d <= this.INSTANT_GRAB_DIST) {
         console.log(`[FeedControls] ✅ Instant grab activated! Distance: ${d.toFixed(3)}m`);
         this.grabbing = true;
         this.grabSide = side;
@@ -906,26 +910,21 @@ export class FeedControls {
         this.store.notify('Grabbed');
         this.scrollDisarmedThisPinch = true;
         return;
-      } else {
-        console.log(`[FeedControls] Instant grab failed: d=${d?.toFixed(3)}, objPos=${!!objPosNow}, pinch=${!!pinch}`);
       }
-    }
-
-    // If far from object, arm scroll
-    if (d != null && d >= this.SCROLL_START_FAR) {
+      
+      // If not instant grab, try grab pending (works from any distance)
+      // This ensures grab always works, even if far from object
+      this.scrollDisarmedThisPinch = true;
+      this.tryStartGrabPending(side);
+    } else if (d != null && d >= this.SCROLL_START_FAR) {
+      // Only arm scroll if we're far from object AND object doesn't exist or is too far
       this.scrollArmed = true;
       console.log(`[FeedControls] Scroll armed by distance: ${d.toFixed(3)}m`);
     } else {
-      // Otherwise, try to start grab pending (pinch and hold)
-      this.scrollDisarmedThisPinch = true;
+      // Fallback: try grab pending anyway if we have a distance
       if (d != null) {
-        // Always try to start grab pending if we're within range
-        // This ensures grab works even if instant grab didn't trigger
-        console.log(`[FeedControls] Attempting grab pending, distance: ${d.toFixed(3)}m`);
+        this.scrollDisarmedThisPinch = true;
         this.tryStartGrabPending(side);
-      } else {
-        // Debug: log when distance is null
-        console.log(`[FeedControls] Distance is null - pinch=${!!pinch}, object exists=${!!this.store.getObject()}`);
       }
     }
   }
@@ -1196,17 +1195,30 @@ export class FeedControls {
   private updateAutoAcquirePending() {
     if (this.grabPending || this.grabbing) return;
     
-    // Don't block grab during tutorial - it should always work
+    // CRITICAL: After tutorial completion, FeedControls handles grab
+    if (this.isTutorialActive()) {
+      const tutorial = this.onboardingTutorial as any;
+      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+        return; // Tutorial is handling grab
+      }
+    }
+    
     const lp = this.hands.state.left.pinch,
       rp = this.hands.state.right.pinch;
     if (lp === rp) return; // Need exactly one hand pinching
     const side: 'left' | 'right' = lp ? 'left' : 'right';
     const other = lp ? 'right' : 'left';
     if (this.hands.state[other].pinch) return; // Other hand must not be pinching
+    
     const pinch = this.hands.pinchMid(side);
     if (!pinch) return;
-    const distSurf = this.distanceToObjectSurface(pinch);
-    if (distSurf != null && distSurf <= TRANSFORM.GRAB_MAX_DISTANCE) {
+    
+    // CRITICAL: Make grab work from ANY distance - just check if object exists
+    const objExists = !!this.store.getObject();
+    const objPos = this.store.getObjectWorldPos();
+    
+    if (objExists && objPos) {
+      // Object exists - can grab from any distance!
       this.tryStartGrabPending(side);
     }
   }
@@ -1222,41 +1234,48 @@ export class FeedControls {
     }
     
     if (this.grabbing || this.grabPending) {
-      console.log(`[FeedControls] Already grabbing or pending: grabbing=${this.grabbing}, pending=${this.grabPending}`);
-      return;
+      return; // Already grabbing
     }
+    
     const other = side === 'left' ? 'right' : 'left';
-    if (this.hands.state[other].pinch) return;
+    if (this.hands.state[other].pinch) return; // Two-hand mode
+    
     const pinch = this.hands.pinchMid(side);
     if (!pinch) return;
-    const distSurf = this.distanceToObjectSurface(pinch);
-    if (distSurf == null || distSurf > TRANSFORM.GRAB_MAX_DISTANCE) {
-      // Debug: log why grab didn't start
-      if (Math.random() < 0.1) { // 10% of calls
-        console.log(`[Grab] Too far: ${distSurf?.toFixed(3)}m > ${TRANSFORM.GRAB_MAX_DISTANCE}m`);
-      }
+    
+    // CRITICAL: Make grab work from ANY distance - remove distance restriction
+    // This makes grab much more reliable and user-friendly
+    const objPosNow = this.store.getObjectWorldPos();
+    const objExists = !!this.store.getObject();
+    
+    if (!objExists || !objPosNow) {
+      // No object - can't grab
       return;
     }
     
-    console.log(`[Grab] Starting grab pending for ${side} hand, distance: ${distSurf.toFixed(3)}m`);
+    // Start grab pending - works from any distance!
+    console.log(`[Grab] Starting grab pending for ${side} hand (works from any distance)`);
     this.grabPending = true;
     this.grabPendingSide = side;
     this.grabPendingStartY = this.hands.pinchMid(side)?.y ?? null;
+    
     if (this.grabTimer != null) clearTimeout(this.grabTimer);
     this.grabTimer = window.setTimeout(() => {
       if (!this.grabPending || this.grabPendingSide !== side) {
-        console.log(`[Grab] Grab pending canceled before timeout`);
-        return;
+        return; // Already canceled
       }
+      
       const other = side === 'left' ? 'right' : 'left';
       const stillPinching = this.hands.state[side].pinch && !this.hands.state[other].pinch;
       const mid = this.hands.pinchMid(side);
       const objPosNow = this.store.getObjectWorldPos();
+      
       if (!stillPinching || !mid || !objPosNow) {
-        console.log(`[Grab] Grab pending canceled: stillPinching=${stillPinching}, mid=${!!mid}, objPos=${!!objPosNow}`);
         this.cancelGrabPending();
         return;
       }
+      
+      // Activate grab!
       this.grabOffset.copy(objPosNow).sub(mid);
       this.grabPending = false;
       this.grabPendingSide = null;
