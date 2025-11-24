@@ -699,6 +699,15 @@ export class FeedControls {
       return;
     }
     
+    // CRITICAL: Hide scroll ray during tutorial grab step
+    if (this.onboardingTutorial) {
+      const tutorial = this.onboardingTutorial as any;
+      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+        this.scrollRay.visible = false;
+        return;
+      }
+    }
+    
     const lp = this.hands.state.left.pinch;
     const rp = this.hands.state.right.pinch;
     const side: 'left' | 'right' = rp ? 'right' : (lp ? 'left' : null);
@@ -744,6 +753,17 @@ export class FeedControls {
 
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
+    // CRITICAL: Check tutorial grab step FIRST - before doing ANYTHING
+    // This prevents FeedControls from interfering with tutorial grab
+    if (this.onboardingTutorial) {
+      const tutorial = this.onboardingTutorial as any;
+      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+        // Tutorial is handling grab - completely disable FeedControls grab
+        console.log(`[FeedControls] Tutorial grab step active - disabling FeedControls grab`);
+        return;
+      }
+    }
+    
     // Skip if onboarding tutorial is active - but allow grab/transform for tutorial steps
     if (this.onboardingTutorial) {
       const tutorial = this.onboardingTutorial as any;
@@ -798,15 +818,6 @@ export class FeedControls {
     // Use pinch from above (already calculated)
     // const pinch = this.hands.pinchMid(side);
     // const d = pinch ? this.distanceToObjectSurface(pinch) : null;
-
-    // CRITICAL: Disable FeedControls grab during tutorial grab step
-    if (this.onboardingTutorial) {
-      const tutorial = this.onboardingTutorial as any;
-      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
-        // Tutorial is handling grab - don't interfere
-        return;
-      }
-    }
     
     // Instant grab if very close to object
     if (d != null && d <= this.INSTANT_GRAB_DIST) {
@@ -872,6 +883,16 @@ export class FeedControls {
   private updateScroll(now: number) {
     if (now < this.scrollCooldownUntil) return;
     if (this.grabPending || this.grabbing) return;
+    
+    // CRITICAL: Disable scroll during tutorial grab step
+    if (this.onboardingTutorial) {
+      const tutorial = this.onboardingTutorial as any;
+      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+        // Tutorial grab is active - completely disable scroll
+        if (this.scrollRay) this.scrollRay.visible = false;
+        return;
+      }
+    }
 
     const lp = this.hands.state.left.pinch;
     const rp = this.hands.state.right.pinch;
