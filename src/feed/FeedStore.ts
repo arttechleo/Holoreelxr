@@ -48,6 +48,7 @@ export class FeedStore {
   });
 
   private textureLoader = new THREE.TextureLoader();
+  private earthTexturePath = `${((import.meta as any).env?.BASE_URL ?? '/').replace(/\/?$/, '/') }assets/earth_daymap.jpg`;
   private earthTexture?: THREE.Texture;
   private earthTextureFailed = false;
 
@@ -652,7 +653,7 @@ export class FeedStore {
     if (!this.earthTexture) {
       try {
         const texture = this.textureLoader.load(
-          '/assets/earth_daymap.jpg',
+          this.earthTexturePath,
           (loaded) => {
             loaded.colorSpace = THREE.SRGBColorSpace;
             loaded.needsUpdate = true;
