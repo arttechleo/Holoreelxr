@@ -33,7 +33,7 @@ export const GESTURE = {
 // ========== INTERACTION CONTROLS ==========
 export const CONTROLS = {
   /** Scroll threshold: vertical displacement to trigger feed change (m) - REDUCED for more responsive scrolling */
-  SCROLL_DISPLACEMENT: 0.018,
+  SCROLL_DISPLACEMENT: 0.015,
   
   /** Cooldown between scroll actions (ms) - REDUCED for faster scrolling */
   SCROLL_COOLDOWN_MS: 200,

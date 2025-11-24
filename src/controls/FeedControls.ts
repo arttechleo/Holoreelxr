@@ -1024,6 +1024,11 @@ export class FeedControls {
     // This gives scroll priority for feed navigation
     if (this.pinchStartAt && now - this.pinchStartAt < this.SCROLL_MIN_HOLD_MS) {
       // During the short hold period, initialize tracking but don't scroll yet
+      const y = mid?.y;
+      if (this.lastPinchY == null && y != null) {
+        this.lastPinchY = y;
+        this.filtPinchY = y;
+      }
       return;
     }
 
@@ -1044,17 +1049,22 @@ export class FeedControls {
       // Method 1: Distance-based arming (if far from object) - immediate
       if (distSurf != null && distSurf >= this.SCROLL_START_FAR) {
         this.scrollArmed = true;
-        console.log(`[Scroll] Armed by distance: ${distSurf.toFixed(3)}m`);
+        console.log(`[Scroll] ✅ Armed by distance: ${distSurf.toFixed(3)}m`);
       }
-      // Method 2: Movement-based arming (if hand moves vertically)
-      // Scroll activates quickly (80ms) - faster than grab (150ms)
+      // Method 2: Movement-based arming (if hand moves vertically) - after hold time
       else if (this.lastPinchY != null && this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS)) {
         const y = mid.y;
         const dy = Math.abs(y - this.lastPinchY);
-        if (dy > 0.008) { // 0.8cm movement = arm scroll
+        if (dy > 0.005) { // 0.5cm movement = arm scroll (more sensitive)
           this.scrollArmed = true;
-          console.log(`[Scroll] Armed by movement: ${(dy * 100).toFixed(1)}cm after ${(now - this.pinchStartAt).toFixed(0)}ms (scroll priority)`);
+          console.log(`[Scroll] ✅ Armed by movement: ${(dy * 100).toFixed(1)}cm after ${(now - this.pinchStartAt).toFixed(0)}ms`);
         }
+      }
+      // Method 3: Auto-arm after hold time if no grab (fallback - ensures scroll always works)
+      else if (this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS * 2) && !this.grabPending) {
+        // After 160ms (2x hold time) with no grab, auto-arm scroll
+        this.scrollArmed = true;
+        console.log(`[Scroll] ✅ Auto-armed after ${(now - this.pinchStartAt).toFixed(0)}ms (no grab detected)`);
       }
       
       // If still not armed, initialize tracking but don't scroll yet
@@ -1099,15 +1109,27 @@ export class FeedControls {
     const dy = this.filtPinchY - this.lastPinchY;
     this.lastPinchY = this.filtPinchY;
     
-    // Check minimum velocity to avoid jitter
-    if (Math.abs(dy) < this.SCROLL_VEL_MIN) return;
+    // Check minimum velocity to avoid jitter (but be more lenient)
+    if (Math.abs(dy) < this.SCROLL_VEL_MIN) {
+      // Still accumulate small movements to make scroll more responsive
+      if (Math.abs(dy) > 0.001) { // 1mm minimum
+        this.scrollAccum += dy * 0.5; // Partial accumulation for small movements
+      }
+      return;
+    }
 
     // Accumulate scroll displacement
     this.scrollAccum += dy;
     
+    // Debug: log accumulation progress
+    if (Math.random() < 0.1) { // 10% of calls
+      console.log(`[Scroll] Accumulating: dy=${dy.toFixed(4)}m, total=${this.scrollAccum.toFixed(4)}m, threshold=${this.SCROLL_DISP}m`);
+    }
+    
     // Trigger scroll when threshold reached
     if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP) {
       const dir = this.scrollAccum < 0 ? +1 : -1;
+      console.log(`[Scroll] ✅✅✅ TRIGGERING SCROLL! Direction: ${dir > 0 ? 'Next' : 'Previous'}, Accum: ${this.scrollAccum.toFixed(4)}m`);
       this.store.next(dir);
       this.hudMgr.showFor(this.currentModelKey());
       this.scrollAccum = 0;
