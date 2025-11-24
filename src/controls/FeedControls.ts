@@ -414,6 +414,21 @@ export class FeedControls {
     return tutorial.isTutorialActive?.() === true;
   }
 
+  /**
+   * Reset scroll state to initial values.
+   * Called after tutorial completion to ensure clean state transition.
+   * Public method to allow external reset without breaking encapsulation.
+   */
+  resetScrollState(): void {
+    this.lastPinchY = null;
+    this.filtPinchY = null;
+    this.scrollAccum = 0;
+    this.scrollArmed = false;
+    this.scrollDisarmedThisPinch = false;
+    this.pinchStartAt = null;
+    this.scrollCooldownUntil = 0;
+  }
+
   // ---------- gesture cooldown helpers ----------
   /**
    * Check if a gesture can be triggered (not in cooldown)
@@ -959,6 +974,22 @@ export class FeedControls {
   private updateScroll(now: number) {
     if (now < this.scrollCooldownUntil) return;
     
+    // CRITICAL: After tutorial completion, FeedControls handles ALL scroll
+    // Only block if tutorial is actively handling scroll/grab
+    if (this.isTutorialActive()) {
+      const tutorial = this.onboardingTutorial as any;
+      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+        // Tutorial grab is active - disable scroll
+        if (this.scrollRay) this.scrollRay.visible = false;
+        return;
+      }
+      if (tutorial.isScrollStepActive && tutorial.isScrollStepActive()) {
+        // Tutorial scroll is active - disable FeedControls scroll
+        if (this.scrollRay) this.scrollRay.visible = false;
+        return;
+      }
+    }
+    
     // CRITICAL: Scroll has priority - only block if actively grabbing (not just pending)
     // This allows scroll to trigger even if grab is pending, giving scroll priority
     if (this.grabbing) {
@@ -978,22 +1009,6 @@ export class FeedControls {
           console.log(`[Scroll] Vertical movement detected (${(dy * 100).toFixed(1)}cm) - canceling grab, prioritizing scroll`);
           this.cancelGrabPending();
         }
-      }
-    }
-    
-    // CRITICAL: After tutorial completion, FeedControls handles scroll
-    // Only block if tutorial is actively handling scroll/grab
-    if (this.isTutorialActive()) {
-      const tutorial = this.onboardingTutorial as any;
-      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
-        // Tutorial grab is active - disable scroll
-        if (this.scrollRay) this.scrollRay.visible = false;
-        return;
-      }
-      if (tutorial.isScrollStepActive && tutorial.isScrollStepActive()) {
-        // Tutorial scroll is active - disable FeedControls scroll
-        if (this.scrollRay) this.scrollRay.visible = false;
-        return;
       }
     }
 

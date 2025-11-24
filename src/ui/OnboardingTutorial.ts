@@ -1570,9 +1570,16 @@ export class OnboardingTutorial {
       console.log(`[Tutorial] Remaining grabEventHandlers: ${this.grabEventHandlers.length}`);
       console.log(`[Tutorial] All tutorial handlers removed - FeedControls should work normally now`);
       
-      // CRITICAL: Verify FeedControls is ready
+      // CRITICAL: Verify FeedControls is ready and reset its scroll state
       if (this.feedControls) {
-        console.log('[Tutorial] FeedControls reference exists - should be handling events');
+        console.log('[Tutorial] FeedControls reference exists - resetting scroll state for clean transition');
+        // Use public method to reset scroll state (proper encapsulation)
+        if (typeof (this.feedControls as any).resetScrollState === 'function') {
+          (this.feedControls as any).resetScrollState();
+          console.log('[Tutorial] FeedControls scroll state reset - ready for main feed scrolling');
+        } else {
+          console.warn('[Tutorial] FeedControls.resetScrollState() not available - using fallback');
+        }
       } else {
         console.warn('[Tutorial] WARNING: FeedControls reference is null!');
       }
