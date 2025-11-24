@@ -6,5 +6,9 @@ export default defineConfig({
   server: {
     https: true,  // use mkcert certs
     host: true    // expose on LAN so Quest can reach it
+  },
+  build: {
+    // Silence benign warnings from large vendor bundle
+    chunkSizeWarningLimit: 1600
   }
 })

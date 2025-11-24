@@ -48,9 +48,10 @@ export class FeedStore {
   });
 
   private textureLoader = new THREE.TextureLoader();
-  private earthTexturePath = `${((import.meta as any).env?.BASE_URL ?? '/').replace(/\/?$/, '/') }assets/earth_daymap.jpg`;
   private earthTexture?: THREE.Texture;
   private earthTextureFailed = false;
+  private pyramidTexture?: THREE.Texture;
+  private pyramidTextureFailed = false;
 
   constructor(parent: THREE.Object3D, onHud?: (text: string) => void) {
     this.parent = parent;
@@ -647,13 +648,20 @@ export class FeedStore {
   }
 
   // ---------- Shapes ----------
+  private resolveAssetUrl(subpath: string) {
+    const base = (import.meta as any).env?.BASE_URL ?? '/';
+    const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+    const normalizedSubpath = subpath.startsWith('/') ? subpath.slice(1) : subpath;
+    return `${normalizedBase}${normalizedSubpath}`;
+  }
+
   // NASA Blue Marble imagery (public domain) stored at /assets/earth_daymap.jpg.
   private getEarthTexture(): THREE.Texture | undefined {
     if (this.earthTextureFailed) return undefined;
     if (!this.earthTexture) {
       try {
         const texture = this.textureLoader.load(
-          this.earthTexturePath,
+          this.resolveAssetUrl('assets/earth_daymap.jpg'),
           (loaded) => {
             loaded.colorSpace = THREE.SRGBColorSpace;
             loaded.needsUpdate = true;
@@ -679,6 +687,38 @@ export class FeedStore {
     return this.earthTexture;
   }
 
+  // Egyptian pyramid photo by Unsplash contributor (CC0-equivalent license).
+  private getPyramidTexture(): THREE.Texture | undefined {
+    if (this.pyramidTextureFailed) return undefined;
+    if (!this.pyramidTexture) {
+      try {
+        const texture = this.textureLoader.load(
+          this.resolveAssetUrl('assets/egypt_pyramids.jpg'),
+          (loaded) => {
+            loaded.colorSpace = THREE.SRGBColorSpace;
+            loaded.needsUpdate = true;
+          },
+          undefined,
+          (error) => {
+            console.warn('[FeedStore] Failed to load pyramid texture', error);
+            this.pyramidTexture = undefined;
+            this.pyramidTextureFailed = true;
+          }
+        );
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+        texture.center.set(0.5, 0.5);
+        texture.repeat.set(1, 1);
+        this.pyramidTexture = texture;
+      } catch (error) {
+        console.warn('[FeedStore] Error initializing pyramid texture', error);
+        this.pyramidTexture = undefined;
+        this.pyramidTextureFailed = true;
+      }
+    }
+    return this.pyramidTexture;
+  }
+
   private makeShape(kind: ShapeKind, colorHex?: string, sourceId?: string) {
     const color = new THREE.Color(colorHex ?? '#66ccff');
     let mat: THREE.MeshStandardMaterial;
@@ -696,6 +736,23 @@ export class FeedStore {
           color,
           roughness: 0.4,
           metalness: 0.0,
+          emissive: 0x000000,
+        });
+      }
+    } else if (kind === 'pyramid' && sourceId === 'shape-egyptian-pyramid') {
+      const pyramidTexture = this.getPyramidTexture();
+      if (pyramidTexture) {
+        mat = new THREE.MeshStandardMaterial({
+          map: pyramidTexture,
+          roughness: 0.6,
+          metalness: 0.05,
+          emissive: 0x000000,
+        });
+      } else {
+        mat = new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.45,
+          metalness: 0.05,
           emissive: 0x000000,
         });
       }
