@@ -508,7 +508,23 @@ export class FeedControls {
     const dir = tip.clone().sub(camPos).normalize();
     const ray = new THREE.Ray(camPos, dir);
 
-    // Check XR panels first (auth, music)
+    // Check tutorial panel first (if visible)
+    if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
+      const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
+      if (tutorialHit?.button) {
+        // Check for pinch on either hand
+        const leftPinch = this.hands.state.left.pinch;
+        const rightPinch = this.hands.state.right.pinch;
+        if (leftPinch || rightPinch) {
+          const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialHit.button);
+          if (handled) {
+            return; // Button click handled, don't process other UI
+          }
+        }
+      }
+    }
+
+    // Check XR panels (auth, music)
     const authPanel = (this as any).authPanel as XRAuthPanel | undefined;
     const musicPanel = (this as any).musicPanel as XRMusicPanel | undefined;
     
