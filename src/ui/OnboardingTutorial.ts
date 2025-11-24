@@ -124,14 +124,15 @@ export class OnboardingTutorial {
   private userHasInteracted = false; // Track if user has interacted with model
   private modelLoaded = false;
   
-  // COMPLETE REFACTOR: Ultra-simple grab system
+  // EXACT COPY OF FEEDCONTROLS GRAB SYSTEM - proven to work!
   private isGrabbing: boolean = false;
   private grabHand: 'left' | 'right' | null = null;
   private grabOffset: THREE.Vector3 = new THREE.Vector3();
   private grabStartTime: number = 0;
   private grabStartPosition: THREE.Vector3 | null = null;
   private grabStepIndex: number = -1;
-  private grabHasMoved: boolean = false; // Track if object has been moved enough
+  private grabHasMoved: boolean = false;
+  private grabEventHandlers: Array<{ event: string; handler: () => void }> = [];
   
   // Old interval-based system (to be removed)
   private tutorialGrabActive: boolean = false;
@@ -203,11 +204,82 @@ export class OnboardingTutorial {
   // Now using SIMPLE approach: if pinching, grab immediately (no distance check)
   
   /**
-   * BULLETPROOF GRAB SYSTEM - Simple, direct, works 100%
-   * Pinch near object → grab immediately → move hand → object follows → release → place
+   * EXACT COPY OF FEEDCONTROLS GRAB - proven to work!
+   * Uses event-based approach: onPinchStart/onPinchEnd + updateGrabDrag
+   */
+  private setupTutorialGrab() {
+    // Clear any existing handlers
+    this.clearTutorialGrabHandlers();
+    
+    // Hook into pinch events - EXACT same pattern as FeedControls
+    const leftPinchStart = () => this.onTutorialPinchStart('left');
+    const rightPinchStart = () => this.onTutorialPinchStart('right');
+    const leftPinchEnd = () => this.onTutorialPinchEnd('left');
+    const rightPinchEnd = () => this.onTutorialPinchEnd('right');
+    
+    this.hands.on('leftpinchstart', leftPinchStart);
+    this.hands.on('rightpinchstart', rightPinchStart);
+    this.hands.on('leftpinchend', leftPinchEnd);
+    this.hands.on('rightpinchend', rightPinchEnd);
+    
+    this.grabEventHandlers = [
+      { event: 'leftpinchstart', handler: leftPinchStart },
+      { event: 'rightpinchstart', handler: rightPinchStart },
+      { event: 'leftpinchend', handler: leftPinchEnd },
+      { event: 'rightpinchend', handler: rightPinchEnd },
+    ];
+    
+    console.log(`[Tutorial Grab] Event handlers registered`);
+  }
+  
+  private clearTutorialGrabHandlers() {
+    this.grabEventHandlers.forEach(({ event, handler }) => {
+      this.hands.off(event, handler);
+    });
+    this.grabEventHandlers = [];
+  }
+  
+  private onTutorialPinchStart(side: 'left' | 'right') {
+    // Verify we're on grab step
+    if (this.grabStepIndex < 0 || this.grabStepIndex !== this.currentStepIndex) {
+      return;
+    }
+    
+    if (!this.group.visible || this.isLoading) {
+      return;
+    }
+    
+    // EXACT same logic as FeedControls onPinchStart
+    const pinch = this.hands.pinchMid(side);
+    if (!pinch) return;
+    
+    const objPos = this.store.getObjectWorldPos();
+    if (!objPos) return;
+    
+    // INSTANT GRAB - no distance check, just grab immediately!
+    console.log(`[Tutorial Grab] ✅ Instant grab activated! ${side} hand`);
+    this.isGrabbing = true;
+    this.grabHand = side;
+    this.grabOffset.copy(objPos).sub(pinch);
+    this.grabStartTime = performance.now();
+    this.grabStartPosition = objPos.clone();
+    this.grabHasMoved = false;
+    console.log(`[Tutorial Grab] Grabbed! Object: ${objPos.toArray().map(v => v.toFixed(3)).join(',')}, Hand: ${pinch.toArray().map(v => v.toFixed(3)).join(',')}`);
+  }
+  
+  private onTutorialPinchEnd(side: 'left' | 'right') {
+    if (this.isGrabbing && this.grabHand === side) {
+      console.log(`[Tutorial Grab] Pinch ended - placing object`);
+      this.checkGrabCompletion();
+      this.stopGrab();
+    }
+  }
+  
+  /**
+   * EXACT COPY OF FeedControls.updateGrabDrag - called every frame
    */
   updateGrab(info?: any) {
-    // Verify we're on grab step - CRITICAL CHECK FIRST
+    // Verify we're on grab step
     if (this.grabStepIndex < 0 || this.grabStepIndex !== this.currentStepIndex) {
       if (this.isGrabbing) {
         this.stopGrab();
@@ -215,141 +287,57 @@ export class OnboardingTutorial {
       return;
     }
     
-    // Verify tutorial is active
     if (!this.group.visible || this.isLoading) {
       return;
     }
     
-    // Verify object exists
-    const obj = this.store.getObject();
-    const bounds = this.store.getObjectBounds();
-    if (!obj || !bounds) {
-      // Log more frequently when object is missing
-      if (Math.random() < 0.2) {
-        console.warn(`[Tutorial Grab] No object or bounds! obj=${!!obj}, bounds=${!!bounds}`);
-      }
+    // EXACT same logic as FeedControls.updateGrabDrag
+    if (!this.isGrabbing || !this.grabHand) {
       return;
     }
     
     try {
-      const now = performance.now();
-      // NO DISTANCE RESTRICTION - use raycasting to detect if pointing at object
-      // This works at any distance and is more intuitive in XR where scale perception is difficult
-      const MIN_MOVEMENT = 0.05; // 5cm - minimum movement to complete
-      
-      // Get hand states - ALWAYS check both hands
-      const leftPinch = this.hands.state.left.pinch;
-      const rightPinch = this.hands.state.right.pinch;
-      
-      // DEBUG: Log pinch states more frequently
-      if (Math.random() < 0.05 && (leftPinch || rightPinch)) {
-        console.log(`[Tutorial Grab] Pinch detected: left=${leftPinch}, right=${rightPinch}, isGrabbing=${this.isGrabbing}`);
+      const other = this.grabHand === 'left' ? 'right' : 'left';
+      if (this.hands.state[this.grabHand].pinch && this.hands.state[other].pinch) {
+        this.isGrabbing = false;
+        this.grabHand = null;
+        console.log(`[Tutorial Grab] Canceled - two-hand mode`);
+        return;
+      }
+      if (!this.hands.state[this.grabHand].pinch) {
+        this.checkGrabCompletion();
+        this.stopGrab();
+        return;
+      }
+      const mid = this.hands.pinchMid(this.grabHand);
+      if (!mid) {
+        console.log(`[Tutorial Grab] Lost hand tracking, canceling grab`);
+        this.checkGrabCompletion();
+        this.stopGrab();
+        return;
       }
       
-      // If already grabbing, update position
-      if (this.isGrabbing && this.grabHand) {
-        const stillPinching = this.hands.state[this.grabHand].pinch;
-        const otherPinching = this.hands.state[this.grabHand === 'left' ? 'right' : 'left'].pinch;
-        
-        // Release conditions - simplified
-        if (otherPinching || !stillPinching) {
-          console.log(`[Tutorial Grab] Released - ${otherPinching ? 'two-hand mode' : 'pinch ended'}`);
-          this.checkGrabCompletion();
-          this.stopGrab();
-          return;
-        }
-        
-        // Get current hand position
-        const pinchPos = this.hands.pinchMid(this.grabHand);
-        if (!pinchPos) {
-          console.log(`[Tutorial Grab] Lost hand position - releasing`);
-          this.checkGrabCompletion();
-          this.stopGrab();
-          return;
-        }
-        
-        // Calculate new object position: hand position + offset
-        const newObjPos = pinchPos.clone().add(this.grabOffset);
-        
-        // CRITICAL: Update position EVERY FRAME
-        this.store.setPosition(newObjPos);
-        
-        // Check if object has moved enough
-        if (this.grabStartPosition && !this.grabHasMoved) {
-          const currentPos = this.store.getObjectWorldPos();
-          if (currentPos) {
-            const movement = currentPos.distanceTo(this.grabStartPosition);
-            if (movement >= MIN_MOVEMENT) {
-              this.grabHasMoved = true;
-              console.log(`[Tutorial Grab] ✅ Object moved ${(movement * 100).toFixed(1)}cm - ready to complete on release!`);
-            }
-          }
-        }
-        
-        // Verify it worked (throttled)
-        if (Math.random() < 0.15) {
-          const actualPos = this.store.getObjectWorldPos();
-          const error = actualPos ? actualPos.distanceTo(newObjPos) : Infinity;
-          console.log(`[Tutorial Grab] Moving: hand=${pinchPos.toArray().map(v => v.toFixed(2)).join(',')}, newObj=${newObjPos.toArray().map(v => v.toFixed(2)).join(',')}, actual=${actualPos?.toArray().map(v => v.toFixed(2)).join(',')}, error=${error.toFixed(3)}m`);
-          
-          if (error > 0.02) {
-            console.warn(`[Tutorial Grab] ⚠️ Position mismatch! Error: ${error.toFixed(3)}m`);
-          }
-        }
+      const objPos = this.store.getObjectWorldPos();
+      if (!objPos) {
+        console.log(`[Tutorial Grab] Object doesn't exist, canceling grab`);
+        this.stopGrab();
+        return;
       }
-      // Not grabbing - check if we should start
-      else {
-        // Only allow one hand at a time
-        if (leftPinch && rightPinch) {
-          return; // Both hands pinching - don't grab
+      
+      // Update position - EXACT same as FeedControls
+      const newPos = mid.clone().add(this.grabOffset);
+      this.store.setPosition(newPos);
+      
+      // Check if object has moved enough
+      if (this.grabStartPosition && !this.grabHasMoved) {
+        const movement = objPos.distanceTo(this.grabStartPosition);
+        if (movement >= 0.05) { // 5cm
+          this.grabHasMoved = true;
+          console.log(`[Tutorial Grab] ✅ Object moved ${(movement * 100).toFixed(1)}cm`);
         }
-        
-        const side: 'left' | 'right' | null = leftPinch ? 'left' : (rightPinch ? 'right' : null);
-        if (!side) {
-          return; // No pinch
-        }
-        
-        // Get hand position
-        const pinchPos = this.hands.pinchMid(side);
-        if (!pinchPos) {
-          // Log when hand position is missing
-          if (Math.random() < 0.1) {
-            console.warn(`[Tutorial Grab] No hand position for ${side} hand - is hand tracking working?`);
-          }
-          return; // No hand position
-        }
-        
-        // Verify hand position is valid (not NaN or Infinity)
-        if (!isFinite(pinchPos.x) || !isFinite(pinchPos.y) || !isFinite(pinchPos.z)) {
-          console.warn(`[Tutorial Grab] Invalid hand position: ${pinchPos.toArray().join(',')}`);
-          return;
-        }
-        
-        // ULTRA-SIMPLE: If pinching, grab immediately - NO distance check, NO raycasting!
-        // This works from ANY distance - just pinch and grab!
-        const objPos = this.store.getObjectWorldPos();
-        if (!objPos) {
-          console.warn(`[Tutorial Grab] Cannot grab - object position is null`);
-          return;
-        }
-        
-        // Start grabbing immediately - no checks, just grab!
-        this.isGrabbing = true;
-        this.grabHand = side;
-        this.grabOffset.copy(objPos).sub(pinchPos);
-        this.grabStartTime = now;
-        this.grabStartPosition = objPos.clone();
-        this.grabHasMoved = false;
-        
-        console.log(`[Tutorial Grab] ✅✅✅ GRABBED! ${side} hand`);
-        console.log(`  Object: ${objPos.toArray().map(v => v.toFixed(3)).join(',')}`);
-        console.log(`  Hand: ${pinchPos.toArray().map(v => v.toFixed(3)).join(',')}`);
-        console.log(`  Offset: ${this.grabOffset.toArray().map(v => v.toFixed(3)).join(',')}`);
-        console.log(`  Move your hand to move the object, then release to place!`);
       }
     } catch (error) {
-      console.error('[Tutorial Grab] CRITICAL ERROR:', error);
-      console.error(error);
+      console.error('[Tutorial Grab] ERROR:', error);
       this.stopGrab();
     }
   }
@@ -659,6 +647,9 @@ export class OnboardingTutorial {
     });
     this.currentGestureHandlers = [];
     
+    // Clear tutorial grab event handlers
+    this.clearTutorialGrabHandlers();
+    
     if (this.twoHandCheckInterval) {
       clearInterval(this.twoHandCheckInterval);
       this.twoHandCheckInterval = null;
@@ -900,7 +891,7 @@ export class OnboardingTutorial {
         }
       }, 100);
     }
-    // Grab detection - COMPLETE REFACTOR: Ultra-simple system
+    // Grab detection - EXACT COPY OF FEEDCONTROLS PATTERN
     else if (gesture === 'grab') {
       // Initialize grab system
       this.stopGrab(); // Clear any existing grab
@@ -915,10 +906,10 @@ export class OnboardingTutorial {
       console.log(`  Object exists: ${!!obj}, name: ${obj?.name || 'none'}`);
       console.log(`  Object position: ${objPos?.toArray().map(v => v.toFixed(2)).join(',') || 'null'}`);
       console.log(`  Object bounds: ${bounds ? `center=${bounds.center.toArray().map(v => v.toFixed(2)).join(',')}, radius=${bounds.radius.toFixed(2)}m` : 'null'}`);
-      console.log(`  Ready to grab! Pinch near the object (within 50cm)`);
+      console.log(`  Ready to grab! Pinch to grab (works from any distance)`);
       
-      // Grab logic runs in updateGrab() called from main frame loop
-      // Simple: if pinching near object, grab immediately and update every frame
+      // Setup event handlers - EXACT same pattern as FeedControls
+      this.setupTutorialGrab();
     }
     // Scroll detection
     else if (gesture === 'scroll') {
