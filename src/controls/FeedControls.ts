@@ -394,30 +394,6 @@ export class FeedControls {
   }
 
   /**
-   * Verify all features are enabled after tutorial completion.
-   * Production-ready verification method.
-   */
-  verifyFeaturesEnabled(): boolean {
-    const tutorialCompleted = this.isTutorialCompleted();
-    const tutorialActive = this.isTutorialActive();
-    
-    console.log('[FeedControls] 🔍 Feature verification:');
-    console.log(`  Tutorial completed: ${tutorialCompleted}`);
-    console.log(`  Tutorial active: ${tutorialActive}`);
-    console.log(`  Scroll state: ${this.scrollArmed ? 'armed' : 'disarmed'}`);
-    console.log(`  Grab state: ${this.grabbing ? 'active' : 'inactive'}`);
-    console.log(`  Two-hand transform: ${this.twoHandActive ? 'active' : 'inactive'}`);
-    
-    if (!tutorialCompleted || tutorialActive) {
-      console.warn('[FeedControls] ⚠️ Tutorial state incorrect - features may be blocked');
-      return false;
-    }
-    
-    console.log('[FeedControls] ✅ All features verified and enabled');
-    return true;
-  }
-
-  /**
    * Check if tutorial is completed - if so, FeedControls is the primary handler
    * CRITICAL: This is the single source of truth for tutorial completion
    */
@@ -439,14 +415,12 @@ export class FeedControls {
   }
 
   /**
-   * Comprehensive state reset after tutorial completion.
-   * Ensures all FeedControls features work properly after tutorial.
-   * This is critical for production-ready behavior.
+   * Reset scroll state to initial values.
+   * Called after tutorial completion to ensure clean state transition.
+   * Public method to allow external reset without breaking encapsulation.
    */
   resetScrollState(): void {
-    console.log('[FeedControls] 🔄 Comprehensive state reset after tutorial completion');
-    
-    // Reset scroll state
+    console.log('[FeedControls] Resetting scroll state after tutorial completion');
     this.lastPinchY = null;
     this.filtPinchY = null;
     this.scrollAccum = 0;
@@ -454,53 +428,10 @@ export class FeedControls {
     this.scrollDisarmedThisPinch = false;
     this.pinchStartAt = null;
     this.scrollCooldownUntil = 0;
-    
-    // Reset grab state
+    // Also reset grab state to ensure clean transition
     this.grabPending = false;
     this.grabbing = false;
-    this.grabSide = null;
-    this.grabOffset.set(0, 0, 0);
-    if (this.grabTimer != null) {
-      clearTimeout(this.grabTimer);
-      this.grabTimer = null;
-    }
-    
-    // Reset two-hand transform state
-    this.twoHandActive = false;
-    this.baseDist = 0;
-    this.baseScale = 1;
-    this.filtDist = 0;
-    this.rotTarget = 0;
-    this.rotVel = 0;
-    this.LStart.set(0, 0, 0);
-    this.RStart.set(0, 0, 0);
-    this.lastL.set(0, 0, 0);
-    this.lastR.set(0, 0, 0);
-    
-    // Reset reaction gesture state
-    this.lastStableKind = null;
-    this.lastStableCheckAt = 0;
-    this.clusterCooldownUntil = 0;
-    this.gestureTriggered.clear();
-    this.gestureCooldown.clear();
-    
-    // Reset UI state
-    this.uiHoverKind = null;
-    this.uiHoverBeganAt = 0;
-    this.uiLastY = null;
-    
-    // Hide rays
-    this.setRayVisible('left', false);
-    this.setRayVisible('right', false);
-    if (this.scrollRay) {
-      this.scrollRay.visible = false;
-    }
-    
-    console.log('[FeedControls] ✅ State reset complete - all features enabled');
-    console.log('[FeedControls]   - Scroll: enabled');
-    console.log('[FeedControls]   - Grab: enabled');
-    console.log('[FeedControls]   - Scale/Rotate: enabled');
-    console.log('[FeedControls]   - Emoji gestures: enabled');
+    console.log('[FeedControls] Scroll state reset complete - ready for main feed');
   }
 
   // ---------- gesture cooldown helpers ----------
@@ -1246,21 +1177,6 @@ export class FeedControls {
 
   // ---------- two-hand transform ----------
   private updateTwoHandTransform(dt: number) {
-    // CRITICAL: After tutorial completion, two-hand transform should work normally
-    // Only block if tutorial is actively handling two-hand gestures
-    if (this.isTutorialActive()) {
-      const tutorial = this.onboardingTutorial as any;
-      // Check if tutorial is on a two-hand step (rotate/scale)
-      const currentGesture = tutorial.getCurrentGesture?.();
-      if (currentGesture !== 'twohandrotate' && currentGesture !== 'twohandscale') {
-        // Tutorial is active but not on two-hand step - allow FeedControls to handle it
-        // Continue with normal two-hand transform
-      } else {
-        // Tutorial is handling two-hand gesture - let it handle it
-        return;
-      }
-    }
-    
     const lp = this.hands.state.left.pinch,
       rp = this.hands.state.right.pinch;
     if (this.grabPending || this.grabbing) return;

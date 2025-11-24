@@ -1556,22 +1556,6 @@ export class OnboardingTutorial {
       // CRITICAL: Also clear all gesture handlers
       this.clearGestureHandlers();
       
-      // CRITICAL: Final verification - ensure no handlers remain
-      if (this.grabEventHandlers.length > 0) {
-        console.warn(`[Tutorial] ⚠️ WARNING: ${this.grabEventHandlers.length} grab handlers still registered!`);
-        // Force clear one more time
-        this.grabEventHandlers.forEach(({ event, handler }) => {
-          try {
-            this.hands.off(event, handler);
-          } catch (err) {
-            // Ignore errors on final cleanup
-          }
-        });
-        this.grabEventHandlers = [];
-      }
-      
-      console.log(`[Tutorial] ✅ Handler cleanup complete: ${this.grabEventHandlers.length} handlers remaining`);
-      
       // CRITICAL: Force remove any remaining handlers by trying to remove all possible handlers
       // This is a nuclear option to ensure tutorial handlers are completely gone
       try {
@@ -1602,19 +1586,18 @@ export class OnboardingTutorial {
       console.log(`[Tutorial] Remaining grabEventHandlers: ${this.grabEventHandlers.length}`);
       console.log(`[Tutorial] All tutorial handlers removed - FeedControls should work normally now`);
       
-      // CRITICAL: Verify FeedControls is ready and perform comprehensive state reset
+      // CRITICAL: Verify FeedControls is ready and reset its scroll state
       if (this.feedControls) {
-        console.log('[Tutorial] FeedControls reference exists - performing comprehensive state reset');
-        // Use public method to reset all state (proper encapsulation)
+        console.log('[Tutorial] FeedControls reference exists - resetting scroll state for clean transition');
+        // Use public method to reset scroll state (proper encapsulation)
         if (typeof (this.feedControls as any).resetScrollState === 'function') {
           (this.feedControls as any).resetScrollState();
-          console.log('[Tutorial] ✅ FeedControls comprehensive state reset complete');
-          console.log('[Tutorial] All features enabled: scroll, grab, scale, rotate, emoji gestures');
+          console.log('[Tutorial] FeedControls scroll state reset - ready for main feed scrolling');
         } else {
           console.warn('[Tutorial] FeedControls.resetScrollState() not available - using fallback');
         }
       } else {
-        console.error('[Tutorial] ❌ CRITICAL: FeedControls reference is null! Feed will not work!');
+        console.warn('[Tutorial] WARNING: FeedControls reference is null!');
       }
       
       // CRITICAL: Ensure firstNonTutorialIndex is valid
@@ -1659,30 +1642,15 @@ export class OnboardingTutorial {
         this.onComplete();
       }
       
-      // CRITICAL: Force a comprehensive verification after a short delay
+      // CRITICAL: Force a test to verify FeedControls is working
       setTimeout(() => {
-        console.log('[Tutorial] 🔍 Post-completion verification:');
+        console.log('[Tutorial] Post-completion check:');
         console.log(`  tutorialCompleted: ${this.tutorialCompleted}`);
         console.log(`  isTutorialActive(): ${this.isTutorialActive()}`);
         console.log(`  group.visible: ${this.group.visible}`);
         console.log(`  grabEventHandlers.length: ${this.grabEventHandlers.length}`);
         console.log(`  FeedControls exists: ${!!this.feedControls}`);
-        
-        // Verify FeedControls features are enabled
-        if (this.feedControls && typeof (this.feedControls as any).verifyFeaturesEnabled === 'function') {
-          const allEnabled = (this.feedControls as any).verifyFeaturesEnabled();
-          if (allEnabled) {
-            console.log('[Tutorial] ✅✅✅ ALL FEATURES VERIFIED AND ENABLED');
-            console.log('[Tutorial] Users can now:');
-            console.log('  - Scroll through feed');
-            console.log('  - Grab and place objects');
-            console.log('  - Scale and rotate with two hands');
-            console.log('  - Use emoji gestures (like, heart, repost)');
-          } else {
-            console.error('[Tutorial] ❌ Feature verification failed!');
-          }
-        }
-      }, 200);
+      }, 100);
     }, 2000);
   }
 
