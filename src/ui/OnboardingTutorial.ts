@@ -179,6 +179,15 @@ export class OnboardingTutorial {
     this.feedControls = controls;
   }
   
+  /**
+   * Check if we're currently on the grab step
+   * This allows FeedControls to disable its grab system
+   */
+  isGrabStepActive(): boolean {
+    if (this.grabStepIndex < 0) return false;
+    return this.grabStepIndex === this.currentStepIndex && this.group.visible;
+  }
+  
   // ========== NEW FRAME-BASED GRAB SYSTEM ==========
   // Simple, reliable, frame-by-frame updates - no intervals!
   
@@ -208,10 +217,8 @@ export class OnboardingTutorial {
       return;
     }
     
-    // Debug: log if we're processing (throttled)
-    if (Math.random() < 0.01 && this.grabState === 'idle') { // 1% when idle
-      console.log(`[Tutorial Grab] Processing - stepIndex=${this.currentStepIndex}, grabStepIndex=${this.grabStepIndex}, state=${this.grabState}`);
-    }
+    // ALWAYS process - don't skip frames
+    // This ensures grab works reliably
     
     try {
       const now = performance.now();
@@ -334,14 +341,28 @@ export class OnboardingTutorial {
         // Calculate new object position
         const newObjPos = pinchPos.clone().add(this.grabOffset);
         
-        // Debug logging (throttled)
-        if (Math.random() < 0.1) { // 10% of calls
+        // Debug logging (more frequent for troubleshooting)
+        if (Math.random() < 0.2) { // 20% of calls
           const currentObjPos = this.store.getObjectWorldPos();
           console.log(`[Tutorial Grab] Updating: hand=${pinchPos.toArray().map(v => v.toFixed(3)).join(',')}, offset=${this.grabOffset.toArray().map(v => v.toFixed(3)).join(',')}, newPos=${newObjPos.toArray().map(v => v.toFixed(3)).join(',')}, current=${currentObjPos?.toArray().map(v => v.toFixed(3)).join(',')}`);
         }
         
-        // Update object position
-        this.store.setPosition(newObjPos);
+        // CRITICAL: Update object position EVERY FRAME while grabbing
+        // This is the core of the grab functionality
+        try {
+          this.store.setPosition(newObjPos);
+          
+          // Verify position was set (throttled)
+          if (Math.random() < 0.05) { // 5% of calls
+            const verifyPos = this.store.getObjectWorldPos();
+            const error = verifyPos ? verifyPos.distanceTo(newObjPos) : Infinity;
+            if (error > 0.01) {
+              console.warn(`[Tutorial Grab] ⚠️ Position error: ${error.toFixed(3)}m - expected=${newObjPos.toArray().map(v => v.toFixed(3)).join(',')}, actual=${verifyPos?.toArray().map(v => v.toFixed(3)).join(',')}`);
+            }
+          }
+        } catch (error) {
+          console.error(`[Tutorial Grab] Error setting position:`, error);
+        }
         
         // Check completion conditions
         if (this.grabStartPosition) {
