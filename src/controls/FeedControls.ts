@@ -78,9 +78,10 @@ export class FeedControls {
   });
   
   // Rubber band scroll line (elastic connection to object) - DOTTED
+  // Color changes based on state: gray (ready) → green (armed) → yellow (scrolling)
   private scrollRay?: THREE.Line;
   private scrollRayMat = new THREE.LineDashedMaterial({
-    color: 0x88ff88,
+    color: 0x888888, // Gray when not armed
     transparent: true,
     opacity: 0.6,
     dashSize: 0.02,
@@ -866,8 +867,7 @@ export class FeedControls {
   }
   
   private updateScrollRay(objPos: THREE.Vector3 | null) {
-    if (!this.scrollRay || !objPos) {
-      if (this.scrollRay) this.scrollRay.visible = false;
+    if (!this.scrollRay) {
       return;
     }
     
@@ -884,36 +884,62 @@ export class FeedControls {
     const rp = this.hands.state.right.pinch;
     const side: 'left' | 'right' = rp ? 'right' : (lp ? 'left' : null);
     
-    if (!side || !this.scrollArmed || this.grabbing || this.grabPending) {
+    // Hide if not pinching or actively grabbing
+    if (!side || this.grabbing || this.grabPending) {
       this.scrollRay.visible = false;
       return;
     }
     
     const mid = this.hands.pinchMid(side);
-    if (!mid) {
+    if (!mid || !objPos) {
       this.scrollRay.visible = false;
       return;
     }
     
-    // Show rubber band line from hand to object center
+    // Check if in scroll zone (far from object)
+    const distSurf = this.distanceToObjectSurface(mid);
+    const GRAB_ZONE_DISTANCE = 0.10; // 10cm
+    const inScrollZone = distSurf == null || distSurf >= GRAB_ZONE_DISTANCE;
+    
+    if (!inScrollZone) {
+      // In grab zone - hide scroll ray
+      this.scrollRay.visible = false;
+      return;
+    }
+    
+    // Show rubber band line from hand to object center with visual feedback
     const pos = (this.scrollRay.geometry as THREE.BufferGeometry).getAttribute(
       'position'
     ) as THREE.BufferAttribute;
     if (pos) {
-      // Elastic effect: line connects hand to object, with slight curve for rubber band feel
       const handPos = mid;
       const objCenter = objPos;
       
-      // Calculate distance for elastic effect
+      // Calculate distance for visual feedback
       const dist = handPos.distanceTo(objCenter);
-      const maxDist = 0.5; // Maximum distance before line becomes more visible
+      const maxDist = 0.5; // Maximum distance for effect
       const elasticFactor = Math.min(dist / maxDist, 1.0);
       
-      // Update line color based on stretch (more stretched = more visible)
-      (this.scrollRay.material as THREE.LineDashedMaterial).opacity = 0.3 + (elasticFactor * 0.4);
-      (this.scrollRay.material as THREE.LineDashedMaterial).color.setHex(
-        elasticFactor > 0.7 ? 0xffff88 : 0x88ff88 // Yellow when stretched, green when relaxed
-      );
+      // Color feedback based on scroll state:
+      // Gray (0x888888) = Ready to scroll (not armed yet)
+      // Green (0x88ff88) = Armed (will scroll on movement)
+      // Yellow (0xffff88) = Scrolling (accumulating movement)
+      const baseOpacity = 0.3;
+      const stretchOpacity = elasticFactor * 0.3;
+      
+      if (this.scrollArmed && Math.abs(this.scrollAccum) > 0.001) {
+        // Scrolling - yellow
+        (this.scrollRay.material as THREE.LineDashedMaterial).color.setHex(0xffff88);
+        (this.scrollRay.material as THREE.LineDashedMaterial).opacity = baseOpacity + stretchOpacity + 0.2;
+      } else if (this.scrollArmed) {
+        // Armed - green
+        (this.scrollRay.material as THREE.LineDashedMaterial).color.setHex(0x88ff88);
+        (this.scrollRay.material as THREE.LineDashedMaterial).opacity = baseOpacity + stretchOpacity + 0.1;
+      } else {
+        // Ready - gray
+        (this.scrollRay.material as THREE.LineDashedMaterial).color.setHex(0x888888);
+        (this.scrollRay.material as THREE.LineDashedMaterial).opacity = baseOpacity + stretchOpacity;
+      }
       
       pos.setXYZ(0, handPos.x, handPos.y, handPos.z);
       pos.setXYZ(1, objCenter.x, objCenter.y, objCenter.z);
@@ -974,40 +1000,38 @@ export class FeedControls {
       return;
     }
 
-    // Use pinch from above (already calculated)
-    // const pinch = this.hands.pinchMid(side);
-    // const d = pinch ? this.distanceToObjectSurface(pinch) : null;
-    
-    // CRITICAL: Scroll has priority - activate quickly for feed navigation
-    // Only start grab if user is very close to object (clear intent to grab)
+    // FIXED: Clear distance zones for grab vs scroll
+    // 0-10cm = GRAB ZONE (grab has priority)
+    // >10cm = SCROLL ZONE (scroll has priority)
+    const GRAB_ZONE_DISTANCE = 0.10; // 10cm - matches scroll zone check
     const objPosNow = this.store.getObjectWorldPos();
     const objExists = !!this.store.getObject();
     
-    if (objExists && objPosNow && pinch) {
-      // Instant grab if VERY close to object (clear grab intent)
-      if (d != null && d <= this.INSTANT_GRAB_DIST) {
-        console.log(`[FeedControls] ✅ Instant grab activated! Distance: ${d.toFixed(3)}m`);
-        this.grabbing = true;
-        this.grabSide = side;
-        this.grabOffset.copy(objPosNow).sub(pinch);
-        this.store.notify('Grabbed');
-        this.scrollDisarmedThisPinch = true;
-        return;
-      }
-      
-      // If moderately close, start grab pending but allow scroll to override
-      // Scroll can still trigger if user moves hand vertically (feed navigation intent)
-      if (d != null && d <= 0.15) { // Within 15cm - likely grab intent
-        this.tryStartGrabPending(side);
-        // Don't disarm scroll - let user's movement decide (scroll vs grab)
+    if (objExists && objPosNow && pinch && d != null) {
+      if (d <= GRAB_ZONE_DISTANCE) {
+        // GRAB ZONE: User is close to object
+        if (d <= this.INSTANT_GRAB_DIST) {
+          // Very close (<5cm) - instant grab
+          console.log(`[Grab] ✅ Instant grab! Distance: ${(d * 100).toFixed(1)}cm`);
+          this.grabbing = true;
+          this.grabSide = side;
+          this.grabOffset.copy(objPosNow).sub(pinch);
+          this.store.notify('Grabbed');
+          this.scrollDisarmedThisPinch = true;
+          return;
+        } else {
+          // Close (5-10cm) - start grab pending
+          console.log(`[Grab] Grab zone (${(d * 100).toFixed(1)}cm) - pending grab`);
+          this.tryStartGrabPending(side);
+        }
       } else {
-        // Far from object - prioritize scroll (feed navigation)
-        // Don't start grab pending - scroll is the primary action
-        console.log(`[FeedControls] Far from object (${d.toFixed(3)}m) - scroll prioritized`);
+        // SCROLL ZONE: User is far from object (>10cm)
+        console.log(`[Scroll] Scroll zone (${(d * 100).toFixed(1)}cm) - ready to scroll on movement`);
+        // Scroll will arm automatically when user moves hand vertically
       }
-    } else if (d != null && d >= this.SCROLL_START_FAR) {
-      // Very far from object - definitely scroll
-      console.log(`[FeedControls] Very far from object (${d.toFixed(3)}m) - scroll prioritized`);
+    } else {
+      // No object or distance unknown - default to scroll zone
+      console.log(`[Scroll] No object or distance unknown - scroll zone active`);
     }
   }
 
@@ -1124,52 +1148,35 @@ export class FeedControls {
       return;
     }
     
-    // Check distance from object - more lenient for easier scrolling
+    // Check distance from object to determine if we're in scroll zone or grab zone
     const distSurf = this.distanceToObjectSurface(mid);
+    const GRAB_ZONE_DISTANCE = 0.10; // 10cm - close to object = grab zone
+    const inGrabZone = distSurf != null && distSurf < GRAB_ZONE_DISTANCE;
     
-    // CRITICAL: Scroll has priority - arm quickly for feed navigation
+    // FIXED: Scroll requires actual hand movement, no auto-arming
+    // User must move hand vertically to trigger scroll (no holding pinch without movement)
     if (!this.scrollArmed) {
-      // Only block if actively grabbing (not just pending)
-      if (this.grabbing) {
+      // Block scroll in grab zone to prevent conflicts
+      if (inGrabZone || this.grabbing || this.grabPending) {
         if (this.scrollRay) this.scrollRay.visible = false;
         return;
       }
       
-      // Method 1: Distance-based arming (if far from object OR no object bounds) - immediate
-      // More lenient: reduce threshold by 70% to make scrolling much easier
-      const scrollStartDistance = this.SCROLL_START_FAR * 0.3; // 30% of normal distance = 3cm
-      // CRITICAL: If distSurf is null (no object bounds), assume we're far from object and arm scroll
-      // This handles the case where object is loading after tutorial completion
-      if (distSurf == null || distSurf >= scrollStartDistance) {
-        this.scrollArmed = true;
-        const reason = distSurf == null ? 'no object bounds (assumed far)' : `${distSurf.toFixed(3)}m`;
-        console.log(`[Scroll] ✅ Armed by distance: ${reason} (threshold: ${scrollStartDistance.toFixed(3)}m)`);
-      }
-      // Method 2: Movement-based arming (if hand moves vertically) - after hold time
-      // Much more sensitive: reduce movement threshold to 1mm
-      else if (this.lastPinchY != null && this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS)) {
+      // ONLY arm scroll if user actually moves hand vertically
+      // No distance-based, time-based, or emergency auto-arming
+      if (this.lastPinchY != null && this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS)) {
         const y = mid.y;
         const dy = Math.abs(y - this.lastPinchY);
-        if (dy > 0.001) { // 1mm movement = arm scroll (very sensitive)
+        const MOVEMENT_THRESHOLD = 0.003; // 3mm minimum intentional movement (filters noise)
+        
+        if (dy >= MOVEMENT_THRESHOLD) {
+          // Clear intentional movement detected - arm scroll
           this.scrollArmed = true;
-          console.log(`[Scroll] ✅ Armed by movement: ${(dy * 100).toFixed(2)}cm after ${(now - this.pinchStartAt).toFixed(0)}ms`);
+          console.log(`[Scroll] ✅ Armed by movement: ${(dy * 100).toFixed(2)}cm vertical movement detected`);
         }
       }
-      // Method 3: Auto-arm after hold time if no grab (fallback - ensures scroll always works)
-      // Much faster auto-arm: just 1.2x hold time (60ms)
-      else if (this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS * 1.2) && !this.grabPending) {
-        // After 60ms (1.2x hold time) with no grab, auto-arm scroll
-        this.scrollArmed = true;
-        console.log(`[Scroll] ✅ Auto-armed after ${(now - this.pinchStartAt).toFixed(0)}ms (no grab detected)`);
-      }
-      // Method 4: EMERGENCY fallback - if tutorial is completed and we've been pinching for 200ms, FORCE arm scroll
-      // This ensures scroll ALWAYS works after tutorial, even if other conditions fail
-      else if (this.isTutorialCompleted() && this.pinchStartAt && (now - this.pinchStartAt >= 200)) {
-        this.scrollArmed = true;
-        console.log(`[Scroll] ✅✅✅ EMERGENCY ARMED after 200ms (tutorial completed, ensuring scroll works)`);
-      }
       
-      // If still not armed, initialize tracking but don't scroll yet
+      // If not armed yet, initialize tracking but don't scroll
       if (!this.scrollArmed) {
         const y = mid.y;
         if (this.lastPinchY == null && y != null) {
@@ -1211,22 +1218,17 @@ export class FeedControls {
     const dy = this.filtPinchY - this.lastPinchY;
     this.lastPinchY = this.filtPinchY;
     
-    // Check minimum velocity to avoid jitter (but be MORE lenient after tutorial)
-    // After tutorial completion, use even lower threshold to make scrolling easier
-    const minVelocity = this.isTutorialCompleted() ? this.SCROLL_VEL_MIN * 0.5 : this.SCROLL_VEL_MIN;
+    // FIXED: Only accumulate clear intentional movements, not hand tracking jitter
+    // Minimum movement per frame to accumulate: 2mm (filters noise)
+    const MIN_ACCUMULATION_THRESHOLD = 0.002; // 2mm - clear intentional movement
     
-    if (Math.abs(dy) < minVelocity) {
-      // Still accumulate small movements to make scroll more responsive
-      // After tutorial, accumulate even tiny movements to ensure scroll works
-      const minAccumThreshold = this.isTutorialCompleted() ? 0.0005 : 0.001;
-      if (Math.abs(dy) > minAccumThreshold) {
-        const accumFactor = this.isTutorialCompleted() ? 0.8 : 0.5; // More aggressive after tutorial
-        this.scrollAccum += dy * accumFactor;
-      }
+    if (Math.abs(dy) < MIN_ACCUMULATION_THRESHOLD) {
+      // Movement too small (likely hand tracking noise) - ignore it
+      // This prevents scroll from triggering due to jitter when holding still
       return;
     }
 
-    // Accumulate scroll displacement (full accumulation for movements above threshold)
+    // Accumulate only clear, intentional movements
     this.scrollAccum += dy;
     
     // Debug: log accumulation progress
