@@ -203,8 +203,12 @@ export class OnboardingTutorial {
   
   /**
    * Check if tutorial is currently visible and active
+   * CRITICAL: If tutorial is completed, ALWAYS return false
    */
   isTutorialActive(): boolean {
+    if (this.tutorialCompleted) {
+      return false; // Tutorial completed - never active
+    }
     return this.group.visible && !this.isLoading;
   }
   
