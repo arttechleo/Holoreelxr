@@ -294,8 +294,15 @@ export class OnboardingTutorial {
   }
   
   private onTutorialPinchStart(side: 'left' | 'right') {
+    // CRITICAL: Only handle if tutorial is actually active
+    // If tutorial is not visible, don't interfere - let FeedControls handle it
     if (!this.group.visible || this.isLoading) {
-      return;
+      return; // Don't consume event - let FeedControls handle it
+    }
+    
+    // Double-check tutorial is actually active
+    if (!this.isTutorialActive()) {
+      return; // Tutorial not active - don't interfere
     }
     
     const now = performance.now();
@@ -369,6 +376,11 @@ export class OnboardingTutorial {
   }
   
   private onTutorialPinchEnd(side: 'left' | 'right') {
+    // CRITICAL: Only handle if tutorial is actually active
+    if (!this.group.visible || !this.isTutorialActive()) {
+      return; // Don't consume event - let FeedControls handle it
+    }
+    
     if (this.isGrabbing && this.grabHand === side) {
       console.log(`[Tutorial Grab] Pinch ended - placing object`);
       this.checkGrabCompletion();
@@ -536,11 +548,27 @@ export class OnboardingTutorial {
   
   /**
    * Update grab and scroll - called every frame
-   * CRITICAL: Grab works throughout ENTIRE tutorial (not just grab step)
+   * CRITICAL: Only active during tutorial - after tutorial, this should NOT interfere
    */
   updateGrab(info?: any) {
+    // CRITICAL: Only update if tutorial is actually active
+    // If tutorial is not active, don't do anything - let FeedControls handle it
+    if (!this.isTutorialActive()) {
+      // Tutorial not active - stop any active grab/scroll and return immediately
+      if (this.isGrabbing) {
+        this.stopGrab();
+        this.isGrabbing = false;
+        this.grabHand = null;
+      }
+      // Reset scroll state
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      this.scrollArmed = false;
+      return; // Don't interfere with FeedControls
+    }
+    
     // Update scroll if on scroll step
-    if (this.scrollStepIndex >= 0 && this.scrollStepIndex === this.currentStepIndex && this.group.visible && !this.isLoading) {
+    if (this.scrollStepIndex >= 0 && this.scrollStepIndex === this.currentStepIndex) {
       this.updateTutorialScroll();
     }
     
@@ -1404,6 +1432,19 @@ export class OnboardingTutorial {
   }
 
   private complete() {
+    // CRITICAL: Stop all grab/scroll activity immediately
+    this.stopGrab();
+    this.isGrabbing = false;
+    this.grabHand = null;
+    
+    // Reset all scroll state
+    this.lastPinchY = null;
+    this.filtPinchY = null;
+    this.scrollAccum = 0;
+    this.scrollArmed = false;
+    this.scrollDisarmedThisPinch = false;
+    this.pinchStartAt = null;
+    
     // Ensure all intervals and timeouts are cleaned up
     this.clearGestureHandlers();
     
@@ -1425,7 +1466,10 @@ export class OnboardingTutorial {
       this.grabStepIndex = -1;
       this.scrollStepIndex = -1;
       
-      console.log('[Tutorial] ✅ Tutorial completed - all features re-enabled');
+      // CRITICAL: Remove ALL tutorial event handlers to prevent interference
+      this.clearTutorialGrabHandlers();
+      
+      console.log('[Tutorial] ✅ Tutorial completed - all handlers removed, features re-enabled');
       
       const targetIndex = this.firstNonTutorialIndex > 0 ? 
         Math.min(this.firstNonTutorialIndex, this.store.items.length - 1) : 
