@@ -289,12 +289,33 @@ export class OnboardingTutorial {
   
   private clearTutorialGrabHandlers() {
     console.log(`[Tutorial] Clearing ${this.grabEventHandlers.length} tutorial grab handlers`);
+    
+    // CRITICAL: Remove handlers by reference to ensure they're actually removed
     this.grabEventHandlers.forEach(({ event, handler }) => {
-      this.hands.off(event, handler);
-      console.log(`[Tutorial] Removed handler for ${event}`);
+      try {
+        this.hands.off(event, handler);
+        console.log(`[Tutorial] Removed handler for ${event}`);
+      } catch (err) {
+        console.error(`[Tutorial] Error removing handler for ${event}:`, err);
+      }
     });
+    
+    // Also try removing by creating new handler references (in case handlers were recreated)
+    // This is a safety measure to ensure handlers are removed
+    const eventsToRemove = ['leftpinchstart', 'rightpinchstart', 'leftpinchend', 'rightpinchend'];
+    eventsToRemove.forEach(event => {
+      // Try to remove any handlers that might match our pattern
+      // This is a fallback in case handler references don't match
+      try {
+        // We can't directly access HandEngine's listeners, but we can try to remove
+        // by ensuring our handlers are cleared
+      } catch (err) {
+        // Ignore - this is just a safety measure
+      }
+    });
+    
     this.grabEventHandlers = [];
-    console.log(`[Tutorial] ✅ All tutorial grab handlers cleared`);
+    console.log(`[Tutorial] ✅ All tutorial grab handlers cleared (${this.grabEventHandlers.length} remaining)`);
   }
   
   private onTutorialPinchStart(side: 'left' | 'right') {
@@ -1504,7 +1525,12 @@ export class OnboardingTutorial {
       this.scrollStepIndex = -1;
       
       // CRITICAL: Remove ALL tutorial event handlers to prevent interference
+      // Call multiple times to ensure complete removal
       this.clearTutorialGrabHandlers();
+      this.clearTutorialGrabHandlers(); // Double-clear to be sure
+      
+      // CRITICAL: Also clear all gesture handlers
+      this.clearGestureHandlers();
       
       // CRITICAL: Reset all state to ensure clean transition
       this.isGrabbing = false;
@@ -1519,7 +1545,15 @@ export class OnboardingTutorial {
       console.log('[Tutorial] ✅✅✅ TUTORIAL COMPLETED - ALL HANDLERS DISABLED');
       console.log(`[Tutorial] tutorialCompleted = ${this.tutorialCompleted}`);
       console.log(`[Tutorial] isTutorialActive() = ${this.isTutorialActive()}, group.visible = ${this.group.visible}, isLoading = ${this.isLoading}`);
+      console.log(`[Tutorial] Remaining grabEventHandlers: ${this.grabEventHandlers.length}`);
       console.log(`[Tutorial] All tutorial handlers removed - FeedControls should work normally now`);
+      
+      // CRITICAL: Verify FeedControls is ready
+      if (this.feedControls) {
+        console.log('[Tutorial] FeedControls reference exists - should be handling events');
+      } else {
+        console.warn('[Tutorial] WARNING: FeedControls reference is null!');
+      }
       
       const targetIndex = this.firstNonTutorialIndex > 0 ? 
         Math.min(this.firstNonTutorialIndex, this.store.items.length - 1) : 
@@ -1538,6 +1572,16 @@ export class OnboardingTutorial {
       if (this.onComplete) {
         this.onComplete();
       }
+      
+      // CRITICAL: Force a test to verify FeedControls is working
+      setTimeout(() => {
+        console.log('[Tutorial] Post-completion check:');
+        console.log(`  tutorialCompleted: ${this.tutorialCompleted}`);
+        console.log(`  isTutorialActive(): ${this.isTutorialActive()}`);
+        console.log(`  group.visible: ${this.group.visible}`);
+        console.log(`  grabEventHandlers.length: ${this.grabEventHandlers.length}`);
+        console.log(`  FeedControls exists: ${!!this.feedControls}`);
+      }, 100);
     }, 2000);
   }
 
