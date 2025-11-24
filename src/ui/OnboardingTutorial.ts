@@ -203,6 +203,11 @@ export class OnboardingTutorial {
    * Pinch near object → grab immediately → move hand → object follows → release → place
    */
   updateGrab(info?: any) {
+    // HEARTBEAT: Verify this function is being called (throttled)
+    if (Math.random() < 0.01) {
+      console.log(`[Tutorial Grab] HEARTBEAT - stepIndex=${this.currentStepIndex}, grabStepIndex=${this.grabStepIndex}, isGrabbing=${this.isGrabbing}, visible=${this.group.visible}, loading=${this.isLoading}`);
+    }
+    
     // Verify we're on grab step
     if (this.grabStepIndex < 0 || this.grabStepIndex !== this.currentStepIndex) {
       if (this.isGrabbing) {
@@ -218,9 +223,10 @@ export class OnboardingTutorial {
     
     // Verify object exists
     const obj = this.store.getObject();
-    if (!obj) {
+    const bounds = this.store.getObjectBounds();
+    if (!obj || !bounds) {
       if (Math.random() < 0.1) {
-        console.warn(`[Tutorial Grab] No object found! Available: ${this.store.getObjectBounds() ? 'has bounds' : 'no bounds'}`);
+        console.warn(`[Tutorial Grab] No object or bounds! obj=${!!obj}, bounds=${!!bounds}, children=${this.store.getObject()?.parent?.children.map(c => c.name).join(',') || 'none'}`);
       }
       return;
     }
@@ -320,22 +326,20 @@ export class OnboardingTutorial {
         const dist = this.distanceToObjectSurface(pinchPos);
         const objPos = this.store.getObjectWorldPos();
         
-        // Debug distance (throttled)
-        if (Math.random() < 0.05) {
-          console.log(`[Tutorial Grab] Checking: side=${side}, dist=${dist?.toFixed(3)}m, objPos=${objPos?.toArray().map(v => v.toFixed(2)).join(',')}, pinchPos=${pinchPos.toArray().map(v => v.toFixed(2)).join(',')}`);
+        // ALWAYS log distance check to help debug
+        if (Math.random() < 0.1) { // 10% of calls
+          console.log(`[Tutorial Grab] Checking: side=${side}, dist=${dist?.toFixed(3)}m (max=${GRAB_MAX_DISTANCE}m), objPos=${objPos?.toArray().map(v => v.toFixed(2)).join(',')}, pinchPos=${pinchPos.toArray().map(v => v.toFixed(2)).join(',')}`);
         }
         
         if (dist === null) {
-          if (Math.random() < 0.1) {
-            console.warn(`[Tutorial Grab] Distance is null - object bounds issue?`);
-          }
+          console.warn(`[Tutorial Grab] Distance is null - cannot calculate!`);
           return;
         }
         
         if (dist > GRAB_MAX_DISTANCE) {
-          // Too far - log occasionally
-          if (Math.random() < 0.03) {
-            console.log(`[Tutorial Grab] Too far: ${dist.toFixed(3)}m (max: ${GRAB_MAX_DISTANCE}m) - move closer!`);
+          // Too far - log more frequently
+          if (Math.random() < 0.1) {
+            console.log(`[Tutorial Grab] Too far: ${dist.toFixed(3)}m (max: ${GRAB_MAX_DISTANCE}m) - move closer to object!`);
           }
           return;
         }
