@@ -803,12 +803,15 @@ export class FeedControls {
     if (d != null && d <= this.INSTANT_GRAB_DIST) {
       const objPosNow = this.store.getObjectWorldPos();
       if (objPosNow && pinch) {
+        console.log(`[Grab] ✅ Instant grab activated! Distance: ${d.toFixed(3)}m`);
         this.grabbing = true;
         this.grabSide = side;
         this.grabOffset.copy(objPosNow).sub(pinch);
         this.store.notify('Grabbed');
         this.scrollDisarmedThisPinch = true;
         return;
+      } else {
+        console.log(`[Grab] Instant grab failed: d=${d?.toFixed(3)}, objPos=${!!objPosNow}, pinch=${!!pinch}`);
       }
     }
 
@@ -819,7 +822,12 @@ export class FeedControls {
       // Otherwise, try to start grab pending (pinch and hold)
       this.scrollDisarmedThisPinch = true;
       if (d != null) {
+        // Always try to start grab pending if we're within range
+        // This ensures grab works even if instant grab didn't trigger
         this.tryStartGrabPending(side);
+      } else {
+        // Debug: log when distance is null
+        console.log(`[Grab] Distance is null - pinch=${!!pinch}, object exists=${!!this.store.getObject()}`);
       }
     }
   }
@@ -1138,7 +1146,13 @@ export class FeedControls {
     // We only cancel if user releases pinch or other hand pinches
   }
   private updateGrabDrag() {
-    if (!this.grabbing || !this.grabSide) return;
+    if (!this.grabbing || !this.grabSide) {
+      // Debug: log why grab drag isn't running
+      if (Math.random() < 0.01) { // 1% of calls
+        console.log(`[Grab] updateGrabDrag skipped: grabbing=${this.grabbing}, grabSide=${this.grabSide}`);
+      }
+      return;
+    }
     
     try {
       const other = this.grabSide === 'left' ? 'right' : 'left';
@@ -1176,6 +1190,12 @@ export class FeedControls {
       
       // Update position safely
       const newPos = mid.clone().add(this.grabOffset);
+      
+      // Debug: log position updates (throttled)
+      if (Math.random() < 0.05) { // 5% of calls
+        console.log(`[Grab] Moving object: hand=${mid.toArray().map(v => v.toFixed(2)).join(',')}, newPos=${newPos.toArray().map(v => v.toFixed(2)).join(',')}`);
+      }
+      
       this.store.setPosition(newPos);
     } catch (error) {
       // If any error occurs, cancel grab to prevent freeze
