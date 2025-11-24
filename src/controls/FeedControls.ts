@@ -799,6 +799,15 @@ export class FeedControls {
     // const pinch = this.hands.pinchMid(side);
     // const d = pinch ? this.distanceToObjectSurface(pinch) : null;
 
+    // CRITICAL: Disable FeedControls grab during tutorial grab step
+    if (this.onboardingTutorial) {
+      const tutorial = this.onboardingTutorial as any;
+      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+        // Tutorial is handling grab - don't interfere
+        return;
+      }
+    }
+    
     // Instant grab if very close to object
     if (d != null && d <= this.INSTANT_GRAB_DIST) {
       const objPosNow = this.store.getObjectWorldPos();
@@ -1076,6 +1085,15 @@ export class FeedControls {
     }
   }
   private tryStartGrabPending(side: 'left' | 'right') {
+    // CRITICAL: Disable FeedControls grab during tutorial grab step
+    if (this.onboardingTutorial) {
+      const tutorial = this.onboardingTutorial as any;
+      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+        // Tutorial is handling grab - don't interfere
+        return;
+      }
+    }
+    
     if (this.grabbing || this.grabPending) return;
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) return;
@@ -1146,6 +1164,20 @@ export class FeedControls {
     // We only cancel if user releases pinch or other hand pinches
   }
   private updateGrabDrag() {
+    // CRITICAL: Disable FeedControls grab during tutorial grab step
+    if (this.onboardingTutorial) {
+      const tutorial = this.onboardingTutorial as any;
+      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+        // Tutorial is handling grab - disable FeedControls grab
+        if (this.grabbing) {
+          this.grabbing = false;
+          this.grabSide = null;
+          console.log(`[FeedControls] Grab disabled - tutorial is handling grab`);
+        }
+        return;
+      }
+    }
+    
     if (!this.grabbing || !this.grabSide) {
       // Debug: log why grab drag isn't running
       if (Math.random() < 0.01) { // 1% of calls
