@@ -1037,18 +1037,15 @@ export class OnboardingTutorial {
     console.log(`[Tutorial] Tutorial items: [${this.tutorialItemIndices.join(', ')}], First non-tutorial: ${this.firstNonTutorialIndex}`);
   }
 
-  private clearGestureHandlers() {
+  private clearGestureHandlers(options?: { preserveTwoHandTracking?: boolean }) {
+    const preserveTwoHand = options?.preserveTwoHandTracking === true;
+    
     this.currentGestureHandlers.forEach(({ event, handler }) => {
       this.hands.off(event, handler);
     });
     this.currentGestureHandlers = [];
     
-    // CRITICAL: Only clear twoHandCheckInterval if we're NOT on rotation/scale steps
-    // These steps need the interval to track rotation/scale changes
-    const currentStep = this.steps[this.currentStepIndex];
-    const isRotationOrScaleStep = currentStep?.gesture === 'twohandrotate' || currentStep?.gesture === 'twohandscale';
-    
-    if (this.twoHandCheckInterval && !isRotationOrScaleStep) {
+    if (this.twoHandCheckInterval && !preserveTwoHand) {
       clearInterval(this.twoHandCheckInterval);
       this.twoHandCheckInterval = null;
     }
@@ -1068,12 +1065,12 @@ export class OnboardingTutorial {
       this.interactionMonitorInterval = null;
     }
     
-    // Clear all timeouts to prevent memory leaks
-    if (this.rotationInitTimeout) {
+    // Clear all timeouts to prevent memory leaks (unless we explicitly preserve them)
+    if (this.rotationInitTimeout && !preserveTwoHand) {
       clearTimeout(this.rotationInitTimeout);
       this.rotationInitTimeout = null;
     }
-    if (this.scaleInitTimeout) {
+    if (this.scaleInitTimeout && !preserveTwoHand) {
       clearTimeout(this.scaleInitTimeout);
       this.scaleInitTimeout = null;
     }
@@ -1086,9 +1083,8 @@ export class OnboardingTutorial {
       this.postCompletionCheckTimeout = null;
     }
     
-    // CRITICAL: Only reset rotation/scale initial values if we're NOT on those steps
-    // Otherwise, the tracking will break
-    if (!isRotationOrScaleStep) {
+    // CRITICAL: Only reset rotation/scale initial values if we're NOT preserving them
+    if (!preserveTwoHand) {
       this.rotationInitialValue = null;
       this.scaleInitialValue = null;
     }
@@ -1130,7 +1126,8 @@ export class OnboardingTutorial {
     
     this.progressPercentage = 0;
     this.lastLoggedProgress = -1; // Reset progress logging
-    this.clearGestureHandlers();
+    const isTwoHandTrackingStep = step.gesture === 'twohandrotate' || step.gesture === 'twohandscale';
+    this.clearGestureHandlers({ preserveTwoHandTracking: isTwoHandTrackingStep });
     
     console.log(`[Tutorial] Showing step ${index + 1}/${this.steps.length}: ${step.title}`);
     
@@ -1212,6 +1209,8 @@ export class OnboardingTutorial {
           }
           
           if (step.id === 'rotate') {
+            // Reset initial value before scheduling new capture
+            this.rotationInitialValue = null;
             console.log('[Tutorial] 🔄 Setting up rotation initial value timeout (500ms delay)');
             this.rotationInitTimeout = window.setTimeout(() => {
               if (this.currentStepIndex === index) { // Only set if still on same step
@@ -1223,6 +1222,7 @@ export class OnboardingTutorial {
               this.rotationInitTimeout = null;
             }, 500);
           } else if (step.id === 'scale') {
+            this.scaleInitialValue = null;
             this.scaleInitTimeout = window.setTimeout(() => {
               if (this.currentStepIndex === index) { // Only set if still on same step
                 this.scaleInitialValue = this.store.scale;
