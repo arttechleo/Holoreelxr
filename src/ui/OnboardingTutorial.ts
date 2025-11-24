@@ -1717,6 +1717,12 @@ export class OnboardingTutorial {
             logError(err, 'Tutorial.showCurrent');
           });
         }
+
+        // Preload the next few GLB models so they appear immediately after the blue sphere
+        const preloadStart = targetIndex + 1;
+        if (typeof (this.store as any).preloadRange === 'function') {
+          (this.store as any).preloadRange(preloadStart, 3);
+        }
       } else {
         console.error(`[Tutorial] Invalid targetIndex: ${targetIndex} (items.length: ${this.store.items.length})`);
       }

@@ -3,29 +3,63 @@ import * as THREE from 'three';
 import { retry, logError, AssetLoadError } from '../../utils/errors';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+type GLTFAsset = {
+  scene: THREE.Group;
+  animations: THREE.AnimationClip[];
+};
+
 export class GLTFModelLoader {
   private loader: GLTFLoader;
+  private cache = new Map<string, Promise<GLTFAsset>>();
   private disposed = false;
 
   constructor() {
     this.loader = new GLTFLoader();
   }
 
-  async load(url: string): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
+  /**
+   * Load a GLTF/GLB and return a deep-cloned scene so it can be safely added to
+   * the world without mutating cached assets. Subsequent loads reuse the cached
+   * payload and only pay the cost of cloning.
+   */
+  async load(url: string): Promise<GLTFAsset> {
+    const base = await this.fetchOrCache(url);
+    return this.cloneAsset(base);
+  }
 
-    return retry(
-      () => this.loadGLTF(url),
-      {
+  /**
+   * Preload an asset into the cache so it is instantly available when needed.
+   * Safe to call multiple times – only the first call performs network I/O.
+   */
+  async preload(url: string): Promise<void> {
+    await this.fetchOrCache(url);
+  }
+
+  private async fetchOrCache(url: string): Promise<GLTFAsset> {
+    if (this.disposed) {
+      throw new Error('GLTFModelLoader is disposed');
+    }
+
+    let cached = this.cache.get(url);
+    if (!cached) {
+      cached = retry(() => this.loadGLTF(url), {
         maxAttempts: 3,
         delayMs: 500,
         onRetry: (attempt, error) => {
           console.warn(`Retry ${attempt}/3 loading ${url}:`, error);
-        }
-      }
-    );
+        },
+      }).then((asset) => {
+        // Store original, return as-is for cloning later
+        return asset;
+      });
+
+      this.cache.set(url, cached);
+    }
+
+    return cached;
   }
 
-  private loadGLTF(url: string): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
+  private loadGLTF(url: string): Promise<GLTFAsset> {
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         reject(new AssetLoadError(`Load timeout after 30s`, url));
@@ -33,7 +67,7 @@ export class GLTFModelLoader {
 
       this.loader.load(
         url,
-        (gltf: { scene: THREE.Group; animations: THREE.AnimationClip[] }) => {
+        (gltf: GLTFAsset) => {
           clearTimeout(timeoutId);
           try {
             if (!gltf || !gltf.scene) {
@@ -68,8 +102,26 @@ export class GLTFModelLoader {
     });
   }
 
+  private cloneAsset(asset: GLTFAsset): GLTFAsset {
+    const scene = asset.scene.clone(true);
+    scene.traverse((child: any) => {
+      if (child.isMesh) {
+        if (child.material) {
+          child.material = child.material.clone();
+        }
+        if (child.geometry) {
+          child.geometry = child.geometry.clone();
+        }
+      }
+    });
+
+    const animations = asset.animations?.map((clip) => clip.clone()) ?? [];
+    return { scene, animations };
+  }
+
   dispose() {
     this.disposed = true;
+    this.cache.clear();
   }
 }
 

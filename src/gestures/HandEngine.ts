@@ -137,14 +137,22 @@ export class HandEngine {
         this.state.heart = false;
         this.updateFlag('heart', false);
       } else {
-        // Index fingers must collide (touch or very close)
         const indexDist = dist(L_i, R_i);
-        const indexCollide = indexDist < GESTURE.HEART_THRESHOLD;
-        // Thumbs must collide (touch or very close)
         const thumbDist = dist(L_t, R_t);
-        const thumbCollide = thumbDist < GESTURE.HEART_THRESHOLD;
-        // Both conditions must be true for heart gesture
-        const heartNow = indexCollide && thumbCollide;
+        const crossLeftIndexRightThumb = dist(L_i, R_t);
+        const crossRightIndexLeftThumb = dist(R_i, L_t);
+
+        const indexClose = indexDist < GESTURE.HEART_THRESHOLD;
+        const thumbClose = thumbDist < GESTURE.HEART_THRESHOLD;
+
+        const combinedAvg = (indexDist + thumbDist) * 0.5;
+        const crossAvg = (crossLeftIndexRightThumb + crossRightIndexLeftThumb) * 0.5;
+
+        const relaxedHeart =
+          combinedAvg < GESTURE.HEART_COMBINED_THRESHOLD &&
+          crossAvg < GESTURE.HEART_CROSS_THRESHOLD;
+
+        const heartNow = (indexClose && thumbClose) || relaxedHeart;
         this.state.heart = heartNow; 
         this.updateFlag('heart', heartNow);
       }
