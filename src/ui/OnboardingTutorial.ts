@@ -131,6 +131,9 @@ export class OnboardingTutorial {
   private tutorialGrabStartTime: number | null = null;
   private tutorialGrabStartPosition: THREE.Vector3 | null = null;
   private tutorialGrabUpdateInterval: number | null = null;
+  private tutorialGrabMonitorInterval: number | null = null;
+  private rotationInitTimeout: number | null = null;
+  private scaleInitTimeout: number | null = null;
 
   constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore, feedControls?: any) {
     this.hands = hands;
@@ -190,65 +193,67 @@ export class OnboardingTutorial {
     let holdStartTime: number | null = null;
     let holdHand: 'left' | 'right' | null = null;
     
-    const monitorInterval = window.setInterval(() => {
-      // Check if we should stop monitoring
-      if (!this.group.visible || this.isLoading || this.currentStepIndex < 0) {
-        clearInterval(monitorInterval);
-        return;
-      }
-      
-      // If already grabbing, skip detection
-      if (this.tutorialGrabActive) {
-        return;
-      }
-      
-      // Check both hands for pinch near object
-      const leftPinch = this.hands.state.left.pinch;
-      const rightPinch = this.hands.state.right.pinch;
-      
-      // Only allow one hand at a time
-      if (leftPinch && rightPinch) {
-        holdStartTime = null;
-        holdHand = null;
-        return;
-      }
-      
-      const side: 'left' | 'right' | null = leftPinch ? 'left' : (rightPinch ? 'right' : null);
-      
-      if (side) {
-        const pinchPos = this.hands.pinchMid(side);
-        if (pinchPos) {
-          const dist = this.distanceToObjectSurface(pinchPos);
-          
-          if (dist !== null && dist <= GRAB_MAX_DISTANCE) {
-            // Within range - start/continue hold timer
-            if (holdHand === side) {
-              // Same hand still pinching - check if hold time met
-              if (holdStartTime !== null && Date.now() - holdStartTime >= HOLD_TIME_MS) {
-                // Activate grab!
-                this.activateTutorialGrab(side, pinchPos);
-                clearInterval(monitorInterval);
+    this.tutorialGrabMonitorInterval = window.setInterval(() => {
+      try {
+        // Check if we should stop monitoring
+        if (!this.group.visible || this.isLoading || this.currentStepIndex < 0) {
+          this.stopTutorialGrab();
+          return;
+        }
+        
+        // If already grabbing, skip detection
+        if (this.tutorialGrabActive) {
+          return;
+        }
+        
+        // Check both hands for pinch near object
+        const leftPinch = this.hands.state.left.pinch;
+        const rightPinch = this.hands.state.right.pinch;
+        
+        // Only allow one hand at a time
+        if (leftPinch && rightPinch) {
+          holdStartTime = null;
+          holdHand = null;
+          return;
+        }
+        
+        const side: 'left' | 'right' | null = leftPinch ? 'left' : (rightPinch ? 'right' : null);
+        
+        if (side) {
+          const pinchPos = this.hands.pinchMid(side);
+          if (pinchPos) {
+            const dist = this.distanceToObjectSurface(pinchPos);
+            
+            if (dist !== null && dist <= GRAB_MAX_DISTANCE) {
+              // Within range - start/continue hold timer
+              if (holdHand === side) {
+                // Same hand still pinching - check if hold time met
+                if (holdStartTime !== null && Date.now() - holdStartTime >= HOLD_TIME_MS) {
+                  // Activate grab!
+                  this.activateTutorialGrab(side, pinchPos);
+                  // Monitor interval will be cleared in stopTutorialGrab
+                }
+              } else {
+                // New hand or different hand - reset timer
+                holdStartTime = Date.now();
+                holdHand = side;
               }
             } else {
-              // New hand or different hand - reset timer
-              holdStartTime = Date.now();
-              holdHand = side;
+              // Too far - reset
+              holdStartTime = null;
+              holdHand = null;
             }
-          } else {
-            // Too far - reset
-            holdStartTime = null;
-            holdHand = null;
           }
+        } else {
+          // No pinch - reset
+          holdStartTime = null;
+          holdHand = null;
         }
-      } else {
-        // No pinch - reset
-        holdStartTime = null;
-        holdHand = null;
+      } catch (error) {
+        console.error('[Tutorial Grab] Error in monitoring:', error);
+        this.stopTutorialGrab();
       }
     }, checkInterval);
-    
-    // Store interval ID for cleanup
-    (this as any).tutorialGrabMonitorInterval = monitorInterval;
   }
   
   private activateTutorialGrab(side: 'left' | 'right', pinchPos: THREE.Vector3) {
@@ -273,42 +278,47 @@ export class OnboardingTutorial {
   }
   
   private updateTutorialGrab() {
-    if (!this.tutorialGrabActive || !this.tutorialGrabSide) {
+    try {
+      if (!this.tutorialGrabActive || !this.tutorialGrabSide) {
+        this.stopTutorialGrab();
+        return;
+      }
+      
+      // Check if still pinching
+      const stillPinching = this.hands.state[this.tutorialGrabSide].pinch;
+      const otherPinching = this.hands.state[this.tutorialGrabSide === 'left' ? 'right' : 'left'].pinch;
+      
+      // Cancel if other hand pinches (two-hand mode)
+      if (stillPinching && otherPinching) {
+        console.log(`[Tutorial Grab] Canceled - two-hand mode`);
+        this.stopTutorialGrab();
+        return;
+      }
+      
+      // Cancel if pinch released
+      if (!stillPinching) {
+        // Don't log on every release - only log if it was active
+        this.stopTutorialGrab();
+        return;
+      }
+      
+      // Get current hand position
+      const pinchPos = this.hands.pinchMid(this.tutorialGrabSide);
+      if (!pinchPos) {
+        console.log(`[Tutorial Grab] Lost hand tracking`);
+        this.stopTutorialGrab();
+        return;
+      }
+      
+      // Calculate new object position
+      const newObjPos = pinchPos.clone().add(this.tutorialGrabOffset);
+      
+      // Update object position directly
+      this.store.setPosition(newObjPos);
+    } catch (error) {
+      console.error('[Tutorial Grab] Error in update:', error);
       this.stopTutorialGrab();
-      return;
     }
-    
-    // Check if still pinching
-    const stillPinching = this.hands.state[this.tutorialGrabSide].pinch;
-    const otherPinching = this.hands.state[this.tutorialGrabSide === 'left' ? 'right' : 'left'].pinch;
-    
-    // Cancel if other hand pinches (two-hand mode)
-    if (stillPinching && otherPinching) {
-      console.log(`[Tutorial Grab] Canceled - two-hand mode`);
-      this.stopTutorialGrab();
-      return;
-    }
-    
-    // Cancel if pinch released
-    if (!stillPinching) {
-      console.log(`[Tutorial Grab] Released`);
-      this.stopTutorialGrab();
-      return;
-    }
-    
-    // Get current hand position
-    const pinchPos = this.hands.pinchMid(this.tutorialGrabSide);
-    if (!pinchPos) {
-      console.log(`[Tutorial Grab] Lost hand tracking`);
-      this.stopTutorialGrab();
-      return;
-    }
-    
-    // Calculate new object position
-    const newObjPos = pinchPos.clone().add(this.tutorialGrabOffset);
-    
-    // Update object position directly
-    this.store.setPosition(newObjPos);
   }
   
   private stopTutorialGrab() {
@@ -327,9 +337,9 @@ export class OnboardingTutorial {
       this.tutorialGrabUpdateInterval = null;
     }
     
-    if ((this as any).tutorialGrabMonitorInterval) {
-      clearInterval((this as any).tutorialGrabMonitorInterval);
-      (this as any).tutorialGrabMonitorInterval = null;
+    if (this.tutorialGrabMonitorInterval) {
+      clearInterval(this.tutorialGrabMonitorInterval);
+      this.tutorialGrabMonitorInterval = null;
     }
   }
   
@@ -494,15 +504,31 @@ export class OnboardingTutorial {
         this.isLoading = false;
         
         // Initialize tracking for rotation/scale steps
+        // Clear any existing timeouts first
+        if (this.rotationInitTimeout) {
+          clearTimeout(this.rotationInitTimeout);
+          this.rotationInitTimeout = null;
+        }
+        if (this.scaleInitTimeout) {
+          clearTimeout(this.scaleInitTimeout);
+          this.scaleInitTimeout = null;
+        }
+        
         if (step.id === 'rotate') {
-          setTimeout(() => {
-            this.rotationInitialValue = this.store.rotationY;
-            console.log(`[Tutorial] Rotation tracking: initial=${this.rotationInitialValue}`);
+          this.rotationInitTimeout = window.setTimeout(() => {
+            if (this.currentStepIndex === index) { // Only set if still on same step
+              this.rotationInitialValue = this.store.rotationY;
+              console.log(`[Tutorial] Rotation tracking: initial=${this.rotationInitialValue}`);
+            }
+            this.rotationInitTimeout = null;
           }, 500);
         } else if (step.id === 'scale') {
-          setTimeout(() => {
-            this.scaleInitialValue = this.store.scale;
-            console.log(`[Tutorial] Scale tracking: initial=${this.scaleInitialValue}`);
+          this.scaleInitTimeout = window.setTimeout(() => {
+            if (this.currentStepIndex === index) { // Only set if still on same step
+              this.scaleInitialValue = this.store.scale;
+              console.log(`[Tutorial] Scale tracking: initial=${this.scaleInitialValue}`);
+            }
+            this.scaleInitTimeout = null;
           }, 500);
         }
         
@@ -861,6 +887,7 @@ export class OnboardingTutorial {
   }
 
   private complete() {
+    // Ensure all intervals and timeouts are cleaned up
     this.clearGestureHandlers();
     
     const step = this.steps[this.currentStepIndex];
@@ -870,7 +897,8 @@ export class OnboardingTutorial {
     
     this.updatePanel();
     
-    setTimeout(() => {
+    // Use window.setTimeout and store for cleanup if needed
+    window.setTimeout(() => {
       this.group.visible = false;
       
       const targetIndex = this.firstNonTutorialIndex > 0 ? 
