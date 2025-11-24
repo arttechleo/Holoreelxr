@@ -1020,9 +1020,6 @@ export class OnboardingTutorial {
     });
     this.currentGestureHandlers = [];
     
-    // Clear tutorial grab event handlers
-    this.clearTutorialGrabHandlers();
-    
     if (this.twoHandCheckInterval) {
       clearInterval(this.twoHandCheckInterval);
       this.twoHandCheckInterval = null;
