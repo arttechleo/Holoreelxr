@@ -118,6 +118,7 @@ export class OnboardingTutorial {
   private feedControls: any = null;
   private currentGestureHandlers: Array<{ event: string; handler: () => void }> = [];
   private progressPercentage: number = 0;
+  private lastLoggedProgress: number = -1; // Track last logged progress to avoid spam
   private buttonRegions: { prev: { x: number; y: number; w: number; h: number }; next: { x: number; y: number; w: number; h: number } } | null = null;
   private hoveredButton: 'prev' | 'next' | null = null;
   private rotationInitialValue: number | null = null;
@@ -252,6 +253,28 @@ export class OnboardingTutorial {
     if (this.tutorialCompleted) return false; // Tutorial completed - never active
     if (this.scrollStepIndex < 0) return false;
     return this.scrollStepIndex === this.currentStepIndex && this.group.visible;
+  }
+  
+  /**
+   * Check if we're currently on the rotation step
+   * This allows FeedControls to enable rotation transforms
+   * CRITICAL: If tutorial is completed, ALWAYS return false
+   */
+  isRotationStepActive(): boolean {
+    if (this.tutorialCompleted) return false; // Tutorial completed - never active
+    const currentStep = this.steps[this.currentStepIndex];
+    return currentStep?.gesture === 'twohandrotate' && this.group.visible;
+  }
+  
+  /**
+   * Check if we're currently on the scale step
+   * This allows FeedControls to enable scale transforms
+   * CRITICAL: If tutorial is completed, ALWAYS return false
+   */
+  isScaleStepActive(): boolean {
+    if (this.tutorialCompleted) return false; // Tutorial completed - never active
+    const currentStep = this.steps[this.currentStepIndex];
+    return currentStep?.gesture === 'twohandscale' && this.group.visible;
   }
   
   // ========== NEW FRAME-BASED GRAB SYSTEM ==========
@@ -1020,7 +1043,12 @@ export class OnboardingTutorial {
     });
     this.currentGestureHandlers = [];
     
-    if (this.twoHandCheckInterval) {
+    // CRITICAL: Only clear twoHandCheckInterval if we're NOT on rotation/scale steps
+    // These steps need the interval to track rotation/scale changes
+    const currentStep = this.steps[this.currentStepIndex];
+    const isRotationOrScaleStep = currentStep?.gesture === 'twohandrotate' || currentStep?.gesture === 'twohandscale';
+    
+    if (this.twoHandCheckInterval && !isRotationOrScaleStep) {
       clearInterval(this.twoHandCheckInterval);
       this.twoHandCheckInterval = null;
     }
@@ -1058,8 +1086,12 @@ export class OnboardingTutorial {
       this.postCompletionCheckTimeout = null;
     }
     
-    this.rotationInitialValue = null;
-    this.scaleInitialValue = null;
+    // CRITICAL: Only reset rotation/scale initial values if we're NOT on those steps
+    // Otherwise, the tracking will break
+    if (!isRotationOrScaleStep) {
+      this.rotationInitialValue = null;
+      this.scaleInitialValue = null;
+    }
   }
 
   // Monitor user interactions with 3D model
@@ -1097,6 +1129,7 @@ export class OnboardingTutorial {
     const step = this.steps[index];
     
     this.progressPercentage = 0;
+    this.lastLoggedProgress = -1; // Reset progress logging
     this.clearGestureHandlers();
     
     console.log(`[Tutorial] Showing step ${index + 1}/${this.steps.length}: ${step.title}`);
@@ -1179,10 +1212,13 @@ export class OnboardingTutorial {
           }
           
           if (step.id === 'rotate') {
+            console.log('[Tutorial] 🔄 Setting up rotation initial value timeout (500ms delay)');
             this.rotationInitTimeout = window.setTimeout(() => {
               if (this.currentStepIndex === index) { // Only set if still on same step
                 this.rotationInitialValue = this.store.rotationY;
-                console.log(`[Tutorial] Rotation tracking: initial=${this.rotationInitialValue}`);
+                console.log(`[Tutorial] 🔄 Rotation tracking initialized: initial=${this.rotationInitialValue} (${(this.rotationInitialValue * 180 / Math.PI).toFixed(1)}°)`);
+              } else {
+                console.log(`[Tutorial] 🔄 Rotation initial value timeout fired but step changed (was ${index}, now ${this.currentStepIndex})`);
               }
               this.rotationInitTimeout = null;
             }, 500);
@@ -1261,9 +1297,11 @@ export class OnboardingTutorial {
     
     // Rotation detection - monitor actual rotation changes
     if (gesture === 'twohandrotate') {
+      console.log('[Tutorial] 🔄 Setting up rotation tracking interval');
       this.twoHandCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
           if (this.twoHandCheckInterval) {
+            console.log('[Tutorial] 🔄 Clearing rotation interval (step changed or completed)');
             clearInterval(this.twoHandCheckInterval);
             this.twoHandCheckInterval = null;
           }
@@ -1271,6 +1309,7 @@ export class OnboardingTutorial {
         }
         
         if (this.rotationInitialValue === null) {
+          // Still waiting for initial value to be set (500ms delay)
           return;
         }
         
@@ -1284,6 +1323,13 @@ export class OnboardingTutorial {
         const REQUIRED_ROTATION = Math.PI / 6; // 30 degrees
         const progress = (rotDiff / REQUIRED_ROTATION) * 100;
         this.progressPercentage = Math.min(100, Math.max(0, progress));
+        
+        // Log rotation progress every 5% to help debug
+        const progressRounded = Math.floor(progress / 5) * 5;
+        if (progressRounded > 0 && progressRounded % 10 === 0 && progressRounded !== this.lastLoggedProgress) {
+          console.log(`[Tutorial] 🔄 Rotation progress: ${progressRounded}% (${(rotDiff * 180 / Math.PI).toFixed(1)}° / 30°)`);
+          this.lastLoggedProgress = progressRounded;
+        }
         
         this.updatePanel();
         
