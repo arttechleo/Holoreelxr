@@ -38,8 +38,8 @@ export const GESTURE = {
 
 // ========== INTERACTION CONTROLS ==========
 export const CONTROLS = {
-  /** Scroll threshold: vertical displacement to trigger feed change (m) - REDUCED for faster scrolling response */
-  SCROLL_DISPLACEMENT: 0.05,
+  /** Scroll threshold: vertical displacement to trigger feed change (m) - 1.5cm for responsive scrolling */
+  SCROLL_DISPLACEMENT: 0.015,
   
   /** Cooldown between scroll actions (ms) - Set to 180ms for smoother, more controlled scrolling */
   SCROLL_COOLDOWN_MS: 180,
@@ -56,8 +56,8 @@ export const CONTROLS = {
   /** Minimum pinch hold time before scroll is allowed (ms) - Very short to allow immediate scroll */
   SCROLL_MIN_HOLD_MS: 30,
   
-  /** Low-pass filter alpha for scroll smoothing - Lower value for more responsive tracking */
-  SCROLL_LPF_ALPHA: 0.5,
+  /** Low-pass filter alpha for scroll smoothing - Balanced for responsive yet smooth tracking */
+  SCROLL_LPF_ALPHA: 0.4,
 } as const;
 
 // ========== GRAB & TRANSFORM ==========
@@ -65,8 +65,8 @@ export const TRANSFORM = {
   /** Distance from object surface for instant grab (m) - INCREASED for easier grabbing */
   INSTANT_GRAB_DISTANCE: 0.20,
   
-  /** Hold time before pending grab activates (ms) - INCREASED to prevent conflicts with scroll */
-  GRAB_HOLD_MS: 300,
+  /** Hold time before pending grab activates (ms) - Balanced to allow scroll priority but still responsive */
+  GRAB_HOLD_MS: 200,
   
   /** Movement threshold to cancel pending grab (m) */
   GRAB_CANCEL_MOVEMENT: 0.06,

@@ -391,8 +391,9 @@ export class OnboardingTutorial {
       const dist = this.distanceToObjectSurface(pinch);
       const isScrollStep = this.scrollStepIndex >= 0 && this.scrollStepIndex === this.currentStepIndex;
       
-      if (isScrollStep && dist != null && dist >= this.SCROLL_START_FAR) {
-        // On scroll step and far from object - prioritize scroll, don't grab
+      if (isScrollStep) {
+        // On scroll step - completely disable grab, enable scroll only
+        console.log(`[Tutorial Scroll] Scroll step active - grab disabled, scroll enabled`);
         this.pinchStartAt = now;
         const y = pinch.y;
         if (y != null) {
@@ -401,10 +402,10 @@ export class OnboardingTutorial {
           this.scrollAccum = 0;
         }
         this.scrollDisarmedThisPinch = false;
-        this.scrollArmed = true; // Auto-arm if far enough
-        console.log(`[Tutorial Scroll] Scroll armed immediately! Distance: ${dist.toFixed(3)}m`);
+        this.scrollArmed = true; // Auto-arm for scroll tutorial
+        return; // Don't allow grab at all during scroll step
       } else {
-        // Enable grab - works throughout entire tutorial!
+        // NOT on scroll step - enable grab normally
         console.log(`[Tutorial Grab] ✅ Grab enabled! ${side} hand (step: ${this.currentStepIndex})`);
         this.isGrabbing = true;
         this.grabHand = side;
@@ -412,12 +413,6 @@ export class OnboardingTutorial {
         this.grabStartTime = now;
         this.grabStartPosition = objPos.clone();
         this.grabHasMoved = false;
-        
-        // If on scroll step and close to object, disable scroll for this pinch
-        if (isScrollStep && dist != null && dist < this.SCROLL_START_FAR) {
-          this.scrollDisarmedThisPinch = true;
-          console.log(`[Tutorial] Close to object - grab enabled, scroll disabled`);
-        }
       }
     }
     
@@ -480,17 +475,27 @@ export class OnboardingTutorial {
     const now = performance.now();
     if (now < this.scrollCooldownUntil) return;
     
-    // Don't scroll if actively grabbing (but allow if grab just started and we're moving)
-    if (this.isGrabbing && this.grabHand) {
-      // Check if hand has moved significantly - if so, it's a grab, not scroll
-      const grabHandPos = this.hands.pinchMid(this.grabHand);
-      if (grabHandPos && this.grabStartPosition) {
-        const movement = grabHandPos.distanceTo(this.grabStartPosition);
-        if (movement > 0.05) { // 5cm movement = definitely grabbing
-          return;
+    // CRITICAL: During scroll step, completely block grab
+    // This prevents grab/scroll overlap in tutorial
+    if (this.currentStepIndex === this.scrollStepIndex) {
+      // Scroll step is active - disable grab completely
+      if (this.isGrabbing) {
+        console.log(`[Tutorial Scroll] Canceling grab - scroll step active`);
+        this.stopGrab();
+      }
+    } else {
+      // Not on scroll step - allow grab to block scroll normally
+      if (this.isGrabbing && this.grabHand) {
+        // Check if hand has moved significantly - if so, it's a grab, not scroll
+        const grabHandPos = this.hands.pinchMid(this.grabHand);
+        if (grabHandPos && this.grabStartPosition) {
+          const movement = grabHandPos.distanceTo(this.grabStartPosition);
+          if (movement > 0.05) { // 5cm movement = definitely grabbing
+            return;
+          }
+        } else {
+          return; // Lost tracking, assume grab
         }
-      } else {
-        return; // Lost tracking, assume grab
       }
     }
     
