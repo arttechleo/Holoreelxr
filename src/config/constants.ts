@@ -8,8 +8,8 @@ export const GESTURE = {
   /** Distance (m) between thumb and index tips to register pinch */
   PINCH_THRESHOLD: 0.035,
   
-  /** Distance (m) for heart gesture (index fingers collide + thumbs collide) */
-  HEART_THRESHOLD: 0.20,
+  /** Distance (m) for heart gesture (index fingers collide + thumbs collide) - REDUCED for better detection */
+  HEART_THRESHOLD: 0.08,
   
   /** Min distance (m) from wrist for extended fingers */
   FINGER_EXTENDED_THRESHOLD: 0.085,
@@ -32,26 +32,26 @@ export const GESTURE = {
 
 // ========== INTERACTION CONTROLS ==========
 export const CONTROLS = {
-  /** Scroll threshold: vertical displacement to trigger feed change (m) - OPTIMIZED */
-  SCROLL_DISPLACEMENT: 0.022,
+  /** Scroll threshold: vertical displacement to trigger feed change (m) - REDUCED for more responsive scrolling */
+  SCROLL_DISPLACEMENT: 0.018,
   
   /** Cooldown between scroll actions (ms) - REDUCED for faster scrolling */
-  SCROLL_COOLDOWN_MS: 250,
+  SCROLL_COOLDOWN_MS: 200,
   
   /** Minimum vertical velocity to register scroll (m/s) - REDUCED for more responsive scrolling */
-  SCROLL_MIN_VELOCITY: 0.006,
+  SCROLL_MIN_VELOCITY: 0.004,
   
   /** Distance from object to allow "in air" scrolling (m) - INCREASED for easier scrolling */
-  SCROLL_IN_AIR_DISTANCE: 0.25,
+  SCROLL_IN_AIR_DISTANCE: 0.20,
   
   /** Distance from object to start armed for scrolling (m) - REDUCED for easier activation */
-  SCROLL_START_DISTANCE: 0.15,
+  SCROLL_START_DISTANCE: 0.12,
   
   /** Minimum pinch hold time before scroll is allowed (ms) - REDUCED for faster response */
-  SCROLL_MIN_HOLD_MS: 80,
+  SCROLL_MIN_HOLD_MS: 60,
   
   /** Low-pass filter alpha for scroll smoothing - INCREASED for smoother tracking */
-  SCROLL_LPF_ALPHA: 0.28,
+  SCROLL_LPF_ALPHA: 0.32,
 } as const;
 
 // ========== GRAB & TRANSFORM ==========
@@ -102,8 +102,8 @@ export const TRANSFORM = {
 
 // ========== REACTION COOLDOWNS ==========
 export const REACTIONS = {
-  /** Cooldown between same reaction type (ms) - smooth UX */
-  COOLDOWN_MS: 1000,
+  /** Cooldown between same reaction type (ms) - REDUCED for more responsive heart gesture */
+  COOLDOWN_MS: 800,
   
   /** Distance threshold for "hands together" detection (m) */
   CLUSTER_DISTANCE: 0.11,
@@ -114,8 +114,8 @@ export const REACTIONS = {
   /** Cooldown when hands are clustered together (ms) */
   CLUSTER_COOLDOWN_MS: 450,
   
-  /** Gesture must be stable for this duration (ms) - REDUCED for faster recognition */
-  GESTURE_STABLE_MS: 100,
+  /** Gesture must be stable for this duration (ms) - REDUCED for faster recognition, especially heart gesture */
+  GESTURE_STABLE_MS: 80,
 } as const;
 
 // ========== UI & HUD ==========
