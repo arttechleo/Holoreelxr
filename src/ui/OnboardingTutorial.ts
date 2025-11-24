@@ -232,8 +232,10 @@ export class OnboardingTutorial {
   /**
    * Check if we're currently on the grab step
    * This allows FeedControls to disable its grab system
+   * CRITICAL: If tutorial is completed, ALWAYS return false
    */
   isGrabStepActive(): boolean {
+    if (this.tutorialCompleted) return false; // Tutorial completed - never active
     if (this.grabStepIndex < 0) return false;
     return this.grabStepIndex === this.currentStepIndex && this.group.visible;
   }
@@ -241,8 +243,10 @@ export class OnboardingTutorial {
   /**
    * Check if we're currently on the scroll step
    * This allows FeedControls to disable its scroll system
+   * CRITICAL: If tutorial is completed, ALWAYS return false
    */
   isScrollStepActive(): boolean {
+    if (this.tutorialCompleted) return false; // Tutorial completed - never active
     if (this.scrollStepIndex < 0) return false;
     return this.scrollStepIndex === this.currentStepIndex && this.group.visible;
   }
