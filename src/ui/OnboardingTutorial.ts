@@ -1104,8 +1104,8 @@ export class OnboardingTutorial {
       ctx.globalAlpha = 1.0;
     }
 
-    // Progress bar for rotation/scale steps
-    if ((step.id === 'rotate' || step.id === 'scale') && !step.completed && this.progressPercentage > 0) {
+    // Progress bar for rotation/scale steps (always show, even at 0%)
+    if ((step.id === 'rotate' || step.id === 'scale') && !step.completed) {
       const barWidth = this.canvas.width * 0.8;
       const barHeight = 8;
       const barX = (this.canvas.width - barWidth) / 2;
@@ -1128,6 +1128,14 @@ export class OnboardingTutorial {
       ctx.fillStyle = '#fff';
       ctx.textAlign = 'center';
       ctx.fillText(`${Math.round(this.progressPercentage)}%`, this.canvas.width / 2, barY - 10);
+      
+      // Show current rotation value for debugging (rotate step only)
+      if (step.id === 'rotate') {
+        ctx.font = '14px sans-serif';
+        ctx.fillStyle = '#aaa';
+        const currentRot = this.store.rotationY * 180 / Math.PI;
+        ctx.fillText(`Current: ${currentRot.toFixed(1)}°`, this.canvas.width / 2, barY - 30);
+      }
     }
     
     // Progress with completed count
