@@ -420,6 +420,7 @@ export class FeedControls {
    * Public method to allow external reset without breaking encapsulation.
    */
   resetScrollState(): void {
+    console.log('[FeedControls] Resetting scroll state after tutorial completion');
     this.lastPinchY = null;
     this.filtPinchY = null;
     this.scrollAccum = 0;
@@ -427,6 +428,10 @@ export class FeedControls {
     this.scrollDisarmedThisPinch = false;
     this.pinchStartAt = null;
     this.scrollCooldownUntil = 0;
+    // Also reset grab state to ensure clean transition
+    this.grabPending = false;
+    this.grabbing = false;
+    console.log('[FeedControls] Scroll state reset complete - ready for main feed');
   }
 
   // ---------- gesture cooldown helpers ----------
@@ -869,13 +874,18 @@ export class FeedControls {
       // Tutorial is active - check if it's handling grab/scroll
       if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
         // Tutorial is handling grab - disable FeedControls grab
+        console.log('[FeedControls] Tutorial grab active - blocking FeedControls');
         return;
       }
       if (tutorial.isScrollStepActive && tutorial.isScrollStepActive()) {
         // Tutorial is handling scroll - disable FeedControls scroll
+        console.log('[FeedControls] Tutorial scroll active - blocking FeedControls');
         return;
       }
       // For other tutorial steps, allow FeedControls to work normally
+    } else {
+      // Tutorial is NOT active - ensure scroll is enabled
+      console.log(`[FeedControls] Tutorial NOT active - enabling scroll for ${side} hand`);
     }
     
     // PRIORITY 1: Try clicking the MR HUD
@@ -988,6 +998,12 @@ export class FeedControls {
         if (this.scrollRay) this.scrollRay.visible = false;
         return;
       }
+    } else {
+      // Tutorial is NOT active - scroll should work normally
+      // Add debug logging to help diagnose issues
+      if (Math.random() < 0.05) { // 5% of calls to avoid spam
+        console.log(`[Scroll] Tutorial inactive - scroll enabled. Armed: ${this.scrollArmed}, Disarmed: ${this.scrollDisarmedThisPinch}, Grabbing: ${this.grabbing}`);
+      }
     }
     
     // CRITICAL: Scroll has priority - only block if actively grabbing (not just pending)
@@ -1035,20 +1051,20 @@ export class FeedControls {
       return;
     }
     
+    const mid = this.hands.pinchMid(side);
+    if (!mid) return;
+    
     // CRITICAL: Scroll activates quickly (80ms) - faster than grab (150ms)
     // This gives scroll priority for feed navigation
     if (this.pinchStartAt && now - this.pinchStartAt < this.SCROLL_MIN_HOLD_MS) {
       // During the short hold period, initialize tracking but don't scroll yet
-      const y = mid?.y;
+      const y = mid.y;
       if (this.lastPinchY == null && y != null) {
         this.lastPinchY = y;
         this.filtPinchY = y;
       }
       return;
     }
-
-    const mid = this.hands.pinchMid(side);
-    if (!mid) return;
     
     // Check distance from object - more lenient for easier scrolling
     const distSurf = this.distanceToObjectSurface(mid);
@@ -1062,22 +1078,26 @@ export class FeedControls {
       }
       
       // Method 1: Distance-based arming (if far from object) - immediate
-      if (distSurf != null && distSurf >= this.SCROLL_START_FAR) {
+      // More lenient: reduce threshold by 50% to make scrolling easier
+      const scrollStartDistance = this.SCROLL_START_FAR * 0.5; // 50% of normal distance
+      if (distSurf != null && distSurf >= scrollStartDistance) {
         this.scrollArmed = true;
-        console.log(`[Scroll] ✅ Armed by distance: ${distSurf.toFixed(3)}m`);
+        console.log(`[Scroll] ✅ Armed by distance: ${distSurf.toFixed(3)}m (threshold: ${scrollStartDistance.toFixed(3)}m)`);
       }
       // Method 2: Movement-based arming (if hand moves vertically) - after hold time
+      // More sensitive: reduce movement threshold
       else if (this.lastPinchY != null && this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS)) {
         const y = mid.y;
         const dy = Math.abs(y - this.lastPinchY);
-        if (dy > 0.005) { // 0.5cm movement = arm scroll (more sensitive)
+        if (dy > 0.003) { // 0.3cm movement = arm scroll (more sensitive than before)
           this.scrollArmed = true;
           console.log(`[Scroll] ✅ Armed by movement: ${(dy * 100).toFixed(1)}cm after ${(now - this.pinchStartAt).toFixed(0)}ms`);
         }
       }
       // Method 3: Auto-arm after hold time if no grab (fallback - ensures scroll always works)
-      else if (this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS * 2) && !this.grabPending) {
-        // After 160ms (2x hold time) with no grab, auto-arm scroll
+      // Faster auto-arm: reduce from 2x to 1.5x hold time
+      else if (this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS * 1.5) && !this.grabPending) {
+        // After 120ms (1.5x hold time) with no grab, auto-arm scroll
         this.scrollArmed = true;
         console.log(`[Scroll] ✅ Auto-armed after ${(now - this.pinchStartAt).toFixed(0)}ms (no grab detected)`);
       }
