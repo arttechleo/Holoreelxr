@@ -599,8 +599,9 @@ export class OnboardingTutorial {
       clearInterval(this.grabCheckInterval);
       this.grabCheckInterval = null;
     }
-    // Stop tutorial grab system
+    // Stop tutorial grab system (both old and new)
     this.stopTutorialGrab();
+    this.stopGrab();
     if (this.interactionMonitorInterval) {
       clearInterval(this.interactionMonitorInterval);
       this.interactionMonitorInterval = null;
