@@ -176,25 +176,35 @@ export class FeedStore {
         this.seq.setPosition(spawnPos);
       } else if (item.type === 'gltf' || item.type === 'glb') {
         // Load GLTF/GLB model
+        console.log(`[FeedStore] Loading GLB/GLTF: ${item.title} from ${item.src}`);
         if (!this.gltfLoader) {
           this.gltfLoader = new GLTFModelLoader();
         }
-        const gltf = await this.gltfLoader.load(item.src);
-        gltf.scene.name = 'content-gltf';
-        gltf.scene.position.copy(spawnPos);
-        gltf.scene.rotation.y = this._rotY;
-        gltf.scene.scale.multiplyScalar(this._scale);
-        this.parent.add(gltf.scene);
-        this.currentGLTF = gltf.scene;
-        
-        // Play animations if available
-        if (gltf.animations && gltf.animations.length > 0) {
-          const mixer = new THREE.AnimationMixer(gltf.scene);
-          gltf.animations.forEach((clip) => {
-            mixer.clipAction(clip).play();
-          });
-          // Store mixer for cleanup
-          (gltf.scene as any).mixer = mixer;
+        try {
+          const gltf = await this.gltfLoader.load(item.src);
+          console.log(`[FeedStore] ✅ Successfully loaded GLB/GLTF: ${item.title}`, gltf);
+          
+          gltf.scene.name = 'content-gltf';
+          gltf.scene.position.copy(spawnPos);
+          gltf.scene.rotation.y = this._rotY;
+          gltf.scene.scale.multiplyScalar(this._scale);
+          this.parent.add(gltf.scene);
+          this.currentGLTF = gltf.scene;
+          
+          // Play animations if available
+          if (gltf.animations && gltf.animations.length > 0) {
+            console.log(`[FeedStore] Playing ${gltf.animations.length} animation(s) for ${item.title}`);
+            const mixer = new THREE.AnimationMixer(gltf.scene);
+            gltf.animations.forEach((clip) => {
+              mixer.clipAction(clip).play();
+            });
+            // Store mixer for cleanup
+            (gltf.scene as any).mixer = mixer;
+          }
+        } catch (loadError) {
+          console.error(`[FeedStore] ❌ Failed to load GLB/GLTF: ${item.title}`, loadError);
+          // Re-throw to trigger error placeholder
+          throw loadError;
         }
       } else {
         // generic mesh fallback
@@ -259,13 +269,19 @@ export class FeedStore {
     
     // Only update if index actually changed
     if (this.index !== oldIndex) {
+      const item = this.items[this.index];
+      console.log(`[FeedStore] Scrolling: index ${oldIndex} → ${this.index}, item: ${item?.title || 'unknown'} (type: ${item?.type || 'unknown'})`);
+      
       // CRITICAL: Reset position when switching items to prevent overlap
       // This ensures new models spawn at a clean position, not on top of old ones
       this.lastPlaced = null;
       
       // Reset transform to default
       this.setTargetTransform(1, 0);
-      this.showCurrent();
+      this.showCurrent().catch(err => {
+        console.error(`[FeedStore] Error showing item at index ${this.index}:`, err);
+        logError(err, 'FeedStore.next');
+      });
     }
   }
 
