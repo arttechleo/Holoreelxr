@@ -200,6 +200,7 @@ export class HandEngine {
   // helpers
   thumbTip(side: Side){ const p = this.lastPos[side]['thumb-tip']; return p ? p.clone() : null; }
   indexTip(side: Side){ const p = this.lastPos[side]['index-finger-tip']; return p ? p.clone() : null; }
+  wrist(side: Side){ const p = this.lastPos[side]['wrist']; return p ? p.clone() : null; }
   pinchMid(side: Side){
     const t = this.thumbTip(side), i = this.indexTip(side);
     return (t && i) ? t.clone().add(i).multiplyScalar(0.5) : null;

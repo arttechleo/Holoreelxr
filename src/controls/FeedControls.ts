@@ -495,52 +495,80 @@ export class FeedControls {
     xr.addEventListener?.('sessionstart', ensure);
   }
 
-  // ---------- dwell assist (camera→index finger) ----------
+  // ---------- hand gesture-based UI interaction (pointing + pinch) ----------
   private updateUiRayAndDwell(now: number) {
-    const tip = this.hands.indexTip('right') ?? this.hands.indexTip('left');
+    // Use hand gestures: point with index finger, pinch to click
+    // Try right hand first, then left hand
+    const rightTip = this.hands.indexTip('right');
+    const leftTip = this.hands.indexTip('left');
+    const tip = rightTip ?? leftTip;
+    const pointingSide = rightTip ? 'right' : 'left';
+    
     if (!tip) {
       this.uiHoverKind = null;
       this.uiLastY = null;
       return;
     }
     
-    // For raycasting, use camera-based ray (works for all UI panels)
-    const camPos = new THREE.Vector3();
-    this.app.camera.getWorldPosition(camPos);
-    const dir = tip.clone().sub(camPos).normalize();
-    const ray = new THREE.Ray(camPos, dir);
+    // Get hand direction from index finger pointing direction (hand gesture pointing)
+    // Use wrist position to calculate natural pointing direction
+    const wrist = this.hands.wrist?.(pointingSide);
     
-    // Check tutorial panel first (if visible)
+    let handDir: THREE.Vector3;
+    if (wrist) {
+      // Pointing direction: from wrist through index finger tip (natural pointing gesture)
+      handDir = tip.clone().sub(wrist).normalize();
+    } else {
+      // Fallback: use direction from camera to index finger (works but less accurate)
+      const camPos = new THREE.Vector3();
+      this.app.camera.getWorldPosition(camPos);
+      handDir = tip.clone().sub(camPos).normalize();
+    }
+    
+    // Create ray from hand pointing direction
+    const ray = new THREE.Ray(tip, handDir);
+    
+    // Check tutorial panel first (if visible) - HAND GESTURE BASED
     if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
-      // Also try ray from hand directly to panel (more accurate for pointing)
-      const handRay = new THREE.Ray(tip, dir);
-      let tutorialHit = (this.onboardingTutorial as any).raycast?.(handRay);
-      
-      // Fallback to camera-based ray if hand ray doesn't hit
-      if (!tutorialHit) {
-        tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
-      }
+      const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
       
       if (tutorialHit?.button) {
-        // Check for pinch on either hand
-        const leftPinch = this.hands.state.left.pinch;
-        const rightPinch = this.hands.state.right.pinch;
-        if (leftPinch || rightPinch) {
+        // Use pinch gesture on the pointing hand to click
+        const pointingHandPinch = pointingSide === 'right' 
+          ? this.hands.state.right.pinch 
+          : this.hands.state.left.pinch;
+        
+        if (pointingHandPinch) {
+          // Update hover state for visual feedback
+          (this.onboardingTutorial as any).setButtonHover?.(tutorialHit.button);
+          
+          // Click on pinch (hand gesture click)
           const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialHit.button);
           if (handled) {
             return; // Button click handled, don't process other UI
           }
+        } else {
+          // Just hovering - show visual feedback
+          (this.onboardingTutorial as any).setButtonHover?.(tutorialHit.button);
         }
+      } else {
+        // Not pointing at any button - clear hover
+        (this.onboardingTutorial as any).setButtonHover?.(null);
       }
     }
-
-    // Check XR panels (auth, music)
+    
+    // For other UI panels (auth, music), use hand-based ray (hand gesture pointing)
+    // Check XR panels (auth, music) with hand gesture ray
     const authPanel = (this as any).authPanel as XRAuthPanel | undefined;
     const musicPanel = (this as any).musicPanel as XRMusicPanel | undefined;
     
     if (authPanel?.isVisible()) {
       const authHit = authPanel.raycast(ray);
-      if (authHit?.button && this.hands.state.right.pinch) {
+      // Use pinch gesture on pointing hand to click (hand gesture click)
+      const pointingHandPinch = pointingSide === 'right' 
+        ? this.hands.state.right.pinch 
+        : this.hands.state.left.pinch;
+      if (authHit?.button && pointingHandPinch) {
         authPanel.handleClick(authHit.button);
         return;
       }
@@ -548,7 +576,11 @@ export class FeedControls {
     
     if (musicPanel?.isVisible()) {
       const musicHit = musicPanel.raycast(ray);
-      if (musicHit?.button && this.hands.state.right.pinch) {
+      // Use pinch gesture on pointing hand to click (hand gesture click)
+      const pointingHandPinch = pointingSide === 'right' 
+        ? this.hands.state.right.pinch 
+        : this.hands.state.left.pinch;
+      if (musicHit?.button && pointingHandPinch) {
         musicPanel.handleClick(musicHit.button);
         return;
       }
