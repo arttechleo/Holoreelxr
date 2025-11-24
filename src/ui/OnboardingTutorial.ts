@@ -1549,6 +1549,9 @@ export class OnboardingTutorial {
   }
 
   async show(camera: THREE.Camera) {
+    // CRITICAL: Reset completion flag when starting tutorial
+    this.tutorialCompleted = false;
+    
     this.currentStepIndex = 0;
     this.progressPercentage = 0;
     this.steps.forEach(step => step.completed = false);
