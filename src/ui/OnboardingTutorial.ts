@@ -591,12 +591,23 @@ export class OnboardingTutorial {
           } else {
             console.log(`[Tutorial] Step changed during delay (current: ${this.currentStepIndex}, completed: ${this.steps[stepIndex]?.completed}), skipping advance`);
           }
-        }, 1500); // Slightly longer delay to show completion
+        }, 1000); // Reduced delay to 1 second for better responsiveness
         
         // Store timeout for cleanup if needed
         (this as any).advanceTimeout = advanceTimeout;
       } else {
         console.log(`[Tutorial] Handler skipped: currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, gesture=${this.steps[stepIndex]?.gesture}, expected=${expectedGesture}, completed=${this.steps[stepIndex]?.completed}, isLoading=${this.isLoading}`);
+        
+        // If step is already completed but handler was called, try to advance anyway
+        if (this.steps[stepIndex]?.completed && this.currentStepIndex === stepIndex) {
+          console.log(`[Tutorial] Step already completed, forcing advance...`);
+          this.clearGestureHandlers();
+          setTimeout(() => {
+            if (this.currentStepIndex === stepIndex) {
+              this.nextStep();
+            }
+          }, 500);
+        }
       }
     };
     
@@ -680,14 +691,16 @@ export class OnboardingTutorial {
           }
           
           // Complete when 60° rotation is achieved OR any rotation after 3 seconds (fallback for struggling users)
+          // OR if both hands are pinching for 5+ seconds (very lenient fallback)
           const timeHeld = now - rotationStartTime;
           const hasEnoughRotation = totalRotation >= REQUIRED_ROTATION;
           const hasAnyRotationWithTime = totalRotation > 0.1 && timeHeld > 3000; // At least 0.1 rad (~6°) after 3 seconds
+          const hasLongPinch = timeHeld > 5000 && totalRotation > 0.05; // Very lenient: 5 seconds with any rotation
           
-          if (hasEnoughRotation || hasAnyRotationWithTime) {
+          if (hasEnoughRotation || hasAnyRotationWithTime || hasLongPinch) {
             // Double-check conditions before proceeding
             if (!handlerFired && this.currentStepIndex === stepIndex && !this.isLoading && !this.steps[stepIndex]?.completed) {
-              const rotationType = hasEnoughRotation ? '60° rotation' : 'fallback (any rotation + time)';
+              const rotationType = hasEnoughRotation ? '60° rotation' : (hasAnyRotationWithTime ? 'fallback (any rotation + time)' : 'very lenient (long pinch)');
               console.log(`[Tutorial] ✅ ROTATION COMPLETE! Step ${stepIndex} - ${rotationType} - total=${totalRotation.toFixed(4)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°), required=${(REQUIRED_ROTATION * 180 / Math.PI).toFixed(1)}°, time=${timeHeld}ms`);
               console.log(`[Tutorial] State check: handlerFired=${handlerFired}, currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, isLoading=${this.isLoading}, completed=${this.steps[stepIndex]?.completed}`);
               
@@ -722,7 +735,7 @@ export class OnboardingTutorial {
                       console.log(`[Tutorial] Handler completed step but didn't advance, forcing advance...`);
                       this.nextStep();
                     }
-                  }, 2000); // Check after 2 seconds
+                  }, 1500); // Check after 1.5 seconds
                 } else {
                   console.warn(`[Tutorial] Cannot call handler: currentStepIndex=${this.currentStepIndex}, stepIndex=${stepIndex}, isLoading=${this.isLoading}`);
                   // Force advance anyway if step is marked complete
@@ -1398,33 +1411,48 @@ export class OnboardingTutorial {
   raycast(ray: THREE.Ray): { button?: 'prev' | 'next' } | null {
     if (!this.group.visible || !this.panel) return null;
     
-    const raycaster = new THREE.Raycaster(ray.origin, ray.direction);
-    const intersect = raycaster.intersectObject(this.panel)[0];
-    
-    if (!intersect) return null;
-    
-    const uv = intersect.uv!;
-    const x = uv.x * this.canvas.width;
-    const y = (1 - uv.y) * this.canvas.height; // Flip Y coordinate
-    
-    // Check button regions
-    if (this.buttonRegions) {
-      const prev = this.buttonRegions.prev;
-      if (x >= prev.x && x <= prev.x + prev.w &&
-          y >= prev.y && y <= prev.y + prev.h &&
-          this.currentStepIndex > 0) {
-        return { button: 'prev' };
+    try {
+      const raycaster = new THREE.Raycaster(ray.origin, ray.direction.normalize());
+      const intersects = raycaster.intersectObject(this.panel, false);
+      
+      if (!intersects || intersects.length === 0) return null;
+      
+      const intersect = intersects[0];
+      if (!intersect.uv) return null;
+      
+      const uv = intersect.uv;
+      const x = uv.x * this.canvas.width;
+      const y = (1 - uv.y) * this.canvas.height; // Flip Y coordinate
+      
+      // Debug logging (throttled)
+      if (Math.random() < 0.01) { // 1% of calls
+        console.log(`[Tutorial] Raycast hit: x=${x.toFixed(0)}, y=${y.toFixed(0)}, buttonRegions=${!!this.buttonRegions}`);
       }
       
-      const next = this.buttonRegions.next;
-      if (x >= next.x && x <= next.x + next.w &&
-          y >= next.y && y <= next.y + next.h &&
-          this.currentStepIndex < this.steps.length - 1) {
-        return { button: 'next' };
+      // Check button regions
+      if (this.buttonRegions) {
+        const prev = this.buttonRegions.prev;
+        if (x >= prev.x && x <= prev.x + prev.w &&
+            y >= prev.y && y <= prev.y + prev.h &&
+            this.currentStepIndex > 0) {
+          console.log(`[Tutorial] Previous button hit!`);
+          return { button: 'prev' };
+        }
+        
+        const next = this.buttonRegions.next;
+        if (x >= next.x && x <= next.x + next.w &&
+            y >= next.y && y <= next.y + next.h &&
+            this.currentStepIndex < this.steps.length - 1) {
+          console.log(`[Tutorial] Next button hit!`);
+          return { button: 'next' };
+        }
       }
+      
+      return null;
+    } catch (error) {
+      console.error(`[Tutorial] Raycast error:`, error);
+      return null;
     }
-    
-    return null;
   }
 }
 

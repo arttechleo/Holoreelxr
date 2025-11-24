@@ -503,14 +503,24 @@ export class FeedControls {
       this.uiLastY = null;
       return;
     }
+    
+    // For raycasting, use camera-based ray (works for all UI panels)
     const camPos = new THREE.Vector3();
     this.app.camera.getWorldPosition(camPos);
     const dir = tip.clone().sub(camPos).normalize();
     const ray = new THREE.Ray(camPos, dir);
-
+    
     // Check tutorial panel first (if visible)
     if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
-      const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
+      // Also try ray from hand directly to panel (more accurate for pointing)
+      const handRay = new THREE.Ray(tip, dir);
+      let tutorialHit = (this.onboardingTutorial as any).raycast?.(handRay);
+      
+      // Fallback to camera-based ray if hand ray doesn't hit
+      if (!tutorialHit) {
+        tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
+      }
+      
       if (tutorialHit?.button) {
         // Check for pinch on either hand
         const leftPinch = this.hands.state.left.pinch;
@@ -761,12 +771,11 @@ export class FeedControls {
   }
 
   private onPinchEnd(side: 'left' | 'right') {
-    // Skip if onboarding tutorial is active
-    if (this.onboardingTutorial && this.onboardingTutorial.isVisible && this.onboardingTutorial.isVisible()) {
-      return;
-    }
-    
+    // Always hide ray
     this.setRayVisible(side, false);
+    
+    // Don't block grab/place - allow it to complete normally even during tutorial
+    // Only block scroll during tutorial
     if (this.grabPending && this.grabPendingSide === side) this.cancelGrabPending();
     if (this.grabbing && this.grabSide === side) {
       this.grabbing = false;
