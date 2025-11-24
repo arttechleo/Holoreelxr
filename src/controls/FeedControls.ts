@@ -751,13 +751,15 @@ export class FeedControls {
         const currentStep = tutorial.steps?.[tutorial.currentStepIndex];
         const currentGesture = currentStep?.gesture;
         
-        // Allow grab, two-hand rotate, and two-hand scale during tutorial
+        // Always allow grab, two-hand rotate, and two-hand scale during tutorial
+        // These are essential interactions that should always work
         if (currentGesture === 'grab' || currentGesture === 'twohandrotate' || currentGesture === 'twohandscale') {
-          // Allow these interactions to proceed
-        } else {
-          // Block other interactions during tutorial
+          // Allow these interactions to proceed - don't block
+        } else if (currentGesture) {
+          // Block other interactions during tutorial (like scroll)
           return;
         }
+        // If no gesture specified, allow interactions (e.g., welcome step)
       }
       // Also skip if tutorial is loading (prevent interference during transitions)
       if (tutorial.isLoading === true) {
@@ -789,6 +791,7 @@ export class FeedControls {
     const pinch = this.hands.pinchMid(side);
     const d = pinch ? this.distanceToObjectSurface(pinch) : null;
 
+    // Instant grab if very close to object
     if (d != null && d <= this.INSTANT_GRAB_DIST) {
       const objPosNow = this.store.getObjectWorldPos();
       if (objPosNow && pinch) {
@@ -801,10 +804,15 @@ export class FeedControls {
       }
     }
 
-    if (d != null && d >= this.SCROLL_START_FAR) this.scrollArmed = true;
-    else {
+    // If far from object, arm scroll
+    if (d != null && d >= this.SCROLL_START_FAR) {
+      this.scrollArmed = true;
+    } else {
+      // Otherwise, try to start grab pending (pinch and hold)
       this.scrollDisarmedThisPinch = true;
-      this.tryStartGrabPending(side);
+      if (d != null) {
+        this.tryStartGrabPending(side);
+      }
     }
   }
 
@@ -1036,16 +1044,20 @@ export class FeedControls {
   // ---------- grab ----------
   private updateAutoAcquirePending() {
     if (this.grabPending || this.grabbing) return;
+    
+    // Don't block grab during tutorial - it should always work
     const lp = this.hands.state.left.pinch,
       rp = this.hands.state.right.pinch;
-    if (lp === rp) return;
+    if (lp === rp) return; // Need exactly one hand pinching
     const side: 'left' | 'right' = lp ? 'left' : 'right';
     const other = lp ? 'right' : 'left';
-    if (this.hands.state[other].pinch) return;
+    if (this.hands.state[other].pinch) return; // Other hand must not be pinching
     const pinch = this.hands.pinchMid(side);
     if (!pinch) return;
     const distSurf = this.distanceToObjectSurface(pinch);
-    if (distSurf != null && distSurf <= TRANSFORM.GRAB_MAX_DISTANCE) this.tryStartGrabPending(side);
+    if (distSurf != null && distSurf <= TRANSFORM.GRAB_MAX_DISTANCE) {
+      this.tryStartGrabPending(side);
+    }
   }
   private tryStartGrabPending(side: 'left' | 'right') {
     if (this.grabbing || this.grabPending) return;
