@@ -55,7 +55,7 @@ export class OnboardingTutorial {
       id: 'grab',
       title: '✋ Grab and Move',
       description: 'Single-hand grab gesture',
-      detailedInstructions: 'Pinch with ONE hand near the cube. Hold for 1 second, then move your hand to reposition it.',
+      detailedInstructions: 'Pinch with ONE hand near the cube. Move your hand to reposition it, then release the pinch to place it in the new location.',
       shape: 'box',
       color: '#FF6B6B',
       gesture: 'grab',
@@ -131,6 +131,7 @@ export class OnboardingTutorial {
   private grabStartTime: number = 0;
   private grabStartPosition: THREE.Vector3 | null = null;
   private grabStepIndex: number = -1;
+  private grabHasMoved: boolean = false; // Track if object has been moved enough
   
   // Old interval-based system (to be removed)
   private tutorialGrabActive: boolean = false;
@@ -234,8 +235,7 @@ export class OnboardingTutorial {
     try {
       const now = performance.now();
       const GRAB_MAX_DISTANCE = 0.5; // 50cm - VERY generous
-      const REQUIRED_HOLD_MS = 1500; // 1.5 seconds
-      const MIN_MOVEMENT = 0.05; // 5cm
+      const MIN_MOVEMENT = 0.05; // 5cm - minimum movement to complete
       
       // Get hand states
       const leftPinch = this.hands.state.left.pinch;
@@ -249,12 +249,15 @@ export class OnboardingTutorial {
         // Release conditions
         if (otherPinching) {
           console.log(`[Tutorial Grab] Released - two-hand mode`);
+          this.checkGrabCompletion();
           this.stopGrab();
           return;
         }
         
         if (!stillPinching) {
           console.log(`[Tutorial Grab] Released - pinch ended`);
+          // Check if we moved enough to complete the step
+          this.checkGrabCompletion();
           this.stopGrab();
           return;
         }
@@ -263,6 +266,7 @@ export class OnboardingTutorial {
         const pinchPos = this.hands.pinchMid(this.grabHand);
         if (!pinchPos) {
           console.log(`[Tutorial Grab] Released - no hand position`);
+          this.checkGrabCompletion();
           this.stopGrab();
           return;
         }
@@ -273,6 +277,18 @@ export class OnboardingTutorial {
         // CRITICAL: Update position EVERY FRAME
         this.store.setPosition(newObjPos);
         
+        // Check if object has moved enough
+        if (this.grabStartPosition && !this.grabHasMoved) {
+          const currentPos = this.store.getObjectWorldPos();
+          if (currentPos) {
+            const movement = currentPos.distanceTo(this.grabStartPosition);
+            if (movement >= MIN_MOVEMENT) {
+              this.grabHasMoved = true;
+              console.log(`[Tutorial Grab] ✅ Object moved ${(movement * 100).toFixed(1)}cm - ready to complete on release!`);
+            }
+          }
+        }
+        
         // Verify it worked (throttled)
         if (Math.random() < 0.15) {
           const actualPos = this.store.getObjectWorldPos();
@@ -281,26 +297,6 @@ export class OnboardingTutorial {
           
           if (error > 0.02) {
             console.warn(`[Tutorial Grab] ⚠️ Position mismatch! Error: ${error.toFixed(3)}m`);
-          }
-        }
-        
-        // Check completion: held 1.5s + moved 5cm
-        if (this.grabStartPosition) {
-          const currentPos = this.store.getObjectWorldPos();
-          if (currentPos) {
-            const holdTime = now - this.grabStartTime;
-            const movement = currentPos.distanceTo(this.grabStartPosition);
-            
-            if (holdTime >= REQUIRED_HOLD_MS && movement >= MIN_MOVEMENT) {
-              console.log(`[Tutorial Grab] ✅✅✅ COMPLETED! Hold: ${holdTime}ms, Moved: ${(movement * 100).toFixed(1)}cm`);
-              this.stopGrab();
-              
-              // Advance to next step
-              if (this.currentStepIndex === this.grabStepIndex) {
-                this.nextStep();
-              }
-              return;
-            }
           }
         }
       }
@@ -356,18 +352,51 @@ export class OnboardingTutorial {
         this.grabOffset.copy(objPos).sub(pinchPos);
         this.grabStartTime = now;
         this.grabStartPosition = objPos.clone();
+        this.grabHasMoved = false; // Reset movement tracking
         
         console.log(`[Tutorial Grab] ✅✅✅ GRABBED! ${side} hand`);
         console.log(`  Distance: ${dist.toFixed(3)}m`);
         console.log(`  Object: ${objPos.toArray().map(v => v.toFixed(3)).join(',')}`);
         console.log(`  Hand: ${pinchPos.toArray().map(v => v.toFixed(3)).join(',')}`);
         console.log(`  Offset: ${this.grabOffset.toArray().map(v => v.toFixed(3)).join(',')}`);
-        console.log(`  Now move your hand to move the object!`);
+        console.log(`  Now move your hand to move the object, then release to place it!`);
       }
     } catch (error) {
       console.error('[Tutorial Grab] CRITICAL ERROR:', error);
       console.error(error);
       this.stopGrab();
+    }
+  }
+  
+  private checkGrabCompletion() {
+    // Check if we moved enough to complete the step
+    // Always check final position on release, regardless of grabHasMoved flag
+    if (this.grabStartPosition) {
+      const currentPos = this.store.getObjectWorldPos();
+      if (currentPos) {
+        const movement = currentPos.distanceTo(this.grabStartPosition);
+        const MIN_MOVEMENT = 0.05; // 5cm
+        if (movement >= MIN_MOVEMENT) {
+          console.log(`[Tutorial Grab] ✅✅✅ COMPLETED! Moved ${(movement * 100).toFixed(1)}cm and placed object`);
+          
+          // Mark step as completed
+          if (this.steps[this.grabStepIndex]) {
+            this.steps[this.grabStepIndex].completed = true;
+          }
+          this.updatePanel();
+          
+          // Advance to next step
+          if (this.currentStepIndex === this.grabStepIndex) {
+            setTimeout(() => {
+              if (this.currentStepIndex === this.grabStepIndex) {
+                this.nextStep();
+              }
+            }, 1000); // Small delay to show completion
+          }
+        } else {
+          console.log(`[Tutorial Grab] Object not moved enough (${(movement * 100).toFixed(1)}cm < ${(MIN_MOVEMENT * 100).toFixed(1)}cm) - try again!`);
+        }
+      }
     }
   }
   
@@ -380,6 +409,7 @@ export class OnboardingTutorial {
     this.grabOffset.set(0, 0, 0);
     this.grabStartTime = 0;
     this.grabStartPosition = null;
+    this.grabHasMoved = false;
   }
   
   private startTutorialGrabMonitoring() {
