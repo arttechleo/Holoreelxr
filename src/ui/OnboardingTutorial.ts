@@ -208,6 +208,11 @@ export class OnboardingTutorial {
       return;
     }
     
+    // Debug: log if we're processing (throttled)
+    if (Math.random() < 0.01 && this.grabState === 'idle') { // 1% when idle
+      console.log(`[Tutorial Grab] Processing - stepIndex=${this.currentStepIndex}, grabStepIndex=${this.grabStepIndex}, state=${this.grabState}`);
+    }
+    
     try {
       const now = performance.now();
       const GRAB_MAX_DISTANCE = 0.3; // 30cm - generous distance
@@ -274,15 +279,19 @@ export class OnboardingTutorial {
         
         // Check if hold time met to activate grab
         if (now - this.grabHoldStartTime >= HOLD_TIME_MS) {
-          // Activate grab!
+          // Activate grab! Get fresh positions
           const objPos = this.store.getObjectWorldPos();
-          if (objPos) {
+          const currentPinchPos = this.hands.pinchMid(this.grabHand);
+          
+          if (objPos && currentPinchPos) {
             this.grabState = 'grabbing';
             this.grabStartTime = now;
             this.grabStartPosition = objPos.clone();
-            this.grabOffset.copy(objPos).sub(pinchPos);
-            console.log(`[Tutorial Grab] ✅ GRABBING! Hand: ${this.grabHand}, Object: ${objPos.toArray().map(v => v.toFixed(2)).join(',')}`);
+            // Calculate offset: object position - hand position
+            this.grabOffset.copy(objPos).sub(currentPinchPos);
+            console.log(`[Tutorial Grab] ✅ GRABBING! Hand: ${this.grabHand}, Object: ${objPos.toArray().map(v => v.toFixed(3)).join(',')}, Hand: ${currentPinchPos.toArray().map(v => v.toFixed(3)).join(',')}, Offset: ${this.grabOffset.toArray().map(v => v.toFixed(3)).join(',')}`);
           } else {
+            console.warn(`[Tutorial Grab] Cannot activate - missing positions: objPos=${!!objPos}, pinchPos=${!!currentPinchPos}`);
             this.resetGrab();
           }
         }
@@ -319,6 +328,12 @@ export class OnboardingTutorial {
         
         // Calculate new object position
         const newObjPos = pinchPos.clone().add(this.grabOffset);
+        
+        // Debug logging (throttled)
+        if (Math.random() < 0.1) { // 10% of calls
+          const currentObjPos = this.store.getObjectWorldPos();
+          console.log(`[Tutorial Grab] Updating: hand=${pinchPos.toArray().map(v => v.toFixed(3)).join(',')}, offset=${this.grabOffset.toArray().map(v => v.toFixed(3)).join(',')}, newPos=${newObjPos.toArray().map(v => v.toFixed(3)).join(',')}, current=${currentObjPos?.toArray().map(v => v.toFixed(3)).join(',')}`);
+        }
         
         // Update object position
         this.store.setPosition(newObjPos);
