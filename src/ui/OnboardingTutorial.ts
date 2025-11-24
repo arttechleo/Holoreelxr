@@ -443,8 +443,11 @@ export class OnboardingTutorial {
         }
       }, 100);
     }
-    // Grab detection
+    // Grab detection - detect when grab is completed (object placed)
     else if (gesture === 'grab') {
+      let wasGrabbing = false;
+      let grabStarted = false;
+      
       this.grabCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
           if (this.grabCheckInterval) {
@@ -455,11 +458,21 @@ export class OnboardingTutorial {
         }
         
         const grabbing = (this.feedControls as any)?.grabbing;
-        if (grabbing && !handlerFired) {
-          console.log(`[Tutorial] ✅ Grab detected!`);
+        const grabPending = (this.feedControls as any)?.grabPending;
+        
+        // Track when grab starts
+        if (grabbing || grabPending) {
+          grabStarted = true;
+        }
+        
+        // Detect when grab completes (was grabbing, now not grabbing = object placed)
+        if (wasGrabbing && !grabbing && !grabPending && grabStarted && !handlerFired) {
+          console.log(`[Tutorial] ✅ Grab and place completed!`);
           handler();
         }
-      }, 200);
+        
+        wasGrabbing = grabbing || grabPending;
+      }, 100);
     }
     // Scroll detection
     else if (gesture === 'scroll') {
