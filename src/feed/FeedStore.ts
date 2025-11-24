@@ -327,13 +327,19 @@ export class FeedStore {
     try {
       const obj = this.getObject();
       if (obj) {
-        // Convert world position to local position relative to parent
-        // contentRoot is typically at origin with no transforms, but we convert to be safe
-        const localPos = worldPos.clone();
         const actualParent = obj.parent || this.parent;
         
+        // CRITICAL FIX: Update parent's matrix FIRST before converting world to local
+        // This ensures worldToLocal uses the correct, up-to-date transformation matrix
         if (actualParent) {
-          // Convert world position to local space of the parent
+          // Update parent's world matrix to ensure it's current
+          actualParent.updateMatrixWorld(true);
+        }
+        
+        // Convert world position to local position relative to parent
+        const localPos = worldPos.clone();
+        if (actualParent) {
+          // Now convert using the updated matrix
           actualParent.worldToLocal(localPos);
         }
         
@@ -341,20 +347,22 @@ export class FeedStore {
         const oldPos = obj.position.clone();
         obj.position.copy(localPos);
         
-        // CRITICAL: Update matrices to ensure position change is visible
-        // Update this object's matrix
+        // Update this object's local matrix
         obj.updateMatrix();
-        // Update parent's matrix if needed
-        if (actualParent) {
-          actualParent.updateMatrixWorld(true);
-        }
-        // Force update this object's world matrix
+        // Force update this object's world matrix to reflect the new position
         obj.updateMatrixWorld(true);
         
+        // Verify the position was set correctly
+        const actualWorldPos = new THREE.Vector3().setFromMatrixPosition(obj.matrixWorld);
+        const positionError = actualWorldPos.distanceTo(worldPos);
+        
         // Debug: log position updates (more frequently for debugging)
-        if (Math.random() < 0.15) { // 15% of calls
-          const currentWorldPos = new THREE.Vector3().setFromMatrixPosition(obj.matrixWorld);
-          console.log(`[FeedStore] setPosition: targetWorld=${worldPos.toArray().map(v => v.toFixed(2)).join(',')}, local=${localPos.toArray().map(v => v.toFixed(2)).join(',')}, actualWorld=${currentWorldPos.toArray().map(v => v.toFixed(2)).join(',')}, obj=${obj.name}`);
+        if (Math.random() < 0.2 || positionError > 0.01) { // 20% of calls, or if error > 1cm
+          console.log(`[FeedStore] setPosition: targetWorld=${worldPos.toArray().map(v => v.toFixed(3)).join(',')}, local=${localPos.toArray().map(v => v.toFixed(3)).join(',')}, actualWorld=${actualWorldPos.toArray().map(v => v.toFixed(3)).join(',')}, error=${positionError.toFixed(3)}m, obj=${obj.name}, parent=${actualParent?.name || 'none'}`);
+          
+          if (positionError > 0.01) {
+            console.warn(`[FeedStore] ⚠️ Position error detected: ${positionError.toFixed(3)}m - object may not be moving correctly!`);
+          }
         }
       } else {
         // Debug: log when object not found - always log this
