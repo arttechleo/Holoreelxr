@@ -322,9 +322,11 @@ export class FeedControls {
       this.updateRays();
 
       // CRITICAL: Hide ReactionHud during tutorial (except for like/heart/repost steps)
+      // After tutorial completes, always show ReactionHud
       if (this.onboardingTutorial) {
         const tutorial = this.onboardingTutorial as any;
         if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
+          // Tutorial is active - conditionally show/hide HUD
           const shouldShow = tutorial.shouldShowReactionHud?.();
           if (shouldShow === false) {
             // Hide ReactionHud during tutorial (except for reaction steps)
@@ -346,13 +348,26 @@ export class FeedControls {
             }
           }
         } else {
-          // Tutorial not active - always show ReactionHud
+          // Tutorial NOT active - ALWAYS show ReactionHud (main feed)
           if (this.hudMgr) {
             const hud = (this.hudMgr as any).hud;
             if (hud) {
               const anchor = (hud as any).anchor;
-              if (anchor) anchor.visible = true;
+              if (anchor) {
+                anchor.visible = true;
+                // Also ensure HUD is shown for current model
+                this.hudMgr.showFor(this.currentModelKey());
+              }
             }
+          }
+        }
+      } else {
+        // No tutorial - always show ReactionHud
+        if (this.hudMgr) {
+          const hud = (this.hudMgr as any).hud;
+          if (hud) {
+            const anchor = (hud as any).anchor;
+            if (anchor) anchor.visible = true;
           }
         }
       }
