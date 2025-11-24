@@ -110,6 +110,7 @@ export class OnboardingTutorial {
   private fadeInterval: number | null = null; // Current fade animation interval
   private currentTimeoutId: number | null = null; // Current step timeout ID
   private buttonRegions: { prev: { x: number; y: number; w: number; h: number }; next: { x: number; y: number; w: number; h: number } } | null = null; // Button click regions
+  private hoveredButton: 'prev' | 'next' | null = null; // Currently hovered button (for visual feedback)
 
   constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore, feedControls?: any) {
     this.hands = hands;
@@ -148,19 +149,31 @@ export class OnboardingTutorial {
     // Tutorial items will be found when show() is called (after feed loads)
   }
   
-  // Public method to handle button clicks (called from FeedControls raycast)
+  // Set hover state for visual feedback (hand gesture pointing)
+  setButtonHover(button: 'prev' | 'next' | null) {
+    if (this.hoveredButton !== button) {
+      this.hoveredButton = button;
+      this.updatePanel(); // Update to show hover state
+    }
+  }
+  
+  // Public method to handle button clicks (called from FeedControls - triggered by pinch gesture)
   handleButtonClick(buttonType: 'prev' | 'next'): boolean {
     if (!this.group.visible || this.isLoading) return false;
+    
+    console.log(`[Tutorial] Button clicked via hand gesture (pinch): ${buttonType}`);
     
     if (buttonType === 'next') {
       if (this.currentStepIndex < this.steps.length - 1) {
         console.log(`[Tutorial] Next button clicked, advancing from step ${this.currentStepIndex}`);
+        this.hoveredButton = null; // Clear hover after click
         this.nextStep();
         return true;
       }
     } else if (buttonType === 'prev') {
       if (this.currentStepIndex > 0) {
         console.log(`[Tutorial] Previous button clicked, going back to step ${this.currentStepIndex - 1}`);
+        this.hoveredButton = null; // Clear hover after click
         this.previousStep();
         return true;
       }
@@ -1215,16 +1228,26 @@ export class OnboardingTutorial {
     // Previous button
     const prevX = startX;
     const prevEnabled = this.currentStepIndex > 0;
+    const prevHovered = this.hoveredButton === 'prev';
     const prevAlpha = prevEnabled ? 1.0 : 0.5;
     
     ctx.globalAlpha = prevAlpha;
-    ctx.fillStyle = prevEnabled ? '#4ECDC4' : '#666';
+    // Highlight hovered button with brighter color
+    ctx.fillStyle = prevHovered ? '#5EDDD5' : (prevEnabled ? '#4ECDC4' : '#666');
     ctx.fillRect(prevX, buttonY, buttonWidth, buttonHeight);
     
-    // Button border
-    ctx.strokeStyle = prevEnabled ? '#fff' : '#888';
-    ctx.lineWidth = 2;
+    // Button border - thicker and brighter when hovered
+    ctx.strokeStyle = prevHovered ? '#fff' : (prevEnabled ? '#fff' : '#888');
+    ctx.lineWidth = prevHovered ? 3 : 2;
     ctx.strokeRect(prevX, buttonY, buttonWidth, buttonHeight);
+    
+    // Add glow effect when hovered
+    if (prevHovered) {
+      ctx.shadowColor = '#5EDDD5';
+      ctx.shadowBlur = 10;
+      ctx.strokeRect(prevX, buttonY, buttonWidth, buttonHeight);
+      ctx.shadowBlur = 0;
+    }
     
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 20px sans-serif';
@@ -1237,16 +1260,26 @@ export class OnboardingTutorial {
     // Next button
     const nextX = startX + buttonWidth + buttonSpacing;
     const nextEnabled = this.currentStepIndex < this.steps.length - 1;
+    const nextHovered = this.hoveredButton === 'next';
     const nextAlpha = nextEnabled ? 1.0 : 0.5;
     
     ctx.globalAlpha = nextAlpha;
-    ctx.fillStyle = nextEnabled ? '#4ECDC4' : '#666';
+    // Highlight hovered button with brighter color
+    ctx.fillStyle = nextHovered ? '#5EDDD5' : (nextEnabled ? '#4ECDC4' : '#666');
     ctx.fillRect(nextX, buttonY, buttonWidth, buttonHeight);
     
-    // Button border
-    ctx.strokeStyle = nextEnabled ? '#fff' : '#888';
-    ctx.lineWidth = 2;
+    // Button border - thicker and brighter when hovered
+    ctx.strokeStyle = nextHovered ? '#fff' : (nextEnabled ? '#fff' : '#888');
+    ctx.lineWidth = nextHovered ? 3 : 2;
     ctx.strokeRect(nextX, buttonY, buttonWidth, buttonHeight);
+    
+    // Add glow effect when hovered
+    if (nextHovered) {
+      ctx.shadowColor = '#5EDDD5';
+      ctx.shadowBlur = 10;
+      ctx.strokeRect(nextX, buttonY, buttonWidth, buttonHeight);
+      ctx.shadowBlur = 0;
+    }
     
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 20px sans-serif';
