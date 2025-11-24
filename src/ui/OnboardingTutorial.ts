@@ -1469,7 +1469,18 @@ export class OnboardingTutorial {
       // CRITICAL: Remove ALL tutorial event handlers to prevent interference
       this.clearTutorialGrabHandlers();
       
-      console.log('[Tutorial] ✅ Tutorial completed - all handlers removed, features re-enabled');
+      // CRITICAL: Reset all state to ensure clean transition
+      this.isGrabbing = false;
+      this.grabHand = null;
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      this.scrollAccum = 0;
+      this.scrollArmed = false;
+      this.scrollDisarmedThisPinch = false;
+      this.pinchStartAt = null;
+      
+      console.log('[Tutorial] ✅ Tutorial completed - all handlers removed, state reset, features re-enabled');
+      console.log(`[Tutorial] isTutorialActive() = ${this.isTutorialActive()}, group.visible = ${this.group.visible}, isLoading = ${this.isLoading}`);
       
       const targetIndex = this.firstNonTutorialIndex > 0 ? 
         Math.min(this.firstNonTutorialIndex, this.store.items.length - 1) : 

@@ -219,7 +219,8 @@ export class FeedControls {
     // Heart gesture - both hands together
     this.hands.on('heartstart', () => {
       try {
-        // CRITICAL: Disable gesture detection during tutorial (except for heart step)
+        // CRITICAL: Only disable if tutorial is ACTUALLY active
+    // After tutorial completion, isTutorialActive() returns false, so heart gesture works normally
         if (this.onboardingTutorial) {
           const tutorial = this.onboardingTutorial as any;
           if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
@@ -229,6 +230,7 @@ export class FeedControls {
               return;
             }
           }
+          // If tutorial is not active, proceed normally - heart gesture should work
         }
         
         if (!this.canTriggerGesture('heart')) return;
@@ -856,10 +858,12 @@ export class FeedControls {
       }
     }
     
-    // Skip if onboarding tutorial is active - but allow grab/transform for tutorial steps
+    // CRITICAL: Only block if tutorial is ACTUALLY active (not just visible)
+    // After tutorial completion, isTutorialActive() returns false, so FeedControls works normally
     if (this.onboardingTutorial) {
       const tutorial = this.onboardingTutorial as any;
-      if (tutorial.isVisible && tutorial.isVisible()) {
+      // Use isTutorialActive() instead of isVisible() - more accurate
+      if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
         const currentStep = tutorial.steps?.[tutorial.currentStepIndex];
         const currentGesture = currentStep?.gesture;
         
@@ -873,10 +877,7 @@ export class FeedControls {
         }
         // If no gesture specified, allow interactions (e.g., welcome step)
       }
-      // Also skip if tutorial is loading (prevent interference during transitions)
-      if (tutorial.isLoading === true) {
-        return;
-      }
+      // Don't block if tutorial is not active - FeedControls should work normally
     }
     
     // PRIORITY 1: Try clicking the MR HUD
@@ -976,19 +977,24 @@ export class FeedControls {
     if (now < this.scrollCooldownUntil) return;
     if (this.grabPending || this.grabbing) return;
     
-    // CRITICAL: Disable FeedControls scroll during tutorial steps
+    // CRITICAL: Only disable FeedControls scroll if tutorial is ACTUALLY active
+    // After tutorial completion, these checks return false, so scroll works normally
     if (this.onboardingTutorial) {
       const tutorial = this.onboardingTutorial as any;
-      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
-        // Tutorial grab is active - completely disable scroll
-        if (this.scrollRay) this.scrollRay.visible = false;
-        return;
+      // Use isTutorialActive() as primary check - more reliable
+      if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
+        if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+          // Tutorial grab is active - completely disable scroll
+          if (this.scrollRay) this.scrollRay.visible = false;
+          return;
+        }
+        if (tutorial.isScrollStepActive && tutorial.isScrollStepActive()) {
+          // Tutorial scroll is active - completely disable FeedControls scroll
+          if (this.scrollRay) this.scrollRay.visible = false;
+          return;
+        }
       }
-      if (tutorial.isScrollStepActive && tutorial.isScrollStepActive()) {
-        // Tutorial scroll is active - completely disable FeedControls scroll
-        if (this.scrollRay) this.scrollRay.visible = false;
-        return;
-      }
+      // If tutorial is not active, scroll works normally
     }
 
     const lp = this.hands.state.left.pinch;
