@@ -176,6 +176,18 @@ export class FeedControls {
     // Like gesture - thumbs up
     this.hands.on('thumbsupstart', (detail?: any) => {
       try {
+        // CRITICAL: Disable gesture detection during tutorial (except for like step)
+        if (this.onboardingTutorial) {
+          const tutorial = this.onboardingTutorial as any;
+          if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
+            const currentGesture = tutorial.getCurrentGesture?.();
+            if (currentGesture !== 'thumbsup') {
+              // Tutorial is active but not on like step - disable gesture
+              return;
+            }
+          }
+        }
+        
         if (!this.canTriggerGesture('thumbsup')) return;
         if (!this.acceptGesture('like')) return;
         const now = performance.now();
@@ -207,6 +219,18 @@ export class FeedControls {
     // Heart gesture - both hands together
     this.hands.on('heartstart', () => {
       try {
+        // CRITICAL: Disable gesture detection during tutorial (except for heart step)
+        if (this.onboardingTutorial) {
+          const tutorial = this.onboardingTutorial as any;
+          if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
+            const currentGesture = tutorial.getCurrentGesture?.();
+            if (currentGesture !== 'heart') {
+              // Tutorial is active but not on heart step - disable gesture
+              return;
+            }
+          }
+        }
+        
         if (!this.canTriggerGesture('heart')) return;
         if (!this.acceptGesture('heart')) return;
         const now = performance.now();
@@ -238,6 +262,18 @@ export class FeedControls {
     // Peace gesture - repost
     this.hands.on('peacestart', (detail?: any) => {
       try {
+        // CRITICAL: Disable gesture detection during tutorial (except for peace step)
+        if (this.onboardingTutorial) {
+          const tutorial = this.onboardingTutorial as any;
+          if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
+            const currentGesture = tutorial.getCurrentGesture?.();
+            if (currentGesture !== 'peace') {
+              // Tutorial is active but not on peace step - disable gesture
+              return;
+            }
+          }
+        }
+        
         if (!this.canTriggerGesture('peace')) return;
         if (!this.acceptGesture('repost')) return;
         const now = performance.now();
@@ -285,6 +321,42 @@ export class FeedControls {
       this.updateGrabPendingGuard();
       this.updateRays();
 
+      // CRITICAL: Hide ReactionHud during tutorial (except for like/heart/repost steps)
+      if (this.onboardingTutorial) {
+        const tutorial = this.onboardingTutorial as any;
+        if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
+          const shouldShow = tutorial.shouldShowReactionHud?.();
+          if (shouldShow === false) {
+            // Hide ReactionHud during tutorial (except for reaction steps)
+            if (this.hudMgr) {
+              const hud = (this.hudMgr as any).hud;
+              if (hud) {
+                const anchor = (hud as any).anchor;
+                if (anchor) anchor.visible = false;
+              }
+            }
+          } else {
+            // Show ReactionHud for reaction steps
+            if (this.hudMgr) {
+              const hud = (this.hudMgr as any).hud;
+              if (hud) {
+                const anchor = (hud as any).anchor;
+                if (anchor) anchor.visible = true;
+              }
+            }
+          }
+        } else {
+          // Tutorial not active - always show ReactionHud
+          if (this.hudMgr) {
+            const hud = (this.hudMgr as any).hud;
+            if (hud) {
+              const anchor = (hud as any).anchor;
+              if (anchor) anchor.visible = true;
+            }
+          }
+        }
+      }
+      
       this.hudMgr.tick(dt);
       this.store.tick(dt);
       this.particleSystem.tick(dt);
