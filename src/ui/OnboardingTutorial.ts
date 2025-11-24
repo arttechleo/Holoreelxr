@@ -123,6 +123,14 @@ export class OnboardingTutorial {
   private scaleInitialValue: number | null = null;
   private userHasInteracted = false; // Track if user has interacted with model
   private modelLoaded = false;
+  
+  // Tutorial-specific grab system (independent of FeedControls)
+  private tutorialGrabActive: boolean = false;
+  private tutorialGrabSide: 'left' | 'right' | null = null;
+  private tutorialGrabOffset: THREE.Vector3 = new THREE.Vector3();
+  private tutorialGrabStartTime: number | null = null;
+  private tutorialGrabStartPosition: THREE.Vector3 | null = null;
+  private tutorialGrabUpdateInterval: number | null = null;
 
   constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore, feedControls?: any) {
     this.hands = hands;
@@ -157,6 +165,172 @@ export class OnboardingTutorial {
   
   setFeedControls(controls: any) {
     this.feedControls = controls;
+  }
+  
+  // ========== TUTORIAL-SPECIFIC GRAB SYSTEM ==========
+  // This system works independently of FeedControls to ensure grab works in tutorial
+  
+  private distanceToObjectSurface(worldPoint: THREE.Vector3): number | null {
+    const bounds = this.store.getObjectBounds();
+    if (!bounds) return null;
+    const { center, radius } = bounds;
+    const distCenter = worldPoint.distanceTo(center);
+    return Math.max(0, distCenter - (radius + 0.04));
+  }
+  
+  private startTutorialGrabMonitoring() {
+    // Stop any existing grab
+    this.stopTutorialGrab();
+    
+    // Monitor for pinch near object
+    const checkInterval = 50; // Check every 50ms for responsiveness
+    const GRAB_MAX_DISTANCE = 0.25; // 25cm max distance
+    const HOLD_TIME_MS = 150; // 150ms hold to activate grab
+    
+    let holdStartTime: number | null = null;
+    let holdHand: 'left' | 'right' | null = null;
+    
+    const monitorInterval = window.setInterval(() => {
+      // Check if we should stop monitoring
+      if (!this.group.visible || this.isLoading || this.currentStepIndex < 0) {
+        clearInterval(monitorInterval);
+        return;
+      }
+      
+      // If already grabbing, skip detection
+      if (this.tutorialGrabActive) {
+        return;
+      }
+      
+      // Check both hands for pinch near object
+      const leftPinch = this.hands.state.left.pinch;
+      const rightPinch = this.hands.state.right.pinch;
+      
+      // Only allow one hand at a time
+      if (leftPinch && rightPinch) {
+        holdStartTime = null;
+        holdHand = null;
+        return;
+      }
+      
+      const side: 'left' | 'right' | null = leftPinch ? 'left' : (rightPinch ? 'right' : null);
+      
+      if (side) {
+        const pinchPos = this.hands.pinchMid(side);
+        if (pinchPos) {
+          const dist = this.distanceToObjectSurface(pinchPos);
+          
+          if (dist !== null && dist <= GRAB_MAX_DISTANCE) {
+            // Within range - start/continue hold timer
+            if (holdHand === side) {
+              // Same hand still pinching - check if hold time met
+              if (holdStartTime !== null && Date.now() - holdStartTime >= HOLD_TIME_MS) {
+                // Activate grab!
+                this.activateTutorialGrab(side, pinchPos);
+                clearInterval(monitorInterval);
+              }
+            } else {
+              // New hand or different hand - reset timer
+              holdStartTime = Date.now();
+              holdHand = side;
+            }
+          } else {
+            // Too far - reset
+            holdStartTime = null;
+            holdHand = null;
+          }
+        }
+      } else {
+        // No pinch - reset
+        holdStartTime = null;
+        holdHand = null;
+      }
+    }, checkInterval);
+    
+    // Store interval ID for cleanup
+    (this as any).tutorialGrabMonitorInterval = monitorInterval;
+  }
+  
+  private activateTutorialGrab(side: 'left' | 'right', pinchPos: THREE.Vector3) {
+    const objPos = this.store.getObjectWorldPos();
+    if (!objPos) {
+      console.warn(`[Tutorial Grab] Cannot activate - object not found`);
+      return;
+    }
+    
+    this.tutorialGrabActive = true;
+    this.tutorialGrabSide = side;
+    this.tutorialGrabOffset.copy(objPos).sub(pinchPos);
+    this.tutorialGrabStartTime = Date.now();
+    this.tutorialGrabStartPosition = objPos.clone();
+    
+    console.log(`[Tutorial Grab] ✅ Activated! Side: ${side}, Object pos: ${objPos.toArray().map(v => v.toFixed(2)).join(',')}`);
+    
+    // Start update loop
+    this.tutorialGrabUpdateInterval = window.setInterval(() => {
+      this.updateTutorialGrab();
+    }, 16); // ~60fps
+  }
+  
+  private updateTutorialGrab() {
+    if (!this.tutorialGrabActive || !this.tutorialGrabSide) {
+      this.stopTutorialGrab();
+      return;
+    }
+    
+    // Check if still pinching
+    const stillPinching = this.hands.state[this.tutorialGrabSide].pinch;
+    const otherPinching = this.hands.state[this.tutorialGrabSide === 'left' ? 'right' : 'left'].pinch;
+    
+    // Cancel if other hand pinches (two-hand mode)
+    if (stillPinching && otherPinching) {
+      console.log(`[Tutorial Grab] Canceled - two-hand mode`);
+      this.stopTutorialGrab();
+      return;
+    }
+    
+    // Cancel if pinch released
+    if (!stillPinching) {
+      console.log(`[Tutorial Grab] Released`);
+      this.stopTutorialGrab();
+      return;
+    }
+    
+    // Get current hand position
+    const pinchPos = this.hands.pinchMid(this.tutorialGrabSide);
+    if (!pinchPos) {
+      console.log(`[Tutorial Grab] Lost hand tracking`);
+      this.stopTutorialGrab();
+      return;
+    }
+    
+    // Calculate new object position
+    const newObjPos = pinchPos.clone().add(this.tutorialGrabOffset);
+    
+    // Update object position directly
+    this.store.setPosition(newObjPos);
+  }
+  
+  private stopTutorialGrab() {
+    if (this.tutorialGrabActive) {
+      console.log(`[Tutorial Grab] Stopped`);
+    }
+    
+    this.tutorialGrabActive = false;
+    this.tutorialGrabSide = null;
+    this.tutorialGrabOffset.set(0, 0, 0);
+    this.tutorialGrabStartTime = null;
+    this.tutorialGrabStartPosition = null;
+    
+    if (this.tutorialGrabUpdateInterval) {
+      clearInterval(this.tutorialGrabUpdateInterval);
+      this.tutorialGrabUpdateInterval = null;
+    }
+    
+    if ((this as any).tutorialGrabMonitorInterval) {
+      clearInterval((this as any).tutorialGrabMonitorInterval);
+      (this as any).tutorialGrabMonitorInterval = null;
+    }
   }
   
   setOnComplete(callback: () => void) {
@@ -231,6 +405,8 @@ export class OnboardingTutorial {
       clearInterval(this.grabCheckInterval);
       this.grabCheckInterval = null;
     }
+    // Stop tutorial grab system
+    this.stopTutorialGrab();
     if (this.interactionMonitorInterval) {
       clearInterval(this.interactionMonitorInterval);
       this.interactionMonitorInterval = null;
@@ -443,13 +619,16 @@ export class OnboardingTutorial {
         }
       }, 100);
     }
-    // Grab detection - detect when user grabs, holds for 1.5s, and moves the object
+    // Grab detection - use TUTORIAL-SPECIFIC grab system (independent of FeedControls)
     else if (gesture === 'grab') {
       let grabStartTime: number | null = null;
       let grabStartPosition: THREE.Vector3 | null = null;
-      let wasGrabbing = false;
       const REQUIRED_HOLD_MS = 1500; // 1.5 seconds
       const MIN_MOVEMENT = 0.05; // 5cm movement required
+      const GRAB_MAX_DISTANCE = 0.25; // 25cm max distance to grab
+      
+      // Start tutorial grab monitoring
+      this.startTutorialGrabMonitoring();
       
       this.grabCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
@@ -457,21 +636,21 @@ export class OnboardingTutorial {
             clearInterval(this.grabCheckInterval);
             this.grabCheckInterval = null;
           }
+          this.stopTutorialGrab();
           return;
         }
         
-        const grabbing = (this.feedControls as any)?.grabbing;
-        const grabPending = (this.feedControls as any)?.grabPending;
-        const isGrabbing = grabbing || grabPending;
+        // Check if tutorial grab is active
+        const isGrabbing = this.tutorialGrabActive;
         
         // Track when grab starts
-        if (isGrabbing && !wasGrabbing) {
+        if (isGrabbing && grabStartTime === null) {
           // Grab just started
           grabStartTime = Date.now();
           const objPos = this.store.getObjectWorldPos();
           if (objPos) {
             grabStartPosition = objPos.clone();
-            console.log(`[Tutorial] Grab started at position:`, objPos);
+            console.log(`[Tutorial] ✅ Grab started at position:`, objPos);
           }
         }
         
@@ -486,18 +665,17 @@ export class OnboardingTutorial {
             // Check if user has held for 1.5s+ AND object has moved
             if (holdTime >= REQUIRED_HOLD_MS && movement >= MIN_MOVEMENT && !handlerFired) {
               console.log(`[Tutorial] ✅ Grab and drag completed! Hold time: ${holdTime}ms, Movement: ${(movement * 100).toFixed(1)}cm`);
+              this.stopTutorialGrab();
               handler();
             }
           }
         }
         
         // Reset if grab ends
-        if (!isGrabbing && wasGrabbing) {
+        if (!isGrabbing && grabStartTime !== null) {
           grabStartTime = null;
           grabStartPosition = null;
         }
-        
-        wasGrabbing = isGrabbing;
       }, 100);
     }
     // Scroll detection
