@@ -7,6 +7,7 @@
   { "id": "tutorial-repost", "title": "Repost Tutorial", "author": "HoloreelXR", "type": "shape", "shape": "pyramid", "color": "#FFD93D" },
   { "id": "tutorial-scroll", "title": "Scroll Tutorial", "author": "HoloreelXR", "type": "shape", "shape": "sphere", "color": "#6BCF7F" },
   { "id": "shape-blue-sphere", "title": "Blue Sphere", "author": "HoloreelXR", "type": "shape", "shape": "sphere", "color": "#3B82F6" },
+  { "id": "test-cube-after-earth", "title": "Test Cube (Post-Tutorial)", "author": "HoloreelXR", "type": "shape", "shape": "box", "color": "#FF00FF" },
   { "id": "glb-fox", "title": "Fox Run", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Fox/glTF-Binary/Fox.glb" },
   { "id": "glb-robot-expressive", "title": "Robot Expressive", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/RobotExpressive/glTF-Binary/RobotExpressive.glb" },
   { "id": "glb-cesium-man", "title": "Cesium Man", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/CesiumMan/glTF-Binary/CesiumMan.glb" },
