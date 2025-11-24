@@ -116,7 +116,16 @@ async function loadMainFeed() {
     // Update 3D panels to face camera
     xrAuthPanel.update(app.camera);
     xrMusicPanel.update(app.camera);
-    // Tutorial panel is now fixed position (not floating)
+    
+    // Update tutorial panel position to the right of the 3D model
+    if (onboarding.isVisible()) {
+      const objPos = store.getObjectWorldPos();
+      const camPos = new THREE.Vector3();
+      app.camera.getWorldPosition(camPos);
+      if (objPos) {
+        (onboarding as any).updatePosition?.(objPos, camPos);
+      }
+    }
   });
 
   // When XR session starts, place the current item in front of the user:

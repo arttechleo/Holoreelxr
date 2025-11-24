@@ -10,7 +10,7 @@ interface TutorialStep {
   detailedInstructions: string;
   shape: 'sphere' | 'pyramid' | 'box';
   color: string;
-  gesture?: string; // 'twohandrotate', 'twohandscale', 'grab', 'heart', 'thumbsup', 'peace', 'scroll'
+  gesture?: string;
   completed: boolean;
 }
 
@@ -20,31 +20,22 @@ export class OnboardingTutorial {
   private originalFeedIndex: number = 0;
   private firstNonTutorialIndex: number = 0;
   
-  // Comprehensive tutorial steps with detailed instructions
+  // Simplified reactive tutorial steps
   private steps: TutorialStep[] = [
     {
       id: 'welcome',
       title: '🎉 Welcome to HoloreelXR!',
-      description: 'Your immersive 3D social feed experience',
-      detailedInstructions: 'This tutorial will teach you how to interact with 3D content using hand gestures. Point at buttons with your index finger and pinch to click. Let\'s begin!',
+      description: 'Hand gesture-based 3D social feed',
+      detailedInstructions: 'Interact with the 3D model using hand gestures. When you first interact with it, the tutorial will guide you through each gesture.',
       shape: 'box',
       color: '#667eea',
       completed: false,
     },
     {
-      id: 'basics',
-      title: '👆 Hand Gesture Basics',
-      description: 'Point and pinch to interact',
-      detailedInstructions: 'Point at the "Next" button below with your index finger. When it highlights, pinch your thumb and index finger together to click it. Try it now!',
-      shape: 'box',
-      color: '#4ECDC4',
-      completed: false,
-    },
-    {
       id: 'rotate',
       title: '🔄 Rotate 3D Objects',
-      description: 'Two-hand rotation',
-      detailedInstructions: 'Pinch with BOTH hands on the cube. Move your hands in a circular motion to rotate it. Rotate at least 30 degrees to complete this step.',
+      description: 'Two-hand rotation gesture',
+      detailedInstructions: 'Pinch with BOTH hands on the cube. Move your hands in a circular motion to rotate it. Rotate at least 30 degrees.',
       shape: 'box',
       color: '#4ECDC4',
       gesture: 'twohandrotate',
@@ -53,8 +44,8 @@ export class OnboardingTutorial {
     {
       id: 'scale',
       title: '📏 Scale Objects',
-      description: 'Two-hand scaling',
-      detailedInstructions: 'Pinch with BOTH hands on the cube. Move your hands closer together to shrink it, or farther apart to enlarge it. Change the size to complete this step.',
+      description: 'Two-hand scaling gesture',
+      detailedInstructions: 'Pinch with BOTH hands on the cube. Move your hands closer together to shrink, or farther apart to enlarge.',
       shape: 'box',
       color: '#95E1D3',
       gesture: 'twohandscale',
@@ -63,8 +54,8 @@ export class OnboardingTutorial {
     {
       id: 'grab',
       title: '✋ Grab and Move',
-      description: 'Single-hand grab',
-      detailedInstructions: 'Pinch with ONE hand near the cube (within 15cm). Hold for 1 second, then move your hand to reposition the cube. Release the pinch to place it.',
+      description: 'Single-hand grab gesture',
+      detailedInstructions: 'Pinch with ONE hand near the cube. Hold for 1 second, then move your hand to reposition it.',
       shape: 'box',
       color: '#FF6B6B',
       gesture: 'grab',
@@ -73,8 +64,8 @@ export class OnboardingTutorial {
     {
       id: 'scroll',
       title: '📜 Scroll Feed',
-      description: 'Navigate content',
-      detailedInstructions: 'Pinch with ONE hand away from the object (more than 50cm). Move your hand UP or DOWN to scroll through the feed. Try scrolling now!',
+      description: 'Navigate through content',
+      detailedInstructions: 'Pinch with ONE hand away from the object. Move your hand UP or DOWN to scroll through the feed.',
       shape: 'sphere',
       color: '#6BCF7F',
       gesture: 'scroll',
@@ -84,7 +75,7 @@ export class OnboardingTutorial {
       id: 'like',
       title: '👍 Like Content',
       description: 'Thumbs up gesture',
-      detailedInstructions: 'Extend your thumb upward while keeping your other fingers curled. Hold the thumbs up gesture for a moment to like the content.',
+      detailedInstructions: 'Extend your thumb upward while keeping other fingers curled. Hold the gesture to like.',
       shape: 'sphere',
       color: '#F38181',
       gesture: 'thumbsup',
@@ -94,7 +85,7 @@ export class OnboardingTutorial {
       id: 'heart',
       title: '❤️ Save Content',
       description: 'Heart gesture',
-      detailedInstructions: 'Bring BOTH hands together. Touch your index fingers together, then touch your thumbs together. Hold for a moment to save the content.',
+      detailedInstructions: 'Bring BOTH hands together. Touch index fingers together, then thumbs together.',
       shape: 'box',
       color: '#AA96DA',
       gesture: 'heart',
@@ -104,19 +95,10 @@ export class OnboardingTutorial {
       id: 'repost',
       title: '✌️ Repost Content',
       description: 'Peace sign gesture',
-      detailedInstructions: 'Extend your index and middle fingers (peace sign) while keeping your ring and pinky fingers curled. Hold the gesture to repost.',
+      detailedInstructions: 'Extend your index and middle fingers (peace sign) while keeping ring and pinky curled.',
       shape: 'pyramid',
       color: '#FFD93D',
       gesture: 'peace',
-      completed: false,
-    },
-    {
-      id: 'complete',
-      title: '🎊 Tutorial Complete!',
-      description: 'You\'re ready to explore!',
-      detailedInstructions: 'Congratulations! You\'ve learned all the basic gestures. You can now explore your feed freely. Use the gestures you learned to interact with content!',
-      shape: 'box',
-      color: '#667eea',
       completed: false,
     },
   ];
@@ -129,17 +111,18 @@ export class OnboardingTutorial {
   private onComplete?: () => void;
   private tutorialItemIndices: number[] = [];
   private isLoading = false;
+  private interactionMonitorInterval: number | null = null;
   private twoHandCheckInterval: number | null = null;
   private grabCheckInterval: number | null = null;
   private feedControls: any = null;
   private currentGestureHandlers: Array<{ event: string; handler: () => void }> = [];
   private progressPercentage: number = 0;
-  private panelOpacity: number = 1.0;
-  private fadeInterval: number | null = null;
   private buttonRegions: { prev: { x: number; y: number; w: number; h: number }; next: { x: number; y: number; w: number; h: number } } | null = null;
   private hoveredButton: 'prev' | 'next' | null = null;
   private rotationInitialValue: number | null = null;
-  private rotationTrackingActive = false;
+  private scaleInitialValue: number | null = null;
+  private userHasInteracted = false; // Track if user has interacted with model
+  private modelLoaded = false;
 
   constructor(scene: THREE.Scene, hands: HandEngine, store: FeedStore, feedControls?: any) {
     this.hands = hands;
@@ -149,7 +132,6 @@ export class OnboardingTutorial {
     this.canvas = document.createElement('canvas');
     this.canvas.width = 1024;
     this.canvas.height = 600;
-    const ctx = this.canvas.getContext('2d')!;
     
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.minFilter = THREE.LinearFilter;
@@ -170,8 +152,6 @@ export class OnboardingTutorial {
     this.panel.position.set(0, 0.4, 0);
     this.group.add(this.panel);
     
-    this.panel.userData = { tutorial: this };
-    
     scene.add(this.group);
   }
   
@@ -183,7 +163,6 @@ export class OnboardingTutorial {
     this.onComplete = callback;
   }
   
-  // Set hover state for visual feedback
   setButtonHover(button: 'prev' | 'next' | null) {
     if (this.hoveredButton !== button) {
       this.hoveredButton = button;
@@ -191,11 +170,8 @@ export class OnboardingTutorial {
     }
   }
   
-  // Handle button clicks (triggered by pinch gesture)
   handleButtonClick(buttonType: 'prev' | 'next'): boolean {
     if (!this.group.visible || this.isLoading) return false;
-    
-    console.log(`[Tutorial] Button clicked: ${buttonType}`);
     
     if (buttonType === 'next') {
       if (this.currentStepIndex < this.steps.length - 1) {
@@ -239,8 +215,6 @@ export class OnboardingTutorial {
         this.firstNonTutorialIndex = i;
       }
     }
-    
-    console.log(`[Tutorial] Found ${this.tutorialItemIndices.length} tutorial items, first non-tutorial at index ${this.firstNonTutorialIndex}`);
   }
 
   private clearGestureHandlers() {
@@ -257,18 +231,43 @@ export class OnboardingTutorial {
       clearInterval(this.grabCheckInterval);
       this.grabCheckInterval = null;
     }
-    if (this.fadeInterval) {
-      clearInterval(this.fadeInterval);
-      this.fadeInterval = null;
+    if (this.interactionMonitorInterval) {
+      clearInterval(this.interactionMonitorInterval);
+      this.interactionMonitorInterval = null;
     }
     
-    this.rotationTrackingActive = false;
     this.rotationInitialValue = null;
+    this.scaleInitialValue = null;
+  }
+
+  // Monitor user interactions with 3D model
+  private startInteractionMonitoring() {
+    if (this.interactionMonitorInterval) {
+      clearInterval(this.interactionMonitorInterval);
+    }
+    
+    this.interactionMonitorInterval = window.setInterval(() => {
+      if (!this.group.visible || this.isLoading) return;
+      
+      // If we're on welcome step and user interacts, advance to rotation
+      if (this.currentStepIndex === 0 && !this.userHasInteracted && this.modelLoaded) {
+        const twoHandActive = (this.feedControls as any)?.twoHandActive;
+        const grabbing = (this.feedControls as any)?.grabbing;
+        const leftPinch = this.hands.state.left.pinch;
+        const rightPinch = this.hands.state.right.pinch;
+        
+        // Detect any interaction with the model
+        if (twoHandActive || grabbing || (leftPinch && rightPinch)) {
+          console.log('[Tutorial] User interaction detected! Advancing to rotation step...');
+          this.userHasInteracted = true;
+          this.showStep(1); // Go to rotation step
+        }
+      }
+    }, 100);
   }
 
   private async showStep(index: number) {
     if (index < 0 || index >= this.steps.length) {
-      console.warn(`[Tutorial] Invalid step index: ${index}`);
       return;
     }
     
@@ -280,21 +279,34 @@ export class OnboardingTutorial {
     
     console.log(`[Tutorial] Showing step ${index + 1}/${this.steps.length}: ${step.title}`);
     
-    // Update panel immediately
     this.updatePanel();
     
-    // Handle welcome and complete steps (no model needed)
-    if (step.id === 'welcome' || step.id === 'complete' || step.id === 'basics') {
-      // Just show the panel, no model loading needed
+    // Welcome step - just show panel, load first model
+    if (step.id === 'welcome') {
       this.group.visible = true;
-      if (step.gesture) {
-        this.waitForGesture(step.gesture);
+      this.userHasInteracted = false;
+      
+      // Load first tutorial model
+      if (this.tutorialItemIndices.length > 0) {
+        this.isLoading = true;
+        try {
+          this.store.index = this.tutorialItemIndices[0];
+          await this.store.showCurrent();
+          this.modelLoaded = true;
+          this.isLoading = false;
+          
+          // Start monitoring for interactions
+          this.startInteractionMonitoring();
+        } catch (error) {
+          console.error(`[Tutorial] Error loading model:`, error);
+          this.isLoading = false;
+        }
       }
       return;
     }
     
-    // For other steps, load the appropriate model
-    const tutorialItemIndex = index - 2; // Account for welcome and basics steps
+    // For other steps, load appropriate model
+    const tutorialItemIndex = index - 1; // Account for welcome step
     if (tutorialItemIndex >= 0 && tutorialItemIndex < this.tutorialItemIndices.length) {
       const feedIndex = this.tutorialItemIndices[tutorialItemIndex];
       this.isLoading = true;
@@ -302,14 +314,19 @@ export class OnboardingTutorial {
       try {
         this.store.index = feedIndex;
         await this.store.showCurrent();
+        this.modelLoaded = true;
         this.isLoading = false;
         
-        // Initialize rotation tracking for rotate step
+        // Initialize tracking for rotation/scale steps
         if (step.id === 'rotate') {
           setTimeout(() => {
             this.rotationInitialValue = this.store.rotationY;
-            this.rotationTrackingActive = true;
-            console.log(`[Tutorial] Rotation tracking initialized: ${this.rotationInitialValue}`);
+            console.log(`[Tutorial] Rotation tracking: initial=${this.rotationInitialValue}`);
+          }, 500);
+        } else if (step.id === 'scale') {
+          setTimeout(() => {
+            this.scaleInitialValue = this.store.scale;
+            console.log(`[Tutorial] Scale tracking: initial=${this.scaleInitialValue}`);
           }, 500);
         }
         
@@ -343,31 +360,28 @@ export class OnboardingTutorial {
     let handlerFired = false;
     
     const handler = () => {
-      if (this.isLoading || this.currentStepIndex !== stepIndex) {
+      if (this.isLoading || this.currentStepIndex !== stepIndex || handlerFired) {
         return;
       }
       
-      if (this.currentStepIndex === stepIndex && 
-          this.steps[stepIndex]?.gesture === expectedGesture) {
-        
-        handlerFired = true;
-        this.clearGestureHandlers();
-        
-        if (this.steps[stepIndex]) {
-          this.steps[stepIndex].completed = true;
-        }
-        
-        this.updatePanel();
-        
-        setTimeout(() => {
-          if (this.currentStepIndex === stepIndex) {
-            this.nextStep();
-          }
-        }, 1500);
+      handlerFired = true;
+      this.clearGestureHandlers();
+      
+      if (this.steps[stepIndex]) {
+        this.steps[stepIndex].completed = true;
       }
+      
+      this.updatePanel();
+      
+      // Automatically advance to next step after completion
+      setTimeout(() => {
+        if (this.currentStepIndex === stepIndex) {
+          this.nextStep();
+        }
+      }, 1500);
     };
     
-    // Rotation detection
+    // Rotation detection - monitor actual rotation changes
     if (gesture === 'twohandrotate') {
       this.twoHandCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
@@ -378,7 +392,7 @@ export class OnboardingTutorial {
           return;
         }
         
-        if (!this.rotationTrackingActive || this.rotationInitialValue === null) {
+        if (this.rotationInitialValue === null) {
           return;
         }
         
@@ -396,23 +410,15 @@ export class OnboardingTutorial {
         this.updatePanel();
         
         if (rotDiff >= REQUIRED_ROTATION && !handlerFired) {
-          handlerFired = true;
+          console.log(`[Tutorial] ✅ Rotation complete! ${(rotDiff * 180 / Math.PI).toFixed(1)}°`);
           handler();
         }
       }, 100);
     }
     // Scale detection
     else if (gesture === 'twohandscale') {
-      let initialScale = this.store.scale;
-      let scaleSet = false;
-      
-      setTimeout(() => {
-        initialScale = this.store.scale;
-        scaleSet = true;
-      }, 500);
-      
       this.twoHandCheckInterval = window.setInterval(() => {
-        if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex || !scaleSet) {
+        if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
           if (this.twoHandCheckInterval) {
             clearInterval(this.twoHandCheckInterval);
             this.twoHandCheckInterval = null;
@@ -420,11 +426,19 @@ export class OnboardingTutorial {
           return;
         }
         
-        const currentScale = this.store.scale;
-        const scaleChange = Math.abs(currentScale - initialScale);
+        if (this.scaleInitialValue === null) {
+          return;
+        }
         
-        if (scaleChange > 0.1) {
-          handlerFired = true;
+        const currentScale = this.store.scale;
+        const scaleChange = Math.abs(currentScale - this.scaleInitialValue);
+        
+        const progress = (scaleChange / 0.2) * 100; // 20% change = 100%
+        this.progressPercentage = Math.min(100, Math.max(0, progress));
+        this.updatePanel();
+        
+        if (scaleChange > 0.1 && !handlerFired) {
+          console.log(`[Tutorial] ✅ Scale complete! Change: ${(scaleChange * 100).toFixed(1)}%`);
           handler();
         }
       }, 100);
@@ -441,8 +455,8 @@ export class OnboardingTutorial {
         }
         
         const grabbing = (this.feedControls as any)?.grabbing;
-        if (grabbing) {
-          handlerFired = true;
+        if (grabbing && !handlerFired) {
+          console.log(`[Tutorial] ✅ Grab detected!`);
           handler();
         }
       }, 200);
@@ -459,18 +473,18 @@ export class OnboardingTutorial {
           return;
         }
         
-        if (this.store.index !== lastIndex) {
-          handlerFired = true;
+        if (this.store.index !== lastIndex && !handlerFired) {
+          console.log(`[Tutorial] ✅ Scroll detected!`);
           handler();
         }
         lastIndex = this.store.index;
       }, 200);
     }
-    // Gesture-based detections
+    // Gesture-based detections (thumbsup, heart, peace)
     else if (gesture === 'thumbsup') {
       const thumbsUpHandler = () => {
         if (!handlerFired && this.currentStepIndex === stepIndex) {
-          handlerFired = true;
+          console.log(`[Tutorial] ✅ Thumbs up detected!`);
           handler();
         }
       };
@@ -480,7 +494,7 @@ export class OnboardingTutorial {
     else if (gesture === 'heart') {
       const heartHandler = () => {
         if (!handlerFired && this.currentStepIndex === stepIndex) {
-          handlerFired = true;
+          console.log(`[Tutorial] ✅ Heart gesture detected!`);
           handler();
         }
       };
@@ -490,7 +504,7 @@ export class OnboardingTutorial {
     else if (gesture === 'peace') {
       const peaceHandler = () => {
         if (!handlerFired && this.currentStepIndex === stepIndex) {
-          handlerFired = true;
+          console.log(`[Tutorial] ✅ Peace gesture detected!`);
           handler();
         }
       };
@@ -575,10 +589,10 @@ export class OnboardingTutorial {
     // Navigation buttons
     this.drawNavigationButtons(ctx);
     
-    // Instructions for button interaction
+    // Instructions for button interaction (hand gestures only)
     ctx.font = '14px sans-serif';
     ctx.fillStyle = '#888';
-    ctx.fillText('👆 Point with index finger, pinch to click buttons', this.canvas.width / 2, this.canvas.height - 20);
+    ctx.fillText('👆 Point with index finger, pinch to click', this.canvas.width / 2, this.canvas.height - 20);
 
     this.texture.needsUpdate = true;
   }
@@ -662,10 +676,24 @@ export class OnboardingTutorial {
     }, 2000);
   }
 
+  // Update panel position to the right of the 3D model
+  updatePosition(objectPosition: THREE.Vector3, cameraPosition: THREE.Vector3) {
+    if (!this.group.visible) return;
+    
+    // Position panel to the RIGHT of the object
+    const rightOffset = new THREE.Vector3(0.5, 0, 0); // 0.5m to the right
+    const panelPos = objectPosition.clone().add(rightOffset);
+    panelPos.y = objectPosition.y + 0.2; // Slightly above object center
+    
+    this.group.position.copy(panelPos);
+    
+    // Make panel face camera
+    this.group.lookAt(cameraPosition);
+  }
+
   async show(camera: THREE.Camera) {
     this.currentStepIndex = 0;
     this.progressPercentage = 0;
-    this.panelOpacity = 1.0;
     this.steps.forEach(step => step.completed = false);
     
     if ((this.group as any).panelMaterial) {
@@ -677,6 +705,7 @@ export class OnboardingTutorial {
     
     this.group.visible = true;
     
+    // Initial position (will be updated by updatePosition)
     const pos = new THREE.Vector3();
     const dir = new THREE.Vector3();
     camera.getWorldPosition(pos);
@@ -696,7 +725,7 @@ export class OnboardingTutorial {
     return this.group.visible;
   }
   
-  // Raycast hit test for button clicks
+  // Raycast hit test for button clicks (hand gesture based)
   raycast(ray: THREE.Ray): { button?: 'prev' | 'next' } | null {
     if (!this.group.visible || !this.panel) {
       return null;
