@@ -768,7 +768,14 @@ export class FeedControls {
     }
     
     // PRIORITY 1: Try clicking the MR HUD
-    if (this.tryClickHud(side)) return;
+    // But don't block grab - check if we're close to object first
+    const pinch = this.hands.pinchMid(side);
+    const d = pinch ? this.distanceToObjectSurface(pinch) : null;
+    
+    // Only try HUD click if we're far from object (to avoid blocking grab)
+    if (d == null || d > 0.3) {
+      if (this.tryClickHud(side)) return;
+    }
 
     // PRIORITY 2: Normal interactions (scroll, grab, etc)
     this.setRayVisible(side, true);
@@ -788,8 +795,9 @@ export class FeedControls {
       return;
     }
 
-    const pinch = this.hands.pinchMid(side);
-    const d = pinch ? this.distanceToObjectSurface(pinch) : null;
+    // Use pinch from above (already calculated)
+    // const pinch = this.hands.pinchMid(side);
+    // const d = pinch ? this.distanceToObjectSurface(pinch) : null;
 
     // Instant grab if very close to object
     if (d != null && d <= this.INSTANT_GRAB_DIST) {
@@ -1066,18 +1074,30 @@ export class FeedControls {
     const pinch = this.hands.pinchMid(side);
     if (!pinch) return;
     const distSurf = this.distanceToObjectSurface(pinch);
-    if (distSurf == null || distSurf > TRANSFORM.GRAB_MAX_DISTANCE) return;
+    if (distSurf == null || distSurf > TRANSFORM.GRAB_MAX_DISTANCE) {
+      // Debug: log why grab didn't start
+      if (Math.random() < 0.1) { // 10% of calls
+        console.log(`[Grab] Too far: ${distSurf?.toFixed(3)}m > ${TRANSFORM.GRAB_MAX_DISTANCE}m`);
+      }
+      return;
+    }
+    
+    console.log(`[Grab] Starting grab pending for ${side} hand, distance: ${distSurf.toFixed(3)}m`);
     this.grabPending = true;
     this.grabPendingSide = side;
     this.grabPendingStartY = this.hands.pinchMid(side)?.y ?? null;
     if (this.grabTimer != null) clearTimeout(this.grabTimer);
     this.grabTimer = window.setTimeout(() => {
-      if (!this.grabPending || this.grabPendingSide !== side) return;
+      if (!this.grabPending || this.grabPendingSide !== side) {
+        console.log(`[Grab] Grab pending canceled before timeout`);
+        return;
+      }
       const other = side === 'left' ? 'right' : 'left';
       const stillPinching = this.hands.state[side].pinch && !this.hands.state[other].pinch;
       const mid = this.hands.pinchMid(side);
       const objPosNow = this.store.getObjectWorldPos();
       if (!stillPinching || !mid || !objPosNow) {
+        console.log(`[Grab] Grab pending canceled: stillPinching=${stillPinching}, mid=${!!mid}, objPos=${!!objPosNow}`);
         this.cancelGrabPending();
         return;
       }
@@ -1087,10 +1107,14 @@ export class FeedControls {
       this.grabPendingStartY = null;
       this.grabbing = true;
       this.grabSide = side;
+      console.log(`[Grab] ✅ Grab activated! User can now move object`);
       this.store.notify('Grabbed – move your hand to place');
     }, this.HOLD_MS);
   }
   private cancelGrabPending() {
+    if (this.grabPending) {
+      console.log(`[Grab] Grab pending canceled`);
+    }
     this.grabPending = false;
     this.grabPendingSide = null;
     this.grabPendingStartY = null;
@@ -1101,15 +1125,17 @@ export class FeedControls {
   }
   private updateGrabPendingGuard() {
     if (!this.grabPending || !this.grabPendingSide) return;
-    const yNow = this.hands.pinchMid(this.grabPendingSide)?.y ?? null;
-    if (yNow != null && this.grabPendingStartY != null) {
-      if (Math.abs(yNow - this.grabPendingStartY) > this.PENDING_CANCEL_MOVE) {
-        this.cancelGrabPending();
-        return;
-      }
-    }
+    
+    // Only cancel if other hand starts pinching (two-hand mode)
     const other = this.grabPendingSide === 'left' ? 'right' : 'left';
-    if (this.hands.state[other].pinch) this.cancelGrabPending();
+    if (this.hands.state[other].pinch) {
+      this.cancelGrabPending();
+      return;
+    }
+    
+    // Don't cancel based on Y movement - allow user to move hand while holding
+    // The original logic was too strict and prevented natural grab movements
+    // We only cancel if user releases pinch or other hand pinches
   }
   private updateGrabDrag() {
     if (!this.grabbing || !this.grabSide) return;
@@ -1125,12 +1151,14 @@ export class FeedControls {
       if (!this.hands.state[this.grabSide].pinch) {
         this.grabbing = false;
         this.grabSide = null;
+        console.log(`[Grab] Object placed`);
         this.store.notify('Placed');
         return;
       }
       const mid = this.hands.pinchMid(this.grabSide);
       if (!mid) {
         // If we lose hand tracking, cancel grab to prevent freeze
+        console.log(`[Grab] Lost hand tracking, canceling grab`);
         this.grabbing = false;
         this.grabSide = null;
         return;
@@ -1140,6 +1168,7 @@ export class FeedControls {
       const objPos = this.store.getObjectWorldPos();
       if (!objPos) {
         // Object doesn't exist, cancel grab
+        console.log(`[Grab] Object doesn't exist, canceling grab`);
         this.grabbing = false;
         this.grabSide = null;
         return;
