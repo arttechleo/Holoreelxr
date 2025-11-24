@@ -55,7 +55,7 @@ export class OnboardingTutorial {
       id: 'grab',
       title: '✋ Grab and Move',
       description: 'Single-hand grab gesture',
-      detailedInstructions: 'Pinch with ONE hand while pointing at the cube (works from any distance!). Move your hand to reposition it, then release the pinch to place it in the new location.',
+      detailedInstructions: 'Pinch with ONE hand to grab the cube (works from any distance!). Move your hand to reposition it, then release the pinch to place it in the new location.',
       shape: 'box',
       color: '#FF6B6B',
       gesture: 'grab',
@@ -199,51 +199,8 @@ export class OnboardingTutorial {
     return Math.max(0, distCenter - (radius + 0.04));
   }
   
-  /**
-   * Check if hand is pointing at the object using raycasting
-   * This allows grabbing from any distance - more intuitive in XR
-   * Uses a generous cone/angle tolerance for easier detection
-   */
-  private isHandPointingAtObject(handPos: THREE.Vector3, handDirection?: THREE.Vector3): boolean {
-    const obj = this.store.getObject();
-    const bounds = this.store.getObjectBounds();
-    if (!obj || !bounds) return false;
-    
-    const { center, radius } = bounds;
-    
-    // Calculate direction from hand to object center
-    const toObject = new THREE.Vector3().subVectors(center, handPos);
-    const distanceToCenter = toObject.length();
-    
-    // If very close (within 2x radius), always allow grab
-    if (distanceToCenter <= radius * 2) {
-      return true;
-    }
-    
-    // Normalize direction to object
-    toObject.normalize();
-    
-    // If hand direction provided, check angle between hand direction and direction to object
-    if (handDirection && handDirection.length() > 0.01) {
-      const normalizedHandDir = handDirection.clone().normalize();
-      const dot = normalizedHandDir.dot(toObject);
-      
-      // Use generous angle tolerance (45 degrees) - more forgiving
-      const MAX_ANGLE = Math.cos(Math.PI / 4); // cos(45°) ≈ 0.707
-      if (dot >= MAX_ANGLE) {
-        return true; // Hand is pointing roughly toward object
-      }
-    }
-    
-    // Fallback: Check if ray from hand toward object intersects bounding sphere
-    // Use a very generous sphere (2x radius) for easier detection
-    const ray = new THREE.Ray(handPos, toObject);
-    const sphere = new THREE.Sphere(center, radius * 2.0); // 2x larger for very easy detection
-    const intersection = ray.intersectSphere(sphere, new THREE.Vector3());
-    
-    // If ray intersects sphere, hand is pointing at object
-    return intersection !== null;
-  }
+  // REMOVED: Complex raycasting logic - too unreliable
+  // Now using SIMPLE approach: if pinching, grab immediately (no distance check)
   
   /**
    * BULLETPROOF GRAB SYSTEM - Simple, direct, works 100%
@@ -294,17 +251,9 @@ export class OnboardingTutorial {
         const stillPinching = this.hands.state[this.grabHand].pinch;
         const otherPinching = this.hands.state[this.grabHand === 'left' ? 'right' : 'left'].pinch;
         
-        // Release conditions
-        if (otherPinching) {
-          console.log(`[Tutorial Grab] Released - two-hand mode`);
-          this.checkGrabCompletion();
-          this.stopGrab();
-          return;
-        }
-        
-        if (!stillPinching) {
-          console.log(`[Tutorial Grab] Released - pinch ended`);
-          // Check if we moved enough to complete the step
+        // Release conditions - simplified
+        if (otherPinching || !stillPinching) {
+          console.log(`[Tutorial Grab] Released - ${otherPinching ? 'two-hand mode' : 'pinch ended'}`);
           this.checkGrabCompletion();
           this.stopGrab();
           return;
@@ -313,7 +262,7 @@ export class OnboardingTutorial {
         // Get current hand position
         const pinchPos = this.hands.pinchMid(this.grabHand);
         if (!pinchPos) {
-          console.log(`[Tutorial Grab] Released - no hand position`);
+          console.log(`[Tutorial Grab] Lost hand position - releasing`);
           this.checkGrabCompletion();
           this.stopGrab();
           return;
@@ -376,65 +325,27 @@ export class OnboardingTutorial {
           return;
         }
         
-        // Check if hand is pointing at object using raycasting
-        // This works at ANY distance - no distance restriction!
+        // ULTRA-SIMPLE: If pinching, grab immediately - NO distance check, NO raycasting!
+        // This works from ANY distance - just pinch and grab!
         const objPos = this.store.getObjectWorldPos();
         if (!objPos) {
           console.warn(`[Tutorial Grab] Cannot grab - object position is null`);
           return;
         }
         
-        // Get hand direction (from index finger to thumb, or toward object)
-        const indexTip = this.hands.indexTip(side);
-        const thumbTip = this.hands.thumbTip(side);
-        let handDirection: THREE.Vector3 | undefined = undefined;
-        
-        if (indexTip && thumbTip) {
-          // Use direction from thumb to index (pointing direction)
-          handDirection = new THREE.Vector3().subVectors(indexTip, thumbTip).normalize();
-        }
-        
-        // Check if hand is pointing at object
-        const isPointing = this.isHandPointingAtObject(pinchPos, handDirection);
-        
-        // Also check distance as fallback (very generous - 10m)
-        const dist = this.distanceToObjectSurface(pinchPos);
-        const MAX_DISTANCE_FALLBACK = 10.0; // 10 meters - effectively unlimited
-        
-        // Log when pinching to help debug
-        if (leftPinch || rightPinch) {
-          console.log(`[Tutorial Grab] Checking: side=${side}, pointing=${isPointing}, dist=${dist?.toFixed(3)}m, objPos=${objPos.toArray().map(v => v.toFixed(2)).join(',')}, pinchPos=${pinchPos.toArray().map(v => v.toFixed(2)).join(',')}`);
-        }
-        
-        // Allow grab if pointing at object OR within fallback distance
-        if (!isPointing) {
-          if (dist === null) {
-            console.warn(`[Tutorial Grab] Not pointing and distance is null - cannot grab`);
-            return;
-          }
-          if (dist > MAX_DISTANCE_FALLBACK) {
-            // Too far and not pointing - log to help user
-            console.log(`[Tutorial Grab] Not pointing at object and too far: ${dist.toFixed(3)}m - point your hand at the object!`);
-            return;
-          }
-          // Within fallback distance but not pointing - still allow (for very close grabs)
-          console.log(`[Tutorial Grab] Within range (${dist.toFixed(3)}m) but not pointing - allowing grab anyway`);
-        }
-        
-        // Start grabbing immediately
+        // Start grabbing immediately - no checks, just grab!
         this.isGrabbing = true;
         this.grabHand = side;
         this.grabOffset.copy(objPos).sub(pinchPos);
         this.grabStartTime = now;
         this.grabStartPosition = objPos.clone();
-        this.grabHasMoved = false; // Reset movement tracking
+        this.grabHasMoved = false;
         
         console.log(`[Tutorial Grab] ✅✅✅ GRABBED! ${side} hand`);
-        console.log(`  Pointing: ${isPointing}, Distance: ${dist?.toFixed(3) || 'null'}m`);
         console.log(`  Object: ${objPos.toArray().map(v => v.toFixed(3)).join(',')}`);
         console.log(`  Hand: ${pinchPos.toArray().map(v => v.toFixed(3)).join(',')}`);
         console.log(`  Offset: ${this.grabOffset.toArray().map(v => v.toFixed(3)).join(',')}`);
-        console.log(`  Now move your hand to move the object, then release to place it!`);
+        console.log(`  Move your hand to move the object, then release to place!`);
       }
     } catch (error) {
       console.error('[Tutorial Grab] CRITICAL ERROR:', error);
