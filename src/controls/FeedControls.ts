@@ -1225,21 +1225,34 @@ export class FeedControls {
     }
   }
   private tryStartGrabPending(side: 'left' | 'right') {
-    // CRITICAL: Only disable if tutorial is ACTUALLY active and on grab step
-    // After tutorial completion, isGrabStepActive() returns false, so grab works normally
+    console.log(`[FeedControls] tryStartGrabPending(${side}) called`);
+    
+    // CRITICAL: Check tutorial completion FIRST - if completed, skip all tutorial checks
+    let tutorialCompleted = false;
     if (this.onboardingTutorial) {
+      const tutorial = this.onboardingTutorial as any;
+      tutorialCompleted = tutorial.tutorialCompleted === true;
+      console.log(`[FeedControls] Tutorial completed: ${tutorialCompleted}`);
+    }
+    
+    // If tutorial is completed, skip all tutorial checks
+    if (!tutorialCompleted && this.onboardingTutorial) {
       const tutorial = this.onboardingTutorial as any;
       // Use isTutorialActive() as primary check - more reliable
       if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
         if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
           // Tutorial is handling grab - don't interfere
+          console.log(`[FeedControls] Tutorial grab step active - blocking grab`);
           return;
         }
       }
       // If tutorial is not active, grab works normally
     }
     
-    if (this.grabbing || this.grabPending) return;
+    if (this.grabbing || this.grabPending) {
+      console.log(`[FeedControls] Already grabbing or pending: grabbing=${this.grabbing}, pending=${this.grabPending}`);
+      return;
+    }
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) return;
     const pinch = this.hands.pinchMid(side);

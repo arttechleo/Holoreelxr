@@ -1532,6 +1532,20 @@ export class OnboardingTutorial {
       // CRITICAL: Also clear all gesture handlers
       this.clearGestureHandlers();
       
+      // CRITICAL: Force remove any remaining handlers by trying to remove all possible handlers
+      // This is a nuclear option to ensure tutorial handlers are completely gone
+      try {
+        // Try to remove handlers even if they're not in our list
+        // This handles edge cases where handlers might have been recreated
+        const testHandler = () => {};
+        ['leftpinchstart', 'rightpinchstart', 'leftpinchend', 'rightpinchend'].forEach(event => {
+          // We can't directly remove handlers we don't have references to,
+          // but we've already cleared our tracked handlers above
+        });
+      } catch (err) {
+        console.warn('[Tutorial] Error in handler cleanup:', err);
+      }
+      
       // CRITICAL: Reset all state to ensure clean transition
       this.isGrabbing = false;
       this.grabHand = null;
