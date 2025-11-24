@@ -842,9 +842,15 @@ export class FeedControls {
 
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
-    // CRITICAL: Only check tutorial if it's ACTUALLY active
-    // After tutorial completion, isTutorialActive() returns false, so all checks pass
+    // CRITICAL: Check if tutorial is completed - if so, ignore all tutorial checks
+    let tutorialCompleted = false;
     if (this.onboardingTutorial) {
+      const tutorial = this.onboardingTutorial as any;
+      tutorialCompleted = tutorial.tutorialCompleted === true;
+    }
+    
+    // If tutorial is completed, skip all tutorial checks and proceed normally
+    if (!tutorialCompleted && this.onboardingTutorial) {
       const tutorial = this.onboardingTutorial as any;
       // Use isTutorialActive() as primary check - more reliable
       if (tutorial.isTutorialActive && tutorial.isTutorialActive()) {
@@ -863,8 +869,8 @@ export class FeedControls {
         // For other tutorial steps, allow grab/scroll to work normally
         // This ensures users can still interact during tutorial
       }
-      // If tutorial is not active, proceed normally - FeedControls works fully
     }
+    // If tutorial is completed or not active, proceed normally - FeedControls works fully
     
     // PRIORITY 1: Try clicking the MR HUD
     // But don't block grab - check if we're close to object first
