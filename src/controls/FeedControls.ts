@@ -1135,29 +1135,38 @@ export class FeedControls {
         return;
       }
       
-      // Method 1: Distance-based arming (if far from object) - immediate
-      // More lenient: reduce threshold by 50% to make scrolling easier
-      const scrollStartDistance = this.SCROLL_START_FAR * 0.5; // 50% of normal distance
-      if (distSurf != null && distSurf >= scrollStartDistance) {
+      // Method 1: Distance-based arming (if far from object OR no object bounds) - immediate
+      // More lenient: reduce threshold by 70% to make scrolling much easier
+      const scrollStartDistance = this.SCROLL_START_FAR * 0.3; // 30% of normal distance = 3cm
+      // CRITICAL: If distSurf is null (no object bounds), assume we're far from object and arm scroll
+      // This handles the case where object is loading after tutorial completion
+      if (distSurf == null || distSurf >= scrollStartDistance) {
         this.scrollArmed = true;
-        console.log(`[Scroll] ✅ Armed by distance: ${distSurf.toFixed(3)}m (threshold: ${scrollStartDistance.toFixed(3)}m)`);
+        const reason = distSurf == null ? 'no object bounds (assumed far)' : `${distSurf.toFixed(3)}m`;
+        console.log(`[Scroll] ✅ Armed by distance: ${reason} (threshold: ${scrollStartDistance.toFixed(3)}m)`);
       }
       // Method 2: Movement-based arming (if hand moves vertically) - after hold time
-      // More sensitive: reduce movement threshold
+      // Much more sensitive: reduce movement threshold to 1mm
       else if (this.lastPinchY != null && this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS)) {
         const y = mid.y;
         const dy = Math.abs(y - this.lastPinchY);
-        if (dy > 0.003) { // 0.3cm movement = arm scroll (more sensitive than before)
+        if (dy > 0.001) { // 1mm movement = arm scroll (very sensitive)
           this.scrollArmed = true;
-          console.log(`[Scroll] ✅ Armed by movement: ${(dy * 100).toFixed(1)}cm after ${(now - this.pinchStartAt).toFixed(0)}ms`);
+          console.log(`[Scroll] ✅ Armed by movement: ${(dy * 100).toFixed(2)}cm after ${(now - this.pinchStartAt).toFixed(0)}ms`);
         }
       }
       // Method 3: Auto-arm after hold time if no grab (fallback - ensures scroll always works)
-      // Faster auto-arm: reduce from 2x to 1.5x hold time
-      else if (this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS * 1.5) && !this.grabPending) {
-        // After 120ms (1.5x hold time) with no grab, auto-arm scroll
+      // Much faster auto-arm: just 1.2x hold time (60ms)
+      else if (this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS * 1.2) && !this.grabPending) {
+        // After 60ms (1.2x hold time) with no grab, auto-arm scroll
         this.scrollArmed = true;
         console.log(`[Scroll] ✅ Auto-armed after ${(now - this.pinchStartAt).toFixed(0)}ms (no grab detected)`);
+      }
+      // Method 4: EMERGENCY fallback - if tutorial is completed and we've been pinching for 200ms, FORCE arm scroll
+      // This ensures scroll ALWAYS works after tutorial, even if other conditions fail
+      else if (this.isTutorialCompleted() && this.pinchStartAt && (now - this.pinchStartAt >= 200)) {
+        this.scrollArmed = true;
+        console.log(`[Scroll] ✅✅✅ EMERGENCY ARMED after 200ms (tutorial completed, ensuring scroll works)`);
       }
       
       // If still not armed, initialize tracking but don't scroll yet
@@ -1202,16 +1211,22 @@ export class FeedControls {
     const dy = this.filtPinchY - this.lastPinchY;
     this.lastPinchY = this.filtPinchY;
     
-    // Check minimum velocity to avoid jitter (but be more lenient)
-    if (Math.abs(dy) < this.SCROLL_VEL_MIN) {
+    // Check minimum velocity to avoid jitter (but be MORE lenient after tutorial)
+    // After tutorial completion, use even lower threshold to make scrolling easier
+    const minVelocity = this.isTutorialCompleted() ? this.SCROLL_VEL_MIN * 0.5 : this.SCROLL_VEL_MIN;
+    
+    if (Math.abs(dy) < minVelocity) {
       // Still accumulate small movements to make scroll more responsive
-      if (Math.abs(dy) > 0.001) { // 1mm minimum
-        this.scrollAccum += dy * 0.5; // Partial accumulation for small movements
+      // After tutorial, accumulate even tiny movements to ensure scroll works
+      const minAccumThreshold = this.isTutorialCompleted() ? 0.0005 : 0.001;
+      if (Math.abs(dy) > minAccumThreshold) {
+        const accumFactor = this.isTutorialCompleted() ? 0.8 : 0.5; // More aggressive after tutorial
+        this.scrollAccum += dy * accumFactor;
       }
       return;
     }
 
-    // Accumulate scroll displacement
+    // Accumulate scroll displacement (full accumulation for movements above threshold)
     this.scrollAccum += dy;
     
     // Debug: log accumulation progress
