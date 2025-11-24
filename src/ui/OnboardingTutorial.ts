@@ -201,6 +201,30 @@ export class OnboardingTutorial {
   }
   
   /**
+   * Check if tutorial is currently visible and active
+   */
+  isTutorialActive(): boolean {
+    return this.group.visible && !this.isLoading;
+  }
+  
+  /**
+   * Get current tutorial step gesture (if any)
+   */
+  getCurrentGesture(): string | undefined {
+    return this.steps[this.currentStepIndex]?.gesture;
+  }
+  
+  /**
+   * Check if we should show ReactionHud for current step
+   * Only show for like, heart, repost steps
+   */
+  shouldShowReactionHud(): boolean {
+    if (!this.isTutorialActive()) return true; // Show outside tutorial
+    const gesture = this.getCurrentGesture();
+    return gesture === 'thumbsup' || gesture === 'heart' || gesture === 'peace';
+  }
+  
+  /**
    * Check if we're currently on the grab step
    * This allows FeedControls to disable its grab system
    */
@@ -418,33 +442,50 @@ export class OnboardingTutorial {
     // Trigger scroll when threshold reached
     if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP) {
       const dir = this.scrollAccum < 0 ? +1 : -1;
-      this.store.next(dir);
-      this.scrollAccum = 0;
-      this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
       
-      console.log(`[Tutorial Scroll] ✅ Scrolled! Direction: ${dir > 0 ? 'Next' : 'Previous'}`);
-      
-      // Check if index changed to complete step
-      if (this.lastScrollIndex >= 0 && this.store.index !== this.lastScrollIndex) {
-        console.log(`[Tutorial Scroll] ✅✅✅ COMPLETED! Index changed from ${this.lastScrollIndex} to ${this.store.index}`);
-        
-        // Mark step as completed
-        if (this.steps[this.scrollStepIndex]) {
-          this.steps[this.scrollStepIndex].completed = true;
-        }
-        this.updatePanel();
-        
-        // Advance to next step
-        if (this.currentStepIndex === this.scrollStepIndex) {
-          setTimeout(() => {
-            if (this.currentStepIndex === this.scrollStepIndex) {
-              this.nextStep();
+      // CRITICAL: Only scroll within tutorial items - don't scroll to non-tutorial items!
+      const currentTutorialIndex = this.tutorialItemIndices.indexOf(this.store.index);
+      if (currentTutorialIndex >= 0) {
+        const nextTutorialIndex = currentTutorialIndex + dir;
+        if (nextTutorialIndex >= 0 && nextTutorialIndex < this.tutorialItemIndices.length) {
+          const nextFeedIndex = this.tutorialItemIndices[nextTutorialIndex];
+          this.store.index = nextFeedIndex;
+          this.store.showCurrent().catch(err => {
+            console.error('[Tutorial Scroll] Error loading item:', err);
+          });
+          
+          console.log(`[Tutorial Scroll] ✅ Scrolled! Direction: ${dir > 0 ? 'Next' : 'Previous'}, Tutorial index: ${currentTutorialIndex} → ${nextTutorialIndex}, Feed index: ${this.store.index} → ${nextFeedIndex}`);
+          
+          // Check if index changed to complete step
+          if (this.lastScrollIndex >= 0 && this.store.index !== this.lastScrollIndex) {
+            console.log(`[Tutorial Scroll] ✅✅✅ COMPLETED! Index changed from ${this.lastScrollIndex} to ${this.store.index}`);
+            
+            // Mark step as completed
+            if (this.steps[this.scrollStepIndex]) {
+              this.steps[this.scrollStepIndex].completed = true;
             }
-          }, 1000);
+            this.updatePanel();
+            
+            // Advance to next step
+            if (this.currentStepIndex === this.scrollStepIndex) {
+              setTimeout(() => {
+                if (this.currentStepIndex === this.scrollStepIndex) {
+                  this.nextStep();
+                }
+              }, 1000);
+            }
+          }
+          
+          this.lastScrollIndex = this.store.index;
+        } else {
+          console.log(`[Tutorial Scroll] Reached end of tutorial items (${currentTutorialIndex} + ${dir} = ${nextTutorialIndex})`);
         }
+      } else {
+        console.warn(`[Tutorial Scroll] Current index ${this.store.index} is not a tutorial item!`);
       }
       
-      this.lastScrollIndex = this.store.index;
+      this.scrollAccum = 0;
+      this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
     }
   }
   
@@ -919,55 +960,84 @@ export class OnboardingTutorial {
       return;
     }
     
-    // For other steps, load appropriate model
-    const tutorialItemIndex = index - 1; // Account for welcome step
-    if (tutorialItemIndex >= 0 && tutorialItemIndex < this.tutorialItemIndices.length) {
-      const feedIndex = this.tutorialItemIndices[tutorialItemIndex];
-      this.isLoading = true;
-      
-      try {
-        this.store.index = feedIndex;
-        await this.store.showCurrent();
+    // For scroll step - don't change item, stay on current and allow scrolling
+    if (step.id === 'scroll') {
+      // Ensure we're on a tutorial item
+      const currentTutorialIndex = this.tutorialItemIndices.indexOf(this.store.index);
+      if (currentTutorialIndex < 0 && this.tutorialItemIndices.length > 0) {
+        // Not on a tutorial item - load the first one
+        this.isLoading = true;
+        try {
+          this.store.index = this.tutorialItemIndices[0];
+          await this.store.showCurrent();
+          this.modelLoaded = true;
+          this.isLoading = false;
+        } catch (error) {
+          console.error(`[Tutorial] Error loading first tutorial item:`, error);
+          this.isLoading = false;
+        }
+      } else {
         this.modelLoaded = true;
         this.isLoading = false;
+      }
+      
+      this.group.visible = true;
+      
+      if (step.gesture) {
+        this.waitForGesture(step.gesture);
+      }
+    }
+    // For other steps, load appropriate model
+    else {
+      const tutorialItemIndex = index - 1; // Account for welcome step
+      if (tutorialItemIndex >= 0 && tutorialItemIndex < this.tutorialItemIndices.length) {
+        const feedIndex = this.tutorialItemIndices[tutorialItemIndex];
+        this.isLoading = true;
         
-        // Initialize tracking for rotation/scale steps
-        // Clear any existing timeouts first
-        if (this.rotationInitTimeout) {
-          clearTimeout(this.rotationInitTimeout);
-          this.rotationInitTimeout = null;
-        }
-        if (this.scaleInitTimeout) {
-          clearTimeout(this.scaleInitTimeout);
-          this.scaleInitTimeout = null;
-        }
-        
-        if (step.id === 'rotate') {
-          this.rotationInitTimeout = window.setTimeout(() => {
-            if (this.currentStepIndex === index) { // Only set if still on same step
-              this.rotationInitialValue = this.store.rotationY;
-              console.log(`[Tutorial] Rotation tracking: initial=${this.rotationInitialValue}`);
-            }
+        try {
+          this.store.index = feedIndex;
+          await this.store.showCurrent();
+          this.modelLoaded = true;
+          this.isLoading = false;
+          
+          // Initialize tracking for rotation/scale steps
+          // Clear any existing timeouts first
+          if (this.rotationInitTimeout) {
+            clearTimeout(this.rotationInitTimeout);
             this.rotationInitTimeout = null;
-          }, 500);
-        } else if (step.id === 'scale') {
-          this.scaleInitTimeout = window.setTimeout(() => {
-            if (this.currentStepIndex === index) { // Only set if still on same step
-              this.scaleInitialValue = this.store.scale;
-              console.log(`[Tutorial] Scale tracking: initial=${this.scaleInitialValue}`);
-            }
+          }
+          if (this.scaleInitTimeout) {
+            clearTimeout(this.scaleInitTimeout);
             this.scaleInitTimeout = null;
-          }, 500);
+          }
+          
+          if (step.id === 'rotate') {
+            this.rotationInitTimeout = window.setTimeout(() => {
+              if (this.currentStepIndex === index) { // Only set if still on same step
+                this.rotationInitialValue = this.store.rotationY;
+                console.log(`[Tutorial] Rotation tracking: initial=${this.rotationInitialValue}`);
+              }
+              this.rotationInitTimeout = null;
+            }, 500);
+          } else if (step.id === 'scale') {
+            this.scaleInitTimeout = window.setTimeout(() => {
+              if (this.currentStepIndex === index) { // Only set if still on same step
+                this.scaleInitialValue = this.store.scale;
+                console.log(`[Tutorial] Scale tracking: initial=${this.scaleInitialValue}`);
+              }
+              this.scaleInitTimeout = null;
+            }, 500);
+          }
+          
+          this.group.visible = true;
+          
+          if (step.gesture) {
+            this.waitForGesture(step.gesture);
+          }
+        } catch (error) {
+          console.error(`[Tutorial] Error loading model:`, error);
+          this.isLoading = false;
         }
-        
-        this.group.visible = true;
-        
-        if (step.gesture) {
-          this.waitForGesture(step.gesture);
-        }
-      } catch (error) {
-        console.error(`[Tutorial] Error loading model:`, error);
-        this.isLoading = false;
       }
     }
   }
@@ -1097,6 +1167,17 @@ export class OnboardingTutorial {
     else if (gesture === 'scroll') {
       // Initialize scroll system
       this.scrollStepIndex = stepIndex;
+      
+      // CRITICAL: Ensure we're on a tutorial item - if not, load the first one
+      const currentTutorialIndex = this.tutorialItemIndices.indexOf(this.store.index);
+      if (currentTutorialIndex < 0 && this.tutorialItemIndices.length > 0) {
+        // Not on a tutorial item - load the first one
+        this.store.index = this.tutorialItemIndices[0];
+        this.store.showCurrent().catch(err => {
+          console.error('[Tutorial Scroll] Error loading first tutorial item:', err);
+        });
+      }
+      
       this.lastScrollIndex = this.store.index;
       
       // Reset scroll state
@@ -1110,6 +1191,7 @@ export class OnboardingTutorial {
       
       console.log(`[Tutorial Scroll] ✅ Initialized for step ${stepIndex}`);
       console.log(`  Current index: ${this.store.index}`);
+      console.log(`  Tutorial items: ${this.tutorialItemIndices.join(', ')}`);
       console.log(`  Ready to scroll! Pinch away from object and move UP/DOWN`);
       
       // Scroll logic runs in updateTutorialScroll() called from updateGrab() frame loop
