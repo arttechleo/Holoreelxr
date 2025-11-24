@@ -8,8 +8,14 @@ export const GESTURE = {
   /** Distance (m) between thumb and index tips to register pinch */
   PINCH_THRESHOLD: 0.035,
   
-  /** Distance (m) for heart gesture (index fingers collide + thumbs collide) - REDUCED for better detection */
-  HEART_THRESHOLD: 0.08,
+  /** Distance (m) for heart gesture pair collisions (index↔index & thumb↔thumb) */
+  HEART_THRESHOLD: 0.11,
+  
+  /** Average distance (m) between both pairs to still consider it a heart */
+  HEART_COMBINED_THRESHOLD: 0.14,
+  
+  /** Cross-hand thumb/index proximity threshold (m) for relaxed detection */
+  HEART_CROSS_THRESHOLD: 0.13,
   
   /** Min distance (m) from wrist for extended fingers */
   FINGER_EXTENDED_THRESHOLD: 0.085,
@@ -32,23 +38,23 @@ export const GESTURE = {
 
 // ========== INTERACTION CONTROLS ==========
 export const CONTROLS = {
-  /** Scroll threshold: vertical displacement to trigger feed change (m) - REDUCED for more responsive scrolling */
-  SCROLL_DISPLACEMENT: 0.015,
+  /** Scroll threshold: vertical displacement to trigger feed change (m) */
+  SCROLL_DISPLACEMENT: 0.012,
   
-  /** Cooldown between scroll actions (ms) - REDUCED for faster scrolling */
-  SCROLL_COOLDOWN_MS: 200,
+  /** Cooldown between scroll actions (ms) */
+  SCROLL_COOLDOWN_MS: 180,
   
-  /** Minimum vertical velocity to register scroll (m/s) - REDUCED for more responsive scrolling */
-  SCROLL_MIN_VELOCITY: 0.004,
+  /** Minimum vertical velocity to register scroll (m/s) */
+  SCROLL_MIN_VELOCITY: 0.0025,
   
-  /** Distance from object to allow "in air" scrolling (m) - INCREASED for easier scrolling */
-  SCROLL_IN_AIR_DISTANCE: 0.20,
+  /** Distance from object to allow "in air" scrolling (m) */
+  SCROLL_IN_AIR_DISTANCE: 0.25,
   
-  /** Distance from object to start armed for scrolling (m) - REDUCED for easier activation */
-  SCROLL_START_DISTANCE: 0.12,
+  /** Distance from object to start armed for scrolling (m) */
+  SCROLL_START_DISTANCE: 0.10,
   
-  /** Minimum pinch hold time before scroll is allowed (ms) - SHORTER than GRAB_HOLD_MS to give scroll priority */
-  SCROLL_MIN_HOLD_MS: 80,
+  /** Minimum pinch hold time before scroll is allowed (ms) */
+  SCROLL_MIN_HOLD_MS: 60,
   
   /** Low-pass filter alpha for scroll smoothing - INCREASED for smoother tracking */
   SCROLL_LPF_ALPHA: 0.32,

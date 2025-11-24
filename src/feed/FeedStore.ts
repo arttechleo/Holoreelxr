@@ -24,6 +24,7 @@ export class FeedStore {
 
   private seq?: SplatSequence;
   private gltfLoader?: GLTFModelLoader;
+  private preloadInFlight = new Set<number>();
   private currentGLTF?: THREE.Group;
   private onHud?: (t: string) => void;
   private parent: THREE.Object3D;
@@ -177,11 +178,8 @@ export class FeedStore {
       } else if (item.type === 'gltf' || item.type === 'glb') {
         // Load GLTF/GLB model
         console.log(`[FeedStore] Loading GLB/GLTF: ${item.title} from ${item.src}`);
-        if (!this.gltfLoader) {
-          this.gltfLoader = new GLTFModelLoader();
-        }
         try {
-          const gltf = await this.gltfLoader.load(item.src);
+          const gltf = await this.ensureGLTFLoader().load(item.src);
           console.log(`[FeedStore] ✅ Successfully loaded GLB/GLTF: ${item.title}`, gltf);
           
           gltf.scene.name = 'content-gltf';
@@ -190,6 +188,7 @@ export class FeedStore {
           gltf.scene.scale.multiplyScalar(this._scale);
           this.parent.add(gltf.scene);
           this.currentGLTF = gltf.scene;
+          this.preloadNextModels(3);
           
           // Play animations if available
           if (gltf.animations && gltf.animations.length > 0) {
@@ -366,6 +365,55 @@ export class FeedStore {
         this.effects.splice(i, 1);
       }
     }
+  }
+
+  /**
+   * Preload a range of upcoming feed items (GLB/GLTF only) so that once the
+   * user scrolls past the current object, the next assets display instantly.
+   */
+  preloadRange(startIndex: number, count = 2) {
+    this.preloadModelsFrom(startIndex, count);
+  }
+
+  private ensureGLTFLoader(): GLTFModelLoader {
+    if (!this.gltfLoader) {
+      this.gltfLoader = new GLTFModelLoader();
+    }
+    return this.gltfLoader;
+  }
+
+  private preloadNextModels(count = 2) {
+    if (!this.items.length) return;
+    this.preloadModelsFrom(this.index + 1, count);
+  }
+
+  private preloadModelsFrom(startIndex: number, count: number) {
+    const maxIndex = this.items.length - 1;
+    if (maxIndex < 0) return;
+
+    for (let offset = 0; offset < count; offset++) {
+      const idx = startIndex + offset;
+      if (idx < 0 || idx > maxIndex) break;
+      this.schedulePreload(idx);
+    }
+  }
+
+  private schedulePreload(index: number) {
+    const item = this.items[index];
+    if (!item || (item.type !== 'glb' && item.type !== 'gltf')) {
+      return;
+    }
+    if (this.preloadInFlight.has(index)) {
+      return;
+    }
+
+    this.preloadInFlight.add(index);
+    this.ensureGLTFLoader()
+      .preload(item.src)
+      .catch((err) => {
+        logError(err, `FeedStore.preload:${item.id}`);
+      })
+      .finally(() => this.preloadInFlight.delete(index));
   }
 
   setPosition(worldPos: THREE.Vector3) {
