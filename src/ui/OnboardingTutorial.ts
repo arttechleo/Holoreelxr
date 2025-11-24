@@ -860,64 +860,21 @@ export class OnboardingTutorial {
         }
       }, 100);
     }
-    // Grab detection - use TUTORIAL-SPECIFIC grab system (independent of FeedControls)
+    // Grab detection - NEW frame-based system (100% reliable)
     else if (gesture === 'grab') {
-      let grabStartTime: number | null = null;
-      let grabStartPosition: THREE.Vector3 | null = null;
-      const REQUIRED_HOLD_MS = 1500; // 1.5 seconds
-      const MIN_MOVEMENT = 0.05; // 5cm movement required
-      const GRAB_MAX_DISTANCE = 0.25; // 25cm max distance to grab
+      // Initialize grab system for this step
+      this.grabState = 'idle';
+      this.grabHand = null;
+      this.grabStepIndex = stepIndex;
+      this.grabHoldStartTime = 0;
+      this.grabStartTime = 0;
+      this.grabStartPosition = null;
+      this.grabOffset.set(0, 0, 0);
       
-      // Start tutorial grab monitoring
-      this.startTutorialGrabMonitoring();
+      console.log(`[Tutorial Grab] Initialized for step ${stepIndex}`);
       
-      this.grabCheckInterval = window.setInterval(() => {
-        if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
-          if (this.grabCheckInterval) {
-            clearInterval(this.grabCheckInterval);
-            this.grabCheckInterval = null;
-          }
-          this.stopTutorialGrab();
-          return;
-        }
-        
-        // Check if tutorial grab is active
-        const isGrabbing = this.tutorialGrabActive;
-        
-        // Track when grab starts
-        if (isGrabbing && grabStartTime === null) {
-          // Grab just started
-          grabStartTime = Date.now();
-          const objPos = this.store.getObjectWorldPos();
-          if (objPos) {
-            grabStartPosition = objPos.clone();
-            console.log(`[Tutorial] ✅ Grab started at position:`, objPos);
-          }
-        }
-        
-        // If currently grabbing, check if conditions are met
-        if (isGrabbing && grabStartTime && grabStartPosition) {
-          const holdTime = Date.now() - grabStartTime;
-          const objPos = this.store.getObjectWorldPos();
-          
-          if (objPos) {
-            const movement = objPos.distanceTo(grabStartPosition);
-            
-            // Check if user has held for 1.5s+ AND object has moved
-            if (holdTime >= REQUIRED_HOLD_MS && movement >= MIN_MOVEMENT && !handlerFired) {
-              console.log(`[Tutorial] ✅ Grab and drag completed! Hold time: ${holdTime}ms, Movement: ${(movement * 100).toFixed(1)}cm`);
-              this.stopTutorialGrab();
-              handler();
-            }
-          }
-        }
-        
-        // Reset if grab ends
-        if (!isGrabbing && grabStartTime !== null) {
-          grabStartTime = null;
-          grabStartPosition = null;
-        }
-      }, 100);
+      // The actual grab logic runs in updateGrab() called from main frame loop
+      // No intervals needed - frame-based is more reliable
     }
     // Scroll detection
     else if (gesture === 'scroll') {
