@@ -443,10 +443,13 @@ export class OnboardingTutorial {
         }
       }, 100);
     }
-    // Grab detection - detect when grab is completed (object placed)
+    // Grab detection - detect when user grabs, holds for 1.5s, and moves the object
     else if (gesture === 'grab') {
+      let grabStartTime: number | null = null;
+      let grabStartPosition: THREE.Vector3 | null = null;
       let wasGrabbing = false;
-      let grabStarted = false;
+      const REQUIRED_HOLD_MS = 1500; // 1.5 seconds
+      const MIN_MOVEMENT = 0.05; // 5cm movement required
       
       this.grabCheckInterval = window.setInterval(() => {
         if (handlerFired || this.isLoading || this.currentStepIndex !== stepIndex) {
@@ -459,19 +462,42 @@ export class OnboardingTutorial {
         
         const grabbing = (this.feedControls as any)?.grabbing;
         const grabPending = (this.feedControls as any)?.grabPending;
+        const isGrabbing = grabbing || grabPending;
         
         // Track when grab starts
-        if (grabbing || grabPending) {
-          grabStarted = true;
+        if (isGrabbing && !wasGrabbing) {
+          // Grab just started
+          grabStartTime = Date.now();
+          const objPos = this.store.getObjectWorldPos();
+          if (objPos) {
+            grabStartPosition = objPos.clone();
+            console.log(`[Tutorial] Grab started at position:`, objPos);
+          }
         }
         
-        // Detect when grab completes (was grabbing, now not grabbing = object placed)
-        if (wasGrabbing && !grabbing && !grabPending && grabStarted && !handlerFired) {
-          console.log(`[Tutorial] ✅ Grab and place completed!`);
-          handler();
+        // If currently grabbing, check if conditions are met
+        if (isGrabbing && grabStartTime && grabStartPosition) {
+          const holdTime = Date.now() - grabStartTime;
+          const objPos = this.store.getObjectWorldPos();
+          
+          if (objPos) {
+            const movement = objPos.distanceTo(grabStartPosition);
+            
+            // Check if user has held for 1.5s+ AND object has moved
+            if (holdTime >= REQUIRED_HOLD_MS && movement >= MIN_MOVEMENT && !handlerFired) {
+              console.log(`[Tutorial] ✅ Grab and drag completed! Hold time: ${holdTime}ms, Movement: ${(movement * 100).toFixed(1)}cm`);
+              handler();
+            }
+          }
         }
         
-        wasGrabbing = grabbing || grabPending;
+        // Reset if grab ends
+        if (!isGrabbing && wasGrabbing) {
+          grabStartTime = null;
+          grabStartPosition = null;
+        }
+        
+        wasGrabbing = isGrabbing;
       }, 100);
     }
     // Scroll detection
