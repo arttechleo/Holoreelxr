@@ -76,7 +76,10 @@ export class FeedStore {
 
   async loadFeed(url = '/feed.json') {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
