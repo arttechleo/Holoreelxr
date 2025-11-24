@@ -47,8 +47,8 @@ export const CONTROLS = {
   /** Distance from object to start armed for scrolling (m) - REDUCED for easier activation */
   SCROLL_START_DISTANCE: 0.12,
   
-  /** Minimum pinch hold time before scroll is allowed (ms) - REDUCED for faster response */
-  SCROLL_MIN_HOLD_MS: 60,
+  /** Minimum pinch hold time before scroll is allowed (ms) - MUST be longer than GRAB_HOLD_MS to give grab priority */
+  SCROLL_MIN_HOLD_MS: 200,
   
   /** Low-pass filter alpha for scroll smoothing - INCREASED for smoother tracking */
   SCROLL_LPF_ALPHA: 0.32,
