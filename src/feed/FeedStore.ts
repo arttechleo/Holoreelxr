@@ -180,17 +180,17 @@ export class FeedStore {
     // CRITICAL: Clear currentGLTF reference to prevent stale references
     this.currentGLTF = undefined;
 
-    // CRITICAL: Reset spawn position when switching items to prevent overlap
-    // Only use lastPlaced if it's very recent (within 100ms) - otherwise reset to origin
-    // This ensures new models don't spawn on top of old ones
+    // FIX #1: PRESERVE spatial placement - new models spawn where user placed the previous one
+    // This is intentional behavior - user expects new models to appear at the same location
     let spawnPos: THREE.Vector3;
-    if (this.lastPlaced && (performance.now() - (this.lastPlaced as any)._timestamp < 100)) {
-      // Very recent placement - use it (user just placed it)
+    if (this.lastPlaced) {
+      // User has placed a model somewhere - spawn next model at that location
       spawnPos = this.lastPlaced.clone();
+      console.log(`[FeedStore] Using preserved placement:`, spawnPos);
     } else {
-      // Reset to origin or use camera-relative position
-      spawnPos = new THREE.Vector3(0, 0.5, -1.0); // Default position in front of user
-      this.lastPlaced = null; // Clear stale position
+      // First model or no previous placement - use default position in front of user
+      spawnPos = new THREE.Vector3(0, 1.2, -1.5); // Default position in front of user
+      console.log(`[FeedStore] Using default spawn position:`, spawnPos);
     }
 
     try {
@@ -212,17 +212,23 @@ export class FeedStore {
         this.seq.setTransform(this._scale, this._rotY);
         this.seq.setPosition(spawnPos);
       } else if (item.type === 'gltf' || item.type === 'glb') {
-        // Load GLTF/GLB model
-        console.log(`[FeedStore] Loading GLB/GLTF: ${item.title} from ${item.src}`);
+        // FIX #2: Load GLTF/GLB model with enhanced error handling and CORS debugging
+        console.log(`[FeedStore] 🔄 Loading GLB/GLTF: "${item.title}" from ${item.src}`);
+        console.log(`[FeedStore] Item details:`, { id: item.id, type: item.type, author: item.author });
         try {
           const gltf = await this.ensureGLTFLoader().load(item.src);
-          console.log(`[FeedStore] ✅ Successfully loaded GLB/GLTF: ${item.title}`, gltf);
+          console.log(`[FeedStore] ✅✅✅ Successfully loaded GLB/GLTF: ${item.title}`, gltf);
+          console.log(`[FeedStore] Model info:`, {
+            animations: gltf.animations?.length || 0,
+            scenes: gltf.scenes?.length || 0,
+            nodes: gltf.scene.children.length
+          });
           
           gltf.scene.name = 'content-gltf';
           
           // AUTO-SCALE: Calculate bounding box and scale to fit Mixed Reality viewport
           const autoScale = this.calculateOptimalScale(gltf.scene);
-          console.log(`[FeedStore] Auto-scale for ${item.title}: ${autoScale.toFixed(3)}x (original size: ${autoScale.originalSize.toFixed(2)}m)`);
+          console.log(`[FeedStore] Auto-scale for ${item.title}: ${autoScale.scale.toFixed(3)}x (original size: ${autoScale.originalSize.toFixed(2)}m)`);
           
           gltf.scene.position.copy(spawnPos);
           gltf.scene.rotation.y = this._rotY;
@@ -230,6 +236,11 @@ export class FeedStore {
           
           this.parent.add(gltf.scene);
           this.currentGLTF = gltf.scene;
+          
+          console.log(`[FeedStore] ✅ Added GLTF scene to parent. Total children: ${this.parent.children.length}`);
+          console.log(`[FeedStore] GLTF scene position:`, gltf.scene.position);
+          console.log(`[FeedStore] GLTF scene scale:`, gltf.scene.scale);
+          
           this.preloadNextModels(3);
           
           // Play animations if available
@@ -242,8 +253,18 @@ export class FeedStore {
             // Store mixer for cleanup
             (gltf.scene as any).mixer = mixer;
           }
-        } catch (loadError) {
-          console.error(`[FeedStore] ❌ Failed to load GLB/GLTF: ${item.title}`, loadError);
+        } catch (loadError: any) {
+          console.error(`[FeedStore] ❌❌❌ FAILED to load GLB/GLTF: ${item.title}`);
+          console.error(`[FeedStore] Error details:`, loadError);
+          console.error(`[FeedStore] URL: ${item.src}`);
+          console.error(`[FeedStore] Error message: ${loadError?.message || 'Unknown error'}`);
+          console.error(`[FeedStore] Error stack:`, loadError?.stack);
+          
+          // Check for CORS issues
+          if (loadError?.message?.includes('CORS') || loadError?.message?.includes('fetch')) {
+            console.error(`[FeedStore] ⚠️ Possible CORS issue - check if ${item.src} allows cross-origin requests`);
+          }
+          
           // Re-throw to trigger error placeholder
           throw loadError;
         }
@@ -313,9 +334,10 @@ export class FeedStore {
       const item = this.items[this.index];
       console.log(`[FeedStore] ✅ Scrolling: index ${oldIndex} → ${this.index}, item: ${item?.title || 'unknown'} (type: ${item?.type || 'unknown'})`);
       
-      // CRITICAL: Reset position when switching items to prevent overlap
-      // This ensures new models spawn at a clean position, not on top of old ones
-      this.lastPlaced = null;
+      // FIX #1: PRESERVE spatial placement - new models spawn where user placed the previous one
+      // DO NOT reset lastPlaced - this is a feature, not a bug!
+      // User wants new models to appear at the same location they placed the previous model
+      console.log(`[FeedStore] Preserving spatial placement at:`, this.lastPlaced);
       
       // Reset transform to default
       this.setTargetTransform(1, 0);
@@ -581,8 +603,18 @@ export class FeedStore {
 
   getObjectWorldPos(): THREE.Vector3 | null {
     const obj = this.getObject();
-    if (obj) return new THREE.Vector3().setFromMatrixPosition(obj.matrixWorld);
-    if (this.lastPlaced) return this.lastPlaced.clone();
+    if (obj) {
+      // FIX #3: Ensure matrix is updated before getting world position
+      obj.updateMatrixWorld(true);
+      const worldPos = new THREE.Vector3().setFromMatrixPosition(obj.matrixWorld);
+      console.log(`[FeedStore] Object world pos: (${worldPos.x.toFixed(2)}, ${worldPos.y.toFixed(2)}, ${worldPos.z.toFixed(2)})`);
+      return worldPos;
+    }
+    if (this.lastPlaced) {
+      console.log(`[FeedStore] Using lastPlaced for world pos`);
+      return this.lastPlaced.clone();
+    }
+    console.warn(`[FeedStore] No object or lastPlaced for world pos`);
     return null;
   }
 

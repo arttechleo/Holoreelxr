@@ -153,8 +153,24 @@ export class ParticleSystem {
       // Update position
       p.sprite.position.add(p.velocity.clone().multiplyScalar(dt));
       
-      // FIX: Stronger gravity for faster descent
-      p.velocity.y -= 1.2 * dt;  // Increased from 0.5 to 1.2
+      // FIX #4: AGGRESSIVE gravity for faster descent
+      p.velocity.y -= 2.5 * dt;  // Increased from 1.2 to 2.5 for much faster fall
+      
+      // FIX #4: IMMEDIATE removal if too close to camera (within 30cm)
+      // This prevents emojis from getting stuck in user's face
+      if (p.sprite.position.z > -0.3) {
+        p.sprite.visible = false;
+        this.particles.splice(i, 1);
+        continue; // Skip to next particle
+      }
+      
+      // FIX #4: Also remove if particle drifts too far away (beyond 5m)
+      const distFromOrigin = p.sprite.position.length();
+      if (distFromOrigin > 5.0) {
+        p.sprite.visible = false;
+        this.particles.splice(i, 1);
+        continue;
+      }
       
       // Rotation
       p.rotation += p.rotationSpeed * dt;
