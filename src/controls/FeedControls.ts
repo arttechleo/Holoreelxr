@@ -28,8 +28,6 @@ export class FeedControls {
   private readonly SCROLL_DISP = CONTROLS.SCROLL_DISPLACEMENT;
   private readonly SCROLL_COOLDOWN_MS = CONTROLS.SCROLL_COOLDOWN_MS;
   private readonly SCROLL_VEL_MIN = CONTROLS.SCROLL_MIN_VELOCITY;
-  private readonly SCROLL_IN_AIR_DIST = CONTROLS.SCROLL_IN_AIR_DISTANCE;
-  private readonly SCROLL_START_FAR = CONTROLS.SCROLL_START_DISTANCE;
   private readonly LPF_SCROLL_ALPHA = CONTROLS.SCROLL_LPF_ALPHA;
 
   // transform / grab
@@ -62,7 +60,7 @@ export class FeedControls {
   private grabTimer: number | null = null;
   private readonly HOLD_MS = TRANSFORM.GRAB_HOLD_MS;
   private readonly PENDING_CANCEL_MOVE = TRANSFORM.GRAB_CANCEL_MOVEMENT;
-  private readonly INSTANT_GRAB_DIST = TRANSFORM.INSTANT_GRAB_DISTANCE;
+  private readonly GRAB_MAX_DIST = TRANSFORM.GRAB_MAX_DISTANCE;
 
   // rays (visual helpers only; kept off while UI is hit)
   private rayGroup = new THREE.Group();
@@ -1140,10 +1138,10 @@ export class FeedControls {
     const mid = this.hands.pinchMid(side);
     if (!mid) return;
     
-    // CRITICAL: Scroll activates quickly (80ms) - faster than grab (150ms)
-    // This gives scroll priority for feed navigation
+    // CRITICAL: Scroll activates after short hold time (50ms)
+    // This gives us time to detect scroll vs grab intent
     if (this.pinchStartAt && now - this.pinchStartAt < this.SCROLL_MIN_HOLD_MS) {
-      // During the short hold period, initialize tracking but don't scroll yet
+      // During hold period, initialize tracking but don't scroll yet
       const y = mid.y;
       if (this.lastPinchY == null && y != null) {
         this.lastPinchY = y;
@@ -1152,30 +1150,23 @@ export class FeedControls {
       return;
     }
     
-    // SIMPLIFIED SCROLL LOGIC: Scroll has priority, arm immediately after hold time
-    if (!this.scrollArmed) {
-      // Check if minimum hold time has passed
-      if (this.pinchStartAt && (now - this.pinchStartAt >= this.SCROLL_MIN_HOLD_MS)) {
-        // Arm scroll immediately after hold time - no movement required
-        this.scrollArmed = true;
-        console.log(`[Scroll] ✅ Armed after hold time (${this.SCROLL_MIN_HOLD_MS}ms)`);
-        
-        // Cancel any pending grab - scroll has priority
-        if (this.grabPending) {
-          console.log(`[Scroll] Canceling grab pending - scroll has priority`);
-          this.cancelGrabPending();
-        }
+    // SIMPLIFIED SCROLL ARMING: Arm after hold time - SCROLL HAS PRIORITY
+    // Don't check grabPending - scroll cancels it automatically
+    if (!this.scrollArmed && !this.grabbing) {
+      this.scrollArmed = true;
+      console.log(`[MainFeed-Scroll] ✅ Armed after hold time (${this.SCROLL_MIN_HOLD_MS}ms)`);
+      
+      // Cancel any pending grab - scroll has priority
+      if (this.grabPending) {
+        console.log(`[MainFeed-Scroll] Canceling grab pending - scroll has priority`);
+        this.cancelGrabPending();
       }
       
-      // If not armed yet, initialize tracking but don't scroll
-      if (!this.scrollArmed) {
-        const y = mid.y;
-        if (this.lastPinchY == null && y != null) {
-          this.lastPinchY = y;
-          this.filtPinchY = y;
-        }
-        if (this.scrollRay) this.scrollRay.visible = false;
-        return;
+      // Initialize tracking
+      const y = mid.y;
+      if (this.lastPinchY == null && y != null) {
+        this.lastPinchY = y;
+        this.filtPinchY = y;
       }
     }
     
@@ -1214,20 +1205,39 @@ export class FeedControls {
     
     // Debug: log accumulation progress (more frequent for debugging)
     if (Math.random() < 0.2) { // 20% of calls
-      console.log(`[Scroll] Accumulating: dy=${(dy * 100).toFixed(2)}cm, total=${(this.scrollAccum * 100).toFixed(2)}cm, threshold=${(this.SCROLL_DISP * 100).toFixed(2)}cm`);
+      const context = this.isTutorialActive() ? 'Tutorial' : 'MainFeed';
+      console.log(`[${context}-Scroll] Accumulating: dy=${(dy * 100).toFixed(2)}cm, total=${(this.scrollAccum * 100).toFixed(2)}cm, threshold=${(this.SCROLL_DISP * 100).toFixed(2)}cm`);
     }
     
     // Trigger scroll when threshold reached
     if (Math.abs(this.scrollAccum) >= this.SCROLL_DISP) {
       const dir = this.scrollAccum < 0 ? +1 : -1;
-      console.log(`[Scroll] ✅✅✅ TRIGGERING SCROLL! Direction: ${dir > 0 ? 'Next' : 'Previous'}, Accum: ${this.scrollAccum.toFixed(4)}m`);
+      const tutorialActive = this.isTutorialActive();
+      const context = tutorialActive ? 'Tutorial' : 'MainFeed';
+      const oldIndex = this.store.index;
+      const totalItems = this.store.items.length;
+      
+      console.log(`[${context}-Scroll] ✅✅✅ TRIGGERING SCROLL!`);
+      console.log(`  Direction: ${dir > 0 ? 'Next (+1)' : 'Previous (-1)'}`);
+      console.log(`  Accumulation: ${(this.scrollAccum * 100).toFixed(2)}cm`);
+      console.log(`  Current index: ${oldIndex} / ${totalItems}`);
+      console.log(`  Current item: ${this.store.items[oldIndex]?.title || 'unknown'}`);
+      
       this.store.next(dir);
+      
+      // Verify the scroll actually happened
+      const newIndex = this.store.index;
+      console.log(`  New index: ${newIndex} / ${totalItems}`);
+      console.log(`  New item: ${this.store.items[newIndex]?.title || 'unknown'}`);
+      console.log(`  Index changed: ${oldIndex !== newIndex ? 'YES ✅' : 'NO ❌'}`);
+      
       this.hudMgr.showFor(this.currentModelKey());
       this.scrollAccum = 0;
       this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
       
-      // Visual feedback
-      this.store.notify(dir > 0 ? '⬇️ Next' : '⬆️ Previous');
+      // Visual feedback with naming convention
+      const directionLabel = dir > 0 ? 'Next' : 'Previous';
+      this.store.notify(`${context}: ${directionLabel} ⬇️`);
     }
   }
 
@@ -1393,8 +1403,13 @@ export class FeedControls {
     const pinch = this.hands.pinchMid(side);
     if (!pinch) return;
     
-    // CRITICAL: Make grab work from ANY distance - remove distance restriction
-    // This makes grab much more reliable and user-friendly
+    // SIMPLIFIED: Grab works if stationary (no vertical movement for 250ms)
+    // Scroll has priority - if scrolling, don't grab
+    if (this.scrollArmed) {
+      console.log(`[MainFeed-Grab] Not starting - scroll active (scroll has priority)`);
+      return;
+    }
+    
     const objPosNow = this.store.getObjectWorldPos();
     const objExists = !!this.store.getObject();
     
@@ -1403,8 +1418,9 @@ export class FeedControls {
       return;
     }
     
-    // Start grab pending - works from any distance!
-    console.log(`[Grab] Starting grab pending for ${side} hand (works from any distance)`);
+    // Start grab pending - will activate after GRAB_HOLD_MS if stationary
+    const context = this.isTutorialActive() ? 'Tutorial' : 'MainFeed';
+    console.log(`[${context}-Grab] Starting grab pending (will activate after ${this.HOLD_MS}ms if stationary)`);
     this.grabPending = true;
     this.grabPendingSide = side;
     this.grabPendingStartY = this.hands.pinchMid(side)?.y ?? null;
@@ -1451,16 +1467,31 @@ export class FeedControls {
   private updateGrabPendingGuard() {
     if (!this.grabPending || !this.grabPendingSide) return;
     
-    // Only cancel if other hand starts pinching (two-hand mode)
+    // Cancel if other hand starts pinching (two-hand mode)
     const other = this.grabPendingSide === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) {
+      console.log(`[Grab] Grab pending canceled - two-hand mode detected`);
       this.cancelGrabPending();
       return;
     }
     
-    // Don't cancel based on Y movement - allow user to move hand while holding
-    // The original logic was too strict and prevented natural grab movements
-    // We only cancel if user releases pinch or other hand pinches
+    // Cancel if hand moves too much (user is trying to scroll, not grab)
+    const pinch = this.hands.pinchMid(this.grabPendingSide);
+    if (pinch && this.grabPendingStartY != null) {
+      const dy = Math.abs(pinch.y - this.grabPendingStartY);
+      if (dy > this.PENDING_CANCEL_MOVE) {
+        console.log(`[Grab] Grab pending canceled - hand moved ${(dy * 100).toFixed(1)}cm (threshold: ${(this.PENDING_CANCEL_MOVE * 100).toFixed(1)}cm)`);
+        this.cancelGrabPending();
+        return;
+      }
+    }
+    
+    // Cancel if scrolling starts (scroll has priority)
+    if (this.scrollArmed) {
+      console.log(`[MainFeed-Grab] Pending canceled - scroll started (scroll has priority)`);
+      this.cancelGrabPending();
+      return;
+    }
   }
   private updateGrabDrag() {
     // CRITICAL: After tutorial completion, FeedControls handles grab
@@ -1554,3 +1585,4 @@ export class FeedControls {
 }
 
 export default FeedControls;
+
