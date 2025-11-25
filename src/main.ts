@@ -15,6 +15,9 @@ import { MusicUI } from './ui/MusicUI';
 import { XRAuthPanel } from './ui/XRAuthPanel';
 import { XRMusicPanel } from './ui/XRMusicPanel';
 import { OnboardingTutorial } from './ui/OnboardingTutorial';
+import { MultiplayerManager, HandState, GestureEvent, TransformEvent } from './multiplayer/MultiplayerManager';
+import { RemoteHands } from './multiplayer/RemoteHands';
+import { MultiplayerUI } from './multiplayer/MultiplayerUI';
 import * as THREE from 'three';
 
 // ========== INITIALIZATION ==========
@@ -44,6 +47,62 @@ const xrMusicPanel = new XRMusicPanel(musicMgr, app.scene);
 
 // Onboarding tutorial (only shows in XR)
 const onboarding = new OnboardingTutorial(app.scene, hands, store);
+
+// EXPERIMENTAL: Multiplayer system (real-time hand tracking & gesture sync)
+const multiplayer = new MultiplayerManager();
+const remoteHands = new RemoteHands(app.scene);
+const multiplayerUI = new MultiplayerUI();
+
+// Setup multiplayer callbacks
+multiplayer.onRemoteHands((hands: HandState) => {
+  remoteHands.update(hands);
+});
+
+multiplayer.onRemoteGesture((gesture: GestureEvent) => {
+  console.log('[Multiplayer] 🎉 Partner performed gesture:', gesture.type);
+  hud.toast(`👥 Partner: ${gesture.type} emoji!`);
+  // Visual feedback - show emoji at partner's position
+});
+
+multiplayer.onRemoteTransform((transform: TransformEvent) => {
+  console.log('[Multiplayer] 🔄 Partner transformed model:', transform.type);
+  // Apply transform to local model (synchronized experience)
+  if (transform.type === 'scale' && transform.scale) {
+    store.setTargetTransform(transform.scale, store.rotationY);
+  } else if (transform.type === 'rotate' && transform.rotation) {
+    store.setTargetTransform(store.scale, transform.rotation);
+  } else if (transform.type === 'place' && transform.position) {
+    store.setPosition(new THREE.Vector3(
+      transform.position.x,
+      transform.position.y,
+      transform.position.z
+    ));
+  }
+});
+
+multiplayer.onConnectionChange((connected: boolean) => {
+  if (connected) {
+    hud.toast('🎉 Multiplayer connected!');
+    remoteHands.setVisible(true);
+  } else {
+    hud.toast('❌ Multiplayer disconnected');
+    remoteHands.setVisible(false);
+  }
+  multiplayerUI.setConnectionStatus(connected);
+});
+
+// Setup multiplayer UI callbacks
+multiplayerUI.onHost(async () => {
+  return await multiplayer.createSession();
+});
+
+multiplayerUI.onJoin(async (offer: string) => {
+  return await multiplayer.joinSession(offer);
+});
+
+multiplayerUI.onAnswer(async (answer: string) => {
+  await multiplayer.receiveAnswer(answer);
+});
 onboarding.setOnComplete(() => {
   // Tutorial will handle hiding itself and navigating to first non-tutorial item
   console.log('[Main] Tutorial completed callback called');
@@ -129,9 +188,31 @@ async function loadMainFeed() {
       await store.showCurrent();
     }
 
-  // Keep joints flowing
+    // Keep joints flowing
   app.onFrame((info) => { 
     hands.update(info);
+    
+    // EXPERIMENTAL: Broadcast hand positions to multiplayer partner (throttled)
+    if (multiplayer.isConnected()) {
+      const leftPinchMid = hands.pinchMid('left');
+      const rightPinchMid = hands.pinchMid('right');
+      
+      const handState: HandState = {
+        left: {
+          position: leftPinchMid ? { x: leftPinchMid.x, y: leftPinchMid.y, z: leftPinchMid.z } : null,
+          rotation: null,
+          pinching: hands.state.left.pinch
+        },
+        right: {
+          position: rightPinchMid ? { x: rightPinchMid.x, y: rightPinchMid.y, z: rightPinchMid.z } : null,
+          rotation: null,
+          pinching: hands.state.right.pinch
+        }
+      };
+      
+      multiplayer.broadcastHands(handState);
+    }
+    
     // Update 3D panels to face camera
     xrAuthPanel.update(app.camera);
     xrMusicPanel.update(app.camera);
@@ -264,6 +345,13 @@ document.addEventListener('keydown', (e) => {
         player.play();
         hud.toast('▶️ Playing audio');
       }
+      break;
+    
+    case 'm':
+    case 'M':
+      // Toggle multiplayer UI (press M)
+      multiplayerUI.show();
+      hud.toast('🎮 Press M to open multiplayer');
       break;
     
     case '?':
