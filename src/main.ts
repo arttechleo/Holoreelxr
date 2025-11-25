@@ -17,7 +17,7 @@ import { XRMusicPanel } from './ui/XRMusicPanel';
 import { OnboardingTutorial } from './ui/OnboardingTutorial';
 import { MultiplayerManager, HandState, GestureEvent, TransformEvent } from './multiplayer/MultiplayerManager';
 import { RemoteHands } from './multiplayer/RemoteHands';
-import { MultiplayerUI } from './multiplayer/MultiplayerUI';
+import { XRMultiplayerPanel } from './ui/XRMultiplayerPanel';
 import * as THREE from 'three';
 
 // ========== INITIALIZATION ==========
@@ -51,7 +51,7 @@ const onboarding = new OnboardingTutorial(app.scene, hands, store);
 // EXPERIMENTAL: Multiplayer system (real-time hand tracking & gesture sync)
 const multiplayer = new MultiplayerManager();
 const remoteHands = new RemoteHands(app.scene);
-const multiplayerUI = new MultiplayerUI();
+const xrMultiplayerPanel = new XRMultiplayerPanel(app.scene, multiplayer);
 
 // Setup multiplayer callbacks
 multiplayer.onRemoteHands((hands: HandState) => {
@@ -88,20 +88,7 @@ multiplayer.onConnectionChange((connected: boolean) => {
     hud.toast('❌ Multiplayer disconnected');
     remoteHands.setVisible(false);
   }
-  multiplayerUI.setConnectionStatus(connected);
-});
-
-// Setup multiplayer UI callbacks
-multiplayerUI.onHost(async () => {
-  return await multiplayer.createSession();
-});
-
-multiplayerUI.onJoin(async (offer: string) => {
-  return await multiplayer.joinSession(offer);
-});
-
-multiplayerUI.onAnswer(async (answer: string) => {
-  await multiplayer.receiveAnswer(answer);
+  xrMultiplayerPanel.onConnectionChange(connected);
 });
 onboarding.setOnComplete(() => {
   // Tutorial will handle hiding itself and navigating to first non-tutorial item
@@ -192,6 +179,13 @@ async function loadMainFeed() {
   app.onFrame((info) => { 
     hands.update(info);
     
+    // EXPERIMENTAL: Open multiplayer panel with stop-palm gesture (flat hand facing forward)
+    // Check if user does stop-palm gesture to open multiplayer menu
+    if (hands.state.stopPalm && !xrMultiplayerPanel.isVisible() && !multiplayer.isConnected()) {
+      xrMultiplayerPanel.show();
+      hud.toast('🎮 Multiplayer panel opened!');
+    }
+    
     // EXPERIMENTAL: Broadcast hand positions to multiplayer partner (throttled)
     if (multiplayer.isConnected()) {
       const leftPinchMid = hands.pinchMid('left');
@@ -216,6 +210,7 @@ async function loadMainFeed() {
     // Update 3D panels to face camera
     xrAuthPanel.update(app.camera);
     xrMusicPanel.update(app.camera);
+    xrMultiplayerPanel.update(app.camera);
     
     // Update tutorial panel position to the right of the 3D model
     // CRITICAL: Only update if tutorial is actually active
@@ -271,6 +266,7 @@ async function loadMainFeed() {
     // Wire up 3D panels to controls
     (controls as any).authPanel = xrAuthPanel;
     (controls as any).musicPanel = xrMusicPanel;
+    (controls as any).multiplayerPanel = xrMultiplayerPanel;
     // Disable FeedControls during onboarding tutorial
     controls.setOnboardingTutorial(onboarding);
     // Pass FeedControls reference to tutorial for state checking
@@ -349,9 +345,8 @@ document.addEventListener('keydown', (e) => {
     
     case 'm':
     case 'M':
-      // Toggle multiplayer UI (press M)
-      multiplayerUI.show();
-      hud.toast('🎮 Press M to open multiplayer');
+      // REMOVED: XR is hand gesture only, no keyboard shortcuts
+      // Multiplayer panel opens with hand gesture (peace sign or dedicated gesture)
       break;
     
     case '?':
