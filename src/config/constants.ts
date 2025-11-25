@@ -8,11 +8,11 @@ export const GESTURE = {
   /** Distance (m) between thumb and index tips to register pinch */
   PINCH_THRESHOLD: 0.035,
   
-  /** Distance (m) for heart gesture pair collisions (index↔index & thumb↔thumb) */
-  HEART_THRESHOLD: 0.13,
+  /** Distance (m) for heart gesture pair collisions (index↔index & thumb↔thumb) - INCREASED for easier detection */
+  HEART_THRESHOLD: 0.20,
   
-  /** Average distance (m) between both pairs to still consider it a heart */
-  HEART_COMBINED_THRESHOLD: 0.18,
+  /** Average distance (m) between both pairs to still consider it a heart - INCREASED for easier detection */
+  HEART_COMBINED_THRESHOLD: 0.25,
   
   /** Cross-hand thumb/index proximity threshold (m) for relaxed detection */
   HEART_CROSS_THRESHOLD: 0.17,
@@ -41,14 +41,14 @@ export const CONTROLS = {
   /** Scroll threshold: vertical displacement to trigger feed change (m) - 1.5cm for responsive scrolling */
   SCROLL_DISPLACEMENT: 0.015,
   
-  /** Cooldown between scroll actions (ms) - Set to 180ms for smoother, more controlled scrolling */
-  SCROLL_COOLDOWN_MS: 180,
+  /** Cooldown between scroll actions (ms) - Set to 800ms to prevent too-fast scrolling */
+  SCROLL_COOLDOWN_MS: 800,
   
   /** Minimum vertical velocity to register scroll (m/s) */
   SCROLL_MIN_VELOCITY: 0.002,
   
   /** Minimum pinch hold time before scroll is allowed (ms) - Short delay to detect scroll intent */
-  SCROLL_MIN_HOLD_MS: 50,
+  SCROLL_MIN_HOLD_MS: 30,
   
   /** Low-pass filter alpha for scroll smoothing - Balanced for responsive yet smooth tracking */
   SCROLL_LPF_ALPHA: 0.4,
