@@ -1235,6 +1235,12 @@ export class FeedControls {
       this.scrollAccum = 0;
       this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
       
+      // GESTURE-BASED SCROLL: Disarm scroll after trigger
+      // User must release pinch and make another gesture to scroll again
+      this.scrollArmed = false;
+      this.scrollDisarmedThisPinch = true;
+      console.log(`[${context}-Scroll] ⚠️ Disarmed - release and pinch again to scroll`);
+      
       // Visual feedback with naming convention
       const directionLabel = dir > 0 ? 'Next' : 'Previous';
       this.store.notify(`${context}: ${directionLabel} ⬇️`);
