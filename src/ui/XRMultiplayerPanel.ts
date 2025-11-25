@@ -23,6 +23,12 @@ export class XRMultiplayerPanel {
   private closeButton: ThreeMeshUI.Block | null = null;
   private codeDisplay: ThreeMeshUI.Text | null = null;
   
+  // CRITICAL: Invisible hitboxes for raycasting (ThreeMeshUI doesn't raycast well)
+  private hostHitbox: THREE.Mesh | null = null;
+  private joinHitbox: THREE.Mesh | null = null;
+  private acceptHitbox: THREE.Mesh | null = null;
+  private closeHitbox: THREE.Mesh | null = null;
+  
   // State
   private currentCode = '';
   private mode: 'idle' | 'hosting' | 'joining' | 'waiting' = 'idle';
@@ -115,6 +121,19 @@ export class XRMultiplayerPanel {
     // Close button
     this.closeButton = this.createButton('✕ CLOSE', 0x666666);
     this.panel.add(this.closeButton);
+    
+    // CRITICAL: Create invisible hitboxes for raycasting
+    this.hostHitbox = this.createHitbox(0.5, 0.08);
+    this.scene.add(this.hostHitbox);
+    
+    this.joinHitbox = this.createHitbox(0.5, 0.08);
+    this.scene.add(this.joinHitbox);
+    
+    this.acceptHitbox = this.createHitbox(0.5, 0.08);
+    this.scene.add(this.acceptHitbox);
+    
+    this.closeHitbox = this.createHitbox(0.5, 0.08);
+    this.scene.add(this.closeHitbox);
   }
   
   private createButton(text: string, color: number): ThreeMeshUI.Block {
@@ -141,7 +160,71 @@ export class XRMultiplayerPanel {
   }
   
   /**
+   * Create invisible hitbox for raycasting
+   * CRITICAL: ThreeMeshUI doesn't raycast well, so we need real THREE.Mesh hitboxes
+   */
+  private createHitbox(width: number, height: number): THREE.Mesh {
+    const geometry = new THREE.PlaneGeometry(width, height);
+    const material = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0, // Invisible
+      side: THREE.DoubleSide
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'button-hitbox';
+    return mesh;
+  }
+  
+  /**
+   * Update hitbox positions to match buttons
+   * CRITICAL: Must be called after ThreeMeshUI updates positions
+   */
+  private updateHitboxes(): void {
+    if (!this.panel) return;
+    
+    // Update panel's world matrix
+    this.panel.updateWorldMatrix(true, true);
+    
+    // Host button hitbox
+    if (this.hostButton && this.hostHitbox) {
+      const pos = new THREE.Vector3();
+      this.hostButton.getWorldPosition(pos);
+      this.hostHitbox.position.copy(pos);
+      this.hostHitbox.quaternion.copy(this.panel.quaternion);
+      this.hostHitbox.visible = this.hostButton.visible;
+    }
+    
+    // Join button hitbox
+    if (this.joinButton && this.joinHitbox) {
+      const pos = new THREE.Vector3();
+      this.joinButton.getWorldPosition(pos);
+      this.joinHitbox.position.copy(pos);
+      this.joinHitbox.quaternion.copy(this.panel.quaternion);
+      this.joinHitbox.visible = this.joinButton.visible;
+    }
+    
+    // Accept button hitbox
+    if (this.acceptButton && this.acceptHitbox) {
+      const pos = new THREE.Vector3();
+      this.acceptButton.getWorldPosition(pos);
+      this.acceptHitbox.position.copy(pos);
+      this.acceptHitbox.quaternion.copy(this.panel.quaternion);
+      this.acceptHitbox.visible = this.acceptButton.visible;
+    }
+    
+    // Close button hitbox
+    if (this.closeButton && this.closeHitbox) {
+      const pos = new THREE.Vector3();
+      this.closeButton.getWorldPosition(pos);
+      this.closeHitbox.position.copy(pos);
+      this.closeHitbox.quaternion.copy(this.panel.quaternion);
+      this.closeHitbox.visible = this.closeButton.visible;
+    }
+  }
+  
+  /**
    * Update panel to face camera
+   * CRITICAL: Also updates hitbox positions every frame
    */
   update(camera: THREE.Camera): void {
     if (!this.panel || !this.visible) return;
@@ -152,52 +235,63 @@ export class XRMultiplayerPanel {
     // Face camera
     this.panel.lookAt(camPos);
     
-    // Update ThreeMeshUI
+    // Update ThreeMeshUI (this updates button positions)
     ThreeMeshUI.update();
+    
+    // CRITICAL: Update hitboxes to match button positions
+    this.updateHitboxes();
   }
   
   /**
    * Raycast to check if hand is pointing at buttons
+   * CRITICAL: Uses invisible hitboxes for accurate raycasting
    */
-  raycast(ray: THREE.Ray): { button: ButtonType } | null {
+  raycast(ray: THREE.Ray): { button: ButtonType; distance: number } | null {
     if (!this.panel || !this.visible) return null;
     
     const raycaster = new THREE.Raycaster();
     raycaster.ray.copy(ray);
     
-    // Check host button
-    if (this.hostButton?.visible) {
-      const intersects = raycaster.intersectObject(this.hostButton as any, true);
-      if (intersects.length > 0) {
-        return { button: 'host' };
+    let closestHit: { button: ButtonType; distance: number } | null = null;
+    let minDistance = Infinity;
+    
+    // Check host button hitbox
+    if (this.hostHitbox && this.hostHitbox.visible) {
+      const intersects = raycaster.intersectObject(this.hostHitbox, false);
+      if (intersects.length > 0 && intersects[0].distance < minDistance) {
+        minDistance = intersects[0].distance;
+        closestHit = { button: 'host', distance: intersects[0].distance };
       }
     }
     
-    // Check join button
-    if (this.joinButton?.visible) {
-      const intersects = raycaster.intersectObject(this.joinButton as any, true);
-      if (intersects.length > 0) {
-        return { button: 'join' };
+    // Check join button hitbox
+    if (this.joinHitbox && this.joinHitbox.visible) {
+      const intersects = raycaster.intersectObject(this.joinHitbox, false);
+      if (intersects.length > 0 && intersects[0].distance < minDistance) {
+        minDistance = intersects[0].distance;
+        closestHit = { button: 'join', distance: intersects[0].distance };
       }
     }
     
-    // Check accept button
-    if (this.acceptButton?.visible) {
-      const intersects = raycaster.intersectObject(this.acceptButton as any, true);
-      if (intersects.length > 0) {
-        return { button: 'accept' };
+    // Check accept button hitbox
+    if (this.acceptHitbox && this.acceptHitbox.visible) {
+      const intersects = raycaster.intersectObject(this.acceptHitbox, false);
+      if (intersects.length > 0 && intersects[0].distance < minDistance) {
+        minDistance = intersects[0].distance;
+        closestHit = { button: 'accept', distance: intersects[0].distance };
       }
     }
     
-    // Check close button
-    if (this.closeButton?.visible) {
-      const intersects = raycaster.intersectObject(this.closeButton as any, true);
-      if (intersects.length > 0) {
-        return { button: 'close' };
+    // Check close button hitbox
+    if (this.closeHitbox && this.closeHitbox.visible) {
+      const intersects = raycaster.intersectObject(this.closeHitbox, false);
+      if (intersects.length > 0 && intersects[0].distance < minDistance) {
+        minDistance = intersects[0].distance;
+        closestHit = { button: 'close', distance: intersects[0].distance };
       }
     }
     
-    return null;
+    return closestHit;
   }
   
   /**
@@ -350,14 +444,21 @@ export class XRMultiplayerPanel {
   
   /**
    * Set button hover state (for visual feedback)
+   * CRITICAL: Makes buttons glow/scale when pointed at
    */
   setButtonHover(button: ButtonType | null): void {
+    // Don't do anything if hover state hasn't changed
+    if (this.hoveredButton === button) return;
+    
     // Reset all buttons to normal
     this.resetButtonColors();
     
-    if (!button) return;
+    if (!button) {
+      this.hoveredButton = null;
+      return;
+    }
     
-    // Highlight hovered button
+    // Highlight hovered button with scale and opacity
     let hoveredBlock: ThreeMeshUI.Block | null = null;
     
     switch (button) {
@@ -375,20 +476,48 @@ export class XRMultiplayerPanel {
         break;
     }
     
-    if (hoveredBlock) {
+    if (hoveredBlock && hoveredBlock.visible) {
+      // Make button slightly larger and brighter when hovered
       hoveredBlock.set({
-        backgroundOpacity: 0.8, // Slightly transparent when hovered
+        backgroundOpacity: 0.9,
       });
+      
+      // Scale effect (subtle pulsing)
+      if ((hoveredBlock as any).scale) {
+        (hoveredBlock as any).scale.set(1.05, 1.05, 1.05);
+      }
+      
+      console.log('[XRMultiplayerPanel] 👆 Hovering:', button);
     }
     
     this.hoveredButton = button;
   }
   
   private resetButtonColors(): void {
-    if (this.hostButton) this.hostButton.set({ backgroundOpacity: 1 });
-    if (this.joinButton) this.joinButton.set({ backgroundOpacity: 1 });
-    if (this.acceptButton) this.acceptButton.set({ backgroundOpacity: 1 });
-    if (this.closeButton) this.closeButton.set({ backgroundOpacity: 1 });
+    if (this.hostButton) {
+      this.hostButton.set({ backgroundOpacity: 1 });
+      if ((this.hostButton as any).scale) {
+        (this.hostButton as any).scale.set(1, 1, 1);
+      }
+    }
+    if (this.joinButton) {
+      this.joinButton.set({ backgroundOpacity: 1 });
+      if ((this.joinButton as any).scale) {
+        (this.joinButton as any).scale.set(1, 1, 1);
+      }
+    }
+    if (this.acceptButton) {
+      this.acceptButton.set({ backgroundOpacity: 1 });
+      if ((this.acceptButton as any).scale) {
+        (this.acceptButton as any).scale.set(1, 1, 1);
+      }
+    }
+    if (this.closeButton) {
+      this.closeButton.set({ backgroundOpacity: 1 });
+      if ((this.closeButton as any).scale) {
+        (this.closeButton as any).scale.set(1, 1, 1);
+      }
+    }
   }
   
   /**
@@ -447,6 +576,28 @@ export class XRMultiplayerPanel {
   dispose(): void {
     if (this.panel) {
       this.scene.remove(this.panel);
+    }
+    
+    // Dispose hitboxes
+    if (this.hostHitbox) {
+      this.hostHitbox.geometry.dispose();
+      (this.hostHitbox.material as THREE.Material).dispose();
+      this.scene.remove(this.hostHitbox);
+    }
+    if (this.joinHitbox) {
+      this.joinHitbox.geometry.dispose();
+      (this.joinHitbox.material as THREE.Material).dispose();
+      this.scene.remove(this.joinHitbox);
+    }
+    if (this.acceptHitbox) {
+      this.acceptHitbox.geometry.dispose();
+      (this.acceptHitbox.material as THREE.Material).dispose();
+      this.scene.remove(this.acceptHitbox);
+    }
+    if (this.closeHitbox) {
+      this.closeHitbox.geometry.dispose();
+      (this.closeHitbox.material as THREE.Material).dispose();
+      this.scene.remove(this.closeHitbox);
     }
   }
 }

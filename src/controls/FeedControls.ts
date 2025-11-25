@@ -776,13 +776,23 @@ export class FeedControls {
     
     if (multiplayerPanel?.isVisible()) {
       const mpHit = multiplayerPanel.raycast(ray);
-      // Use pinch gesture on pointing hand to click (hand gesture click)
-      const pointingHandPinch = pointingSide === 'right' 
-        ? this.hands.state.right.pinch 
-        : this.hands.state.left.pinch;
-      if (mpHit?.button && pointingHandPinch) {
-        multiplayerPanel.handleClick(mpHit.button);
-        return;
+      
+      if (mpHit?.button) {
+        // Show hover effect on the button we're pointing at
+        multiplayerPanel.setButtonHover(mpHit.button);
+        
+        // Use pinch gesture on pointing hand to click (hand gesture click)
+        const pointingHandPinch = pointingSide === 'right' 
+          ? this.hands.state.right.pinch 
+          : this.hands.state.left.pinch;
+        
+        if (pointingHandPinch) {
+          multiplayerPanel.handleClick(mpHit.button);
+          return;
+        }
+      } else {
+        // Not pointing at any button - clear hover
+        multiplayerPanel.setButtonHover(null);
       }
     }
 
