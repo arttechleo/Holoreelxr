@@ -212,12 +212,17 @@ async function loadMainFeed() {
     xrAuthPanel.update(app.camera);
     xrMusicPanel.update(app.camera);
     
-    // FLOATING UI: Update multiplayer panel to float above current 3D model
+    // FLOATING UI: Update multiplayer panel with grab support
     const modelInfo = store.getCurrentModelInfo();
+    const mpGrabHand = xrMultiplayerPanel.isCurrentlyGrabbed() 
+      ? (xrMultiplayerPanel.isGrabbedByHand('left') ? 'left' : 'right')
+      : null;
+    const mpHandPos = mpGrabHand ? hands.pinchMid(mpGrabHand) : undefined;
+    
     if (modelInfo) {
-      xrMultiplayerPanel.update(app.camera, modelInfo.position, modelInfo.height);
+      xrMultiplayerPanel.update(app.camera, modelInfo.position, modelInfo.height, mpHandPos || undefined);
     } else {
-      xrMultiplayerPanel.update(app.camera);
+      xrMultiplayerPanel.update(app.camera, undefined, undefined, mpHandPos || undefined);
     }
     
     // Update tutorial panel position to the right of the 3D model
