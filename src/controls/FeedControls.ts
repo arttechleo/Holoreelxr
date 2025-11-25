@@ -836,18 +836,29 @@ export class FeedControls {
     const objPos = this.store.getObjectWorldPos();
     const fallbackDir = new THREE.Vector3(0, 0, -1);
     const update = (side: 'left' | 'right', line?: THREE.Line) => {
-      if (!line) return;
+      if (!line) {
+        console.warn(`[FeedControls-Ray] ⚠️ No ray line for ${side} hand`);
+        return;
+      }
       const pinching = this.hands.state[side].pinch;
       
-      // FIXED: Don't show ray for non-scrolling hand when scroll is active
-      // If scrolling is armed and this is NOT the scrolling hand, hide the ray
+      // FIX #4: Improved raycast logic for BOTH hands
+      // Only hide ray if:
+      // 1. Scroll is armed AND this is NOT the scrolling hand
+      // 2. OR the pinch is disarmed for this gesture
       if (this.scrollArmed && this.scrollSide && this.scrollSide !== side) {
         line.visible = false;
         return;
       }
       
+      // Show ray if:
+      // - Pinching
+      // - Not disarmed for this pinch
+      // - Not actively grabbing
+      // - Not composing in HUD
       const show =
         pinching && !this.scrollDisarmedThisPinch && !this.grabbing && !this.hudMgr.isComposing();
+      
       if (!show) {
         line.visible = false;
         return;
@@ -855,12 +866,23 @@ export class FeedControls {
 
       const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
       if (!from) {
+        // FIX #4: Debug logging for missing hand position
+        if (Math.random() < 0.02) { // 2% of calls
+          console.warn(`[FeedControls-Ray] ⚠️ No position for ${side} hand - pinchMid and thumbTip both null`);
+        }
         line.visible = false;
         return;
       }
 
-      // Reuse fallbackDir vector for performance
+      // FIX #4: Always try to get actual object position first
+      // This ensures raycast tracks the 3D geometry correctly
       const to = objPos ? objPos.clone() : from.clone().add(fallbackDir.set(0, 0, -0.6));
+      
+      // Debug logging for raycast tracking
+      if (Math.random() < 0.01) { // 1% of calls
+        console.log(`[FeedControls-Ray] ${side} ray: from=(${from.x.toFixed(2)}, ${from.y.toFixed(2)}, ${from.z.toFixed(2)}) to=(${to.x.toFixed(2)}, ${to.y.toFixed(2)}, ${to.z.toFixed(2)})`);
+      }
+      
       const pos = (line.geometry as THREE.BufferGeometry).getAttribute(
         'position'
       ) as THREE.BufferAttribute;
@@ -872,6 +894,8 @@ export class FeedControls {
         line.visible = true;
       }
     };
+    
+    // FIX #4: Update BOTH hands' raycasts
     update('left', this.leftRay);
     update('right', this.rightRay);
     
@@ -1102,6 +1126,13 @@ export class FeedControls {
 
   private updateScroll(now: number) {
     if (now < this.scrollCooldownUntil) return;
+    
+    // FIX #1: BLOCK scroll during two-hand rotation/scaling
+    // User shouldn't scroll while actively manipulating the model
+    if (this.twoHandActive) {
+      console.log('[FeedControls-Scroll] ⚠️ Blocking scroll - two-hand gesture active');
+      return;
+    }
     
     // CRITICAL: After tutorial completion, FeedControls handles ALL scroll
     // Only block if tutorial is actively handling scroll/grab

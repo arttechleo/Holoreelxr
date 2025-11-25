@@ -457,8 +457,8 @@ export class FeedStore {
 
   /**
    * AUTO-SCALE SYSTEM for GLTF/GLB models
-   * Calculates optimal scale to fit Mixed Reality viewport
-   * Target: Models should be between 0.3m - 0.6m in largest dimension
+   * FIX #2: Improved scaling to better fit user's POV
+   * Target: Models should be comfortably visible at arm's reach (50-60cm)
    */
   private calculateOptimalScale(model: THREE.Object3D): { scale: number; originalSize: number } {
     // Calculate bounding box of the entire model
@@ -475,17 +475,21 @@ export class FeedStore {
       return { scale: 1.0, originalSize: 0 };
     }
     
-    // Target size for Mixed Reality: 0.4m (40cm) for largest dimension
-    // This is a good size for arm's reach interaction in MR
-    const TARGET_SIZE = 0.4;
+    // FIX #2: IMPROVED target size for better screen fit
+    // Target: 0.5m (50cm) for largest dimension
+    // This ensures models are:
+    // - Large enough to see details
+    // - Small enough to fit in user's POV at arm's reach
+    // - Comfortable for interaction without moving head
+    const TARGET_SIZE = 0.5;
     
     // Calculate scale factor needed
     const scaleFactor = TARGET_SIZE / maxDimension;
     
-    // Clamp scale between reasonable bounds
-    // Min: 0.01 (prevent invisible models)
-    // Max: 50 (prevent astronomical scaling of tiny models)
-    const clampedScale = Math.max(0.01, Math.min(50, scaleFactor));
+    // FIX #2: Adjusted clamp bounds for better scaling
+    // Min: 0.05 (prevent ultra-tiny invisible models)
+    // Max: 100 (allow scaling up very small models like insects)
+    const clampedScale = Math.max(0.05, Math.min(100, scaleFactor));
     
     // Log for debugging
     console.log('[Auto-Scale]', {
