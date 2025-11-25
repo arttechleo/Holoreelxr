@@ -232,7 +232,13 @@ export class FeedStore {
           
           gltf.scene.position.copy(spawnPos);
           gltf.scene.rotation.y = this._rotY;
-          gltf.scene.scale.setScalar(autoScale.scale * this._scale);
+          // CRITICAL FIX: Use ONLY autoScale, not multiplied by this._scale
+          // this._scale is for user manual scaling and is reset to 1 on scroll
+          // autoScale.scale is the base scale to fit viewport
+          gltf.scene.scale.setScalar(autoScale.scale);
+          
+          // Store the base auto-scale for this model so we can apply user scaling on top
+          (gltf.scene as any)._baseAutoScale = autoScale.scale;
           
           this.parent.add(gltf.scene);
           this.currentGLTF = gltf.scene;
@@ -339,8 +345,13 @@ export class FeedStore {
       // User wants new models to appear at the same location they placed the previous model
       console.log(`[FeedStore] Preserving spatial placement at:`, this.lastPlaced);
       
-      // Reset transform to default
-      this.setTargetTransform(1, 0);
+      // CRITICAL FIX: DON'T reset scale to 1 - this causes models to expand unexpectedly
+      // Instead, reset rotation only but keep scale at default (1)
+      // User's manual scaling is for the current model only, not carried to next model
+      this._scale = 1;
+      this._rotY = 0;
+      this.targetScale = 1;
+      this.targetRotY = 0;
       
       // ENHANCED: Longer delay to ensure complete cleanup
       // Previous models must be fully removed before new ones load
@@ -374,12 +385,24 @@ export class FeedStore {
     this._rotY = rotY;
     const obj = this.getObject();
     if (obj) {
-      obj.scale.setScalar(this._scale);
+      // CRITICAL FIX: For GLTF models, apply user scale on top of base auto-scale
+      if (obj.name === 'content-gltf' && (obj as any)._baseAutoScale) {
+        const baseScale = (obj as any)._baseAutoScale;
+        obj.scale.setScalar(baseScale * this._scale);
+      } else {
+        obj.scale.setScalar(this._scale);
+      }
       obj.rotation.y = this._rotY;
     }
     if (this.seq) this.seq.setTransform(this._scale, this._rotY);
     if (this.currentGLTF) {
-      this.currentGLTF.scale.setScalar(this._scale);
+      // CRITICAL FIX: Apply user scale on top of base auto-scale for GLTF
+      if ((this.currentGLTF as any)._baseAutoScale) {
+        const baseScale = (this.currentGLTF as any)._baseAutoScale;
+        this.currentGLTF.scale.setScalar(baseScale * this._scale);
+      } else {
+        this.currentGLTF.scale.setScalar(this._scale);
+      }
       this.currentGLTF.rotation.y = this._rotY;
     }
     this.updatePlatformPose();
@@ -476,13 +499,13 @@ export class FeedStore {
     }
     
     // FIX #2: IMPROVED target size for better screen fit
-    // Target: 0.4m (40cm) for largest dimension
+    // Target: 0.35m (35cm) for largest dimension
     // This ensures models are:
     // - Large enough to see details clearly
     // - Small enough to fit comfortably in user's POV
     // - Optimized for arm's reach interaction (~60cm from face)
-    // - Prevents models from extending outside field of view
-    const TARGET_SIZE = 0.4;
+    // - REDUCED from 0.4m to prevent models from getting too close to edges
+    const TARGET_SIZE = 0.35;
     
     // Calculate scale factor needed
     const scaleFactor = TARGET_SIZE / maxDimension;
