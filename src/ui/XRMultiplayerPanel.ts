@@ -55,8 +55,7 @@ export class XRMultiplayerPanel {
       borderRadius: 0.02,
       justifyContent: 'start',
       flexDirection: 'column',
-      fontFamily: '/fonts/Roboto-msdf.json',
-      fontTexture: '/fonts/Roboto-msdf.png',
+      // CRITICAL FIX: Don't specify fonts - ThreeMeshUI will use built-in defaults
     });
     
     this.panel.position.set(0, 1.4, -0.8);
