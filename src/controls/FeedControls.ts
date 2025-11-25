@@ -22,6 +22,7 @@ export class FeedControls {
   private scrollArmed = false;
   private scrollDisarmedThisPinch = false;
   private scrollSide: 'left' | 'right' | null = null; // Track which hand is scrolling
+  private transformEndCooldownUntil = 0; // Cooldown after transform ends to prevent accidental scroll
 
   // Scroll control constants
   private readonly SCROLL_MIN_HOLD_MS = CONTROLS.SCROLL_MIN_HOLD_MS;
@@ -436,6 +437,7 @@ export class FeedControls {
     this.scrollSide = null;
     this.pinchStartAt = null;
     this.scrollCooldownUntil = 0;
+    this.transformEndCooldownUntil = 0; // Reset transform cooldown
     if (this.scrollRay) this.scrollRay.visible = false;
 
     // Grab state
@@ -1202,10 +1204,14 @@ export class FeedControls {
       this.scrollSide = side;
     }
 
-    // CRITICAL: Scroll has priority - only disarm if actively grabbing
-    // Don't disarm for grab pending - scroll can override
-    if (this.scrollDisarmedThisPinch && this.grabbing) {
+    // CRITICAL FIX: Block scroll if disarmed during this pinch OR during transform cooldown
+    // This prevents scroll from triggering after two-hand transform ends
+    if (this.scrollDisarmedThisPinch || now < this.transformEndCooldownUntil) {
       if (this.scrollRay) this.scrollRay.visible = false;
+      // Reset scroll tracking while blocked
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      this.scrollAccum = 0;
       return;
     }
     
@@ -1225,8 +1231,8 @@ export class FeedControls {
     }
     
     // SIMPLIFIED SCROLL ARMING: Arm after hold time - SCROLL HAS PRIORITY
-    // Don't check grabPending - scroll cancels it automatically
-    if (!this.scrollArmed && !this.grabbing) {
+    // FIX: Don't arm if we're in transform cooldown period
+    if (!this.scrollArmed && !this.grabbing && now >= this.transformEndCooldownUntil) {
       this.scrollArmed = true;
       console.log(`[MainFeed-Scroll] ✅ Armed after hold time (${this.SCROLL_MIN_HOLD_MS}ms)`);
       
@@ -1330,13 +1336,18 @@ export class FeedControls {
       if (this.twoHandActive) {
         this.twoHandActive = false;
         this.rotVel = 0;
-        // CRITICAL: Reset scroll state when exiting two-hand mode to prevent scroll triggering
+        // CRITICAL FIX: Reset scroll state AND add cooldown when exiting two-hand mode
+        // This prevents scroll from triggering immediately after releasing rotation/scale
         this.scrollArmed = false;
         this.scrollDisarmedThisPinch = true;
         this.scrollAccum = 0;
         this.lastPinchY = null;
         this.filtPinchY = null;
+        this.pinchStartAt = null; // Reset pinch timing
+        // Add 500ms cooldown after transform ends to prevent accidental scroll
+        this.transformEndCooldownUntil = performance.now() + 500;
         if (this.scrollRay) this.scrollRay.visible = false;
+        console.log('[FeedControls] ⚠️ Two-hand transform ended - 500ms cooldown before scroll can activate');
       }
       return;
     }
@@ -1347,13 +1358,17 @@ export class FeedControls {
       if (this.twoHandActive) {
         this.twoHandActive = false;
         this.rotVel = 0;
-        // CRITICAL: Reset scroll state when exiting two-hand mode (hand tracking lost)
+        // CRITICAL FIX: Reset scroll state AND add cooldown when hand tracking lost
         this.scrollArmed = false;
         this.scrollDisarmedThisPinch = true;
         this.scrollAccum = 0;
         this.lastPinchY = null;
         this.filtPinchY = null;
+        this.pinchStartAt = null; // Reset pinch timing
+        // Add 500ms cooldown after transform ends
+        this.transformEndCooldownUntil = performance.now() + 500;
         if (this.scrollRay) this.scrollRay.visible = false;
+        console.log('[FeedControls] ⚠️ Two-hand transform ended (tracking lost) - 500ms cooldown');
       }
       return;
     }
@@ -1376,6 +1391,7 @@ export class FeedControls {
       this.scrollAccum = 0;
       this.lastPinchY = null;
       this.filtPinchY = null;
+      this.pinchStartAt = null; // Reset pinch timing
       if (this.scrollRay) this.scrollRay.visible = false;
       console.log('[FeedControls] ✅ Two-hand mode active - scroll DISABLED');
       return;
