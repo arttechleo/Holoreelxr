@@ -32,18 +32,12 @@ export default defineConfig({
       }
     },
     
-    // Terser options for better compression
+    // Terser options - keep console.error for debugging
     terserOptions: {
       compress: {
-        drop_console: true,  // Remove console.logs in production
-        drop_debugger: true,
-        pure_funcs: ['console.log', 'console.debug']
+        drop_console: false,  // Keep console logs for now
+        drop_debugger: true
       }
     }
-  },
-  
-  // Define environment variables
-  define: {
-    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '1.0.0')
   }
 })

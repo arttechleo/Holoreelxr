@@ -23,6 +23,8 @@
   },
   "devDependencies": {
     "@types/three": "^0.181.0",
+    "terser": "^5.44.1",
+    "typescript": "^5.9.3",
     "vite-plugin-mkcert": "^1.17.9"
   }
 }
