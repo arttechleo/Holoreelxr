@@ -27,7 +27,8 @@ export class HandEngine {
   public state = {
     left:  { pinch:false },
     right: { pinch:false },
-    heart:false
+    heart:false,
+    stopPalm:false  // CRITICAL: Added for multiplayer panel trigger
   };
 
   private lastPos: Record<'left'|'right', Partial<Record<XRHandJointName, THREE.Vector3>>> = { left:{}, right:{} };
@@ -76,6 +77,7 @@ export class HandEngine {
       this.state.left.pinch = false;
       this.state.right.pinch = false;
       this.state.heart = false;
+      this.state.stopPalm = false;  // CRITICAL: Reset stopPalm
       return;
     }
 
@@ -238,6 +240,36 @@ export class HandEngine {
     };
     if (peace('left'))  this.emit('peacestart',{side:'left'});
     if (peace('right')) this.emit('peacestart',{side:'right'});
+
+    // STOP PALM 🖐️ (all fingers extended, palm facing forward)
+    // Used to trigger multiplayer panel
+    // CRITICAL: Only detect on right hand to prevent accidental triggers
+    const stopPalm = (side: Side) => {
+      const inFrame = side === 'right' ? rightHandInFrame : leftHandInFrame;
+      if (!inFrame) return false;
+      
+      // Don't detect if pinching (user is interacting)
+      const isPinching = side === 'right' ? this.state.right.pinch : this.state.left.pinch;
+      if (isPinching) return false;
+      
+      const W = J(side, 'wrist');
+      const IT = J(side, 'index-finger-tip'), MT = J(side, 'middle-finger-tip');
+      const RT = J(side, 'ring-finger-tip'),  PT = J(side, 'pinky-finger-tip');
+      const TT = J(side, 'thumb-tip');
+      
+      if (!(W && IT && MT && RT && PT && TT)) return false;
+      
+      // All fingers must be extended (away from wrist)
+      const allExtended = [IT, MT, RT, PT, TT].every(
+        p => p.distanceTo(W) > GESTURE.FINGER_EXTENDED_THRESHOLD * 0.9  // Slightly relaxed
+      );
+      
+      return allExtended;
+    };
+    
+    // Only detect on RIGHT hand to prevent accidental triggers
+    this.state.stopPalm = stopPalm('right');
+    this.updateFlag('stopPalm', this.state.stopPalm);
   }
 
   // helpers
