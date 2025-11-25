@@ -66,8 +66,9 @@ export class XRMultiplayerPanel {
       transparent: true,
       side: THREE.DoubleSide,
       depthTest: true,  // Enable depth test for proper 3D placement
+      depthWrite: true,  // Enable depth writing for proper raycasting
       opacity: 1.0,
-      depthWrite: false,  // Prevent z-fighting with other UI elements
+      alphaTest: 0.1,  // Discard fully transparent pixels for better interaction
     });
     
     this.panel = new THREE.Mesh(geo, mat);
@@ -104,15 +105,27 @@ export class XRMultiplayerPanel {
     // VISUAL FEEDBACK: Add border to show panel state
     // Blue = hovered/grabbable, Green = being grabbed, White = idle
     if (this.isGrabbed) {
-      // Being grabbed - bright green border
+      // Being grabbed - bright green border with glow
+      ctx.shadowColor = '#00ff00';
+      ctx.shadowBlur = 30;
       ctx.strokeStyle = '#00ff00';
       ctx.lineWidth = 12;
       ctx.strokeRect(6, 6, w - 12, h - 12);
+      ctx.shadowBlur = 0;
     } else if (this.panelHovered || this.grabPending) {
-      // Hovered or grab pending - bright blue border (grabbable)
+      // Hovered or grab pending - bright blue border with glow (INTERACTIVE!)
+      ctx.shadowColor = '#00aaff';
+      ctx.shadowBlur = 25;
       ctx.strokeStyle = '#00aaff';
-      ctx.lineWidth = 8;
-      ctx.strokeRect(4, 4, w - 8, h - 8);
+      ctx.lineWidth = 10;
+      ctx.strokeRect(5, 5, w - 10, h - 10);
+      ctx.shadowBlur = 0;
+      
+      // Add "INTERACTIVE" indicator text when hovering
+      ctx.fillStyle = '#00aaff';
+      ctx.font = 'bold 28px Arial';
+      ctx.textAlign = 'right';
+      ctx.fillText('👆 INTERACTIVE', w - 20, 40);
     } else {
       // Idle - subtle white border
       ctx.strokeStyle = '#444444';
@@ -129,13 +142,13 @@ export class XRMultiplayerPanel {
     // Status/instructions
     if (this.mode === 'idle') {
       ctx.fillStyle = '#ffffff';
-      ctx.font = '36px Arial';
-      ctx.fillText('Point & pinch to select', w / 2, 160);
+      ctx.font = '38px Arial';
+      ctx.fillText('👉 Point & Pinch to Interact', w / 2, 160);
       
       // Help text - how to move panel
-      ctx.fillStyle = '#888888';
-      ctx.font = '24px Arial';
-      ctx.fillText('💡 Pinch & move to reposition panel', w / 2, 200);
+      ctx.fillStyle = '#aaaaaa';
+      ctx.font = '26px Arial';
+      ctx.fillText('💡 Pinch panel edge & drag to move', w / 2, 200);
       
       // HOST button - BIGGER for easy pinch targeting
       const hostY = 240;
@@ -217,19 +230,24 @@ export class XRMultiplayerPanel {
     const buttonW = 800;
     const buttonX = (w - buttonW) / 2;
     
-    // IMPROVED: More obvious hover effect with glow
+    // IMPROVED: More obvious hover effect with glow and animation
     if (hovered) {
-      // Outer glow effect when hovered
+      // Animated glow effect when hovered - INTERACTIVE feedback
       ctx.shadowColor = color;
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = 35;
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(buttonX, y, buttonW, h);
+      ctx.fillRect(buttonX - 5, y - 5, buttonW + 10, h + 10);
       ctx.shadowBlur = 0;
       
-      // Bright border
+      // Bright animated border
       ctx.strokeStyle = color;
-      ctx.lineWidth = 6;
-      ctx.strokeRect(buttonX + 3, y + 3, buttonW - 6, h - 6);
+      ctx.lineWidth = 8;
+      ctx.strokeRect(buttonX, y, buttonW, h);
+      
+      // Add "CLICK HERE" indicator
+      ctx.fillStyle = color;
+      ctx.font = 'bold 24px Arial';
+      ctx.fillText('👆 CLICK', buttonX + buttonW + 80, y + h / 2 + 8);
     } else {
       // Normal state - colored background
       ctx.fillStyle = color;
@@ -243,9 +261,9 @@ export class XRMultiplayerPanel {
     
     // Button text - BIG & BOLD with better contrast
     ctx.fillStyle = hovered ? color : '#ffffff';
-    ctx.font = 'bold 64px Arial'; // Slightly bigger for better readability
+    ctx.font = 'bold 68px Arial'; // Even bigger for better readability in VR
     ctx.textAlign = 'center';
-    ctx.fillText(text, w / 2, y + h / 2 + 22);
+    ctx.fillText(text, w / 2, y + h / 2 + 24);
   }
   
   /**
@@ -373,6 +391,10 @@ export class XRMultiplayerPanel {
     }
     
     this.render();
+    
+    console.log('[XRMultiplayerPanel] 🎮 Panel shown - INTERACTIVE MODE enabled');
+    console.log('[XRMultiplayerPanel] 📍 Position:', this.group.position);
+    console.log('[XRMultiplayerPanel] 👆 Point your finger and pinch to interact!');
   }
   
   hide(): void {
