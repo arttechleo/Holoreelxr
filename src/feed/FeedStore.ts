@@ -220,7 +220,6 @@ export class FeedStore {
           console.log(`[FeedStore] ✅✅✅ Successfully loaded GLB/GLTF: ${item.title}`, gltf);
           console.log(`[FeedStore] Model info:`, {
             animations: gltf.animations?.length || 0,
-            scenes: gltf.scenes?.length || 0,
             nodes: gltf.scene.children.length
           });
           
@@ -651,11 +650,11 @@ export class FeedStore {
       const obj = this.getObject();
       if (!obj || !obj.visible) return null;
       const box = new THREE.Box3().setFromObject(obj);
-      if (!box || !box.isFinite()) return null; // Check for invalid bounds
+      if (!box || box.isEmpty()) return null; // Check for invalid bounds
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
       const radius = size.length() * 0.5;
-      if (!isFinite(radius) || radius <= 0) return null; // Validate radius
+      if (!Number.isFinite(radius) || radius <= 0) return null; // Validate radius
       return { center, radius, box };
     } catch (error) {
       logError(error, 'FeedStore.getObjectBounds');

@@ -4,9 +4,9 @@
  */
 
 export const ENVIRONMENT = {
-  isProduction: import.meta.env.PROD || false,
-  isDevelopment: import.meta.env.DEV || false,
-  version: import.meta.env.VITE_APP_VERSION || '1.0.0',
+  isProduction: (import.meta as any).env?.PROD || false,
+  isDevelopment: (import.meta as any).env?.DEV || false,
+  version: (import.meta as any).env?.VITE_APP_VERSION || '1.0.0',
 } as const;
 
 export const PRODUCTION_CONFIG = {

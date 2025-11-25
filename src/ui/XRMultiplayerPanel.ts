@@ -332,7 +332,7 @@ export class XRMultiplayerPanel {
       this.updateStatus('📤 Share code with friend!');
       
       if (this.codeDisplay) {
-        this.codeDisplay.set({ content: `Code: ${shortCode}` });
+        (this.codeDisplay as any).set({ content: `Code: ${shortCode}` });
         this.codeDisplay.visible = true;
       }
       
@@ -366,7 +366,7 @@ export class XRMultiplayerPanel {
     // In XR, user must paste code via phone/desktop
     // For now, we'll show instructions
     if (this.codeDisplay) {
-      this.codeDisplay.set({
+      (this.codeDisplay as any).set({
         content: 'Paste host code on phone/desktop browser at:\nholoreelxr.com/connect'
       });
       this.codeDisplay.visible = true;
@@ -395,7 +395,7 @@ export class XRMultiplayerPanel {
       
       if (this.codeDisplay) {
         const shortCode = `${answer.substring(0, 20)}...${answer.substring(answer.length - 20)}`;
-        this.codeDisplay.set({ content: `Answer: ${shortCode}` });
+        (this.codeDisplay as any).set({ content: `Answer: ${shortCode}` });
       }
       
       this.updateStatus('📤 Share answer back to host!');
@@ -437,7 +437,7 @@ export class XRMultiplayerPanel {
    */
   private updateStatus(message: string): void {
     if (this.statusText) {
-      this.statusText.set({ content: message });
+      (this.statusText as any).set({ content: message });
     }
   }
   
@@ -477,7 +477,7 @@ export class XRMultiplayerPanel {
     
     if (hoveredBlock && hoveredBlock.visible) {
       // Make button slightly larger and brighter when hovered
-      hoveredBlock.set({
+      (hoveredBlock as any).set({
         backgroundOpacity: 0.9,
       });
       
@@ -494,25 +494,25 @@ export class XRMultiplayerPanel {
   
   private resetButtonColors(): void {
     if (this.hostButton) {
-      this.hostButton.set({ backgroundOpacity: 1 });
+      (this.hostButton as any).set({ backgroundOpacity: 1 });
       if ((this.hostButton as any).scale) {
         (this.hostButton as any).scale.set(1, 1, 1);
       }
     }
     if (this.joinButton) {
-      this.joinButton.set({ backgroundOpacity: 1 });
+      (this.joinButton as any).set({ backgroundOpacity: 1 });
       if ((this.joinButton as any).scale) {
         (this.joinButton as any).scale.set(1, 1, 1);
       }
     }
     if (this.acceptButton) {
-      this.acceptButton.set({ backgroundOpacity: 1 });
+      (this.acceptButton as any).set({ backgroundOpacity: 1 });
       if ((this.acceptButton as any).scale) {
         (this.acceptButton as any).scale.set(1, 1, 1);
       }
     }
     if (this.closeButton) {
-      this.closeButton.set({ backgroundOpacity: 1 });
+      (this.closeButton as any).set({ backgroundOpacity: 1 });
       if ((this.closeButton as any).scale) {
         (this.closeButton as any).scale.set(1, 1, 1);
       }

@@ -170,22 +170,6 @@ export class HandEngine {
         // Both pairs must be close for heart gesture
         const heartNow = indexClose && thumbClose;
         
-        // DEBUG: Log heart gesture detection (throttled to avoid spam)
-        if (Math.random() < 0.02) {  // 2% of frames
-          console.log('[Heart Debug]', {
-            indexDist: (indexDist * 100).toFixed(1) + 'cm',
-            thumbDist: (thumbDist * 100).toFixed(1) + 'cm',
-            threshold: (GESTURE.HEART_THRESHOLD * 100).toFixed(1) + 'cm',
-            maxDistFromCenter: (maxDistFromCenter * 100).toFixed(1) + 'cm',
-            indexClose,
-            thumbClose,
-            strictHeart,
-            oneVeryClose,
-            shapeHeart,
-            heartNow
-          });
-        }
-        
         if (heartNow) {
           this.heartGraceUntil = now + 220;
         }
