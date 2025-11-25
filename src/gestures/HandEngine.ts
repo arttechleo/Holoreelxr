@@ -154,22 +154,37 @@ export class HandEngine {
           this.updateFlag('heart', false);
         }
       } else {
+        // FIX #5: IMPROVED heart gesture detection based on actual hand heart shape
+        // Reference image shows: index fingers touch at top, thumbs touch at bottom
         const indexDist = dist(L_i, R_i);
         const thumbDist = dist(L_t, R_t);
         const crossLeftIndexRightThumb = dist(L_i, R_t);
         const crossRightIndexLeftThumb = dist(R_i, L_t);
 
+        // Primary detection: Index fingers AND thumbs are close (classic heart shape)
         const indexClose = indexDist < GESTURE.HEART_THRESHOLD;
         const thumbClose = thumbDist < GESTURE.HEART_THRESHOLD;
+        const strictHeart = indexClose && thumbClose;
 
+        // Relaxed detection: Overall hand proximity forms heart-like shape
         const combinedAvg = (indexDist + thumbDist) * 0.5;
         const crossAvg = (crossLeftIndexRightThumb + crossRightIndexLeftThumb) * 0.5;
-
+        
+        // FIX #5: More lenient relaxed detection
+        // Allow heart if hands are generally close together in heart formation
         const relaxedHeart =
           combinedAvg < GESTURE.HEART_COMBINED_THRESHOLD &&
           crossAvg < GESTURE.HEART_CROSS_THRESHOLD;
+        
+        // FIX #5: SUPER LENIENT mode - if any pair of fingers is close
+        // This catches partial heart shapes or slightly misaligned hands
+        const superLenient = 
+          indexDist < GESTURE.HEART_COMBINED_THRESHOLD ||
+          thumbDist < GESTURE.HEART_COMBINED_THRESHOLD ||
+          combinedAvg < GESTURE.HEART_CROSS_THRESHOLD;
 
-        const heartNow = (indexClose && thumbClose) || relaxedHeart;
+        // Accept any of the three detection modes
+        const heartNow = strictHeart || relaxedHeart || superLenient;
         
         // DEBUG: Log heart gesture detection (throttled to avoid spam)
         if (Math.random() < 0.02) {  // 2% of frames
@@ -183,7 +198,9 @@ export class HandEngine {
             crossThreshold: (GESTURE.HEART_CROSS_THRESHOLD * 100).toFixed(1) + 'cm',
             indexClose,
             thumbClose,
+            strictHeart,
             relaxedHeart,
+            superLenient,
             heartNow
           });
         }
