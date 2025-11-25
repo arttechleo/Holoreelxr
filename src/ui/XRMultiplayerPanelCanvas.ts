@@ -33,6 +33,18 @@ export class XRMultiplayerPanel {
   private grabHand: 'left' | 'right' | null = null;
   private grabOffset = new THREE.Vector3();
   
+  // GRAB PENDING: Wait for movement before grabbing (prevents accidental button clicks)
+  private grabPending = false;
+  private grabPendingHand: 'left' | 'right' | null = null;
+  private grabPendingStartPos: THREE.Vector3 | null = null;
+  private grabPendingStartTime = 0;
+  private grabPendingButton: ButtonType | null = null; // Track if started on a button
+  
+  // UX Constants
+  private readonly GRAB_MOVE_THRESHOLD = 0.05; // 5cm movement to trigger grab
+  private readonly GRAB_MIN_HOLD_MS = 150; // 150ms minimum hold before grab activates
+  private readonly CLICK_MAX_MOVE = 0.02; // 2cm max movement for button click
+  
   constructor(scene: THREE.Scene, multiplayer: MultiplayerManager) {
     this.multiplayer = multiplayer;
     
@@ -331,14 +343,78 @@ export class XRMultiplayerPanel {
   }
   
   /**
-   * Start grabbing panel with specified hand
+   * Start PENDING grab - waits for movement before actually grabbing
+   * This prevents accidental button clicks when trying to move panel
    */
-  startGrab(hand: 'left' | 'right', handPosition: THREE.Vector3): void {
+  startGrabPending(hand: 'left' | 'right', handPosition: THREE.Vector3, button?: ButtonType): void {
+    this.grabPending = true;
+    this.grabPendingHand = hand;
+    this.grabPendingStartPos = handPosition.clone();
+    this.grabPendingStartTime = performance.now();
+    this.grabPendingButton = button || null;
+    console.log('[XRMultiplayerPanel] ⏳ Grab pending -', button ? `on button: ${button}` : 'on panel');
+  }
+  
+  /**
+   * Update grab pending - check if hand moved enough to activate grab
+   * Returns: 'grab' if grab activated, 'click' if should click button, 'pending' if still waiting, 'cancel' if canceled
+   */
+  updateGrabPending(handPosition: THREE.Vector3, isPinching: boolean): 'grab' | 'click' | 'pending' | 'cancel' {
+    if (!this.grabPending || !this.grabPendingStartPos) return 'cancel';
+    
+    // If pinch released
+    if (!isPinching) {
+      const movement = handPosition.distanceTo(this.grabPendingStartPos);
+      const wasOnButton = this.grabPendingButton !== null;
+      
+      // If minimal movement and was on button = CLICK
+      if (movement < this.CLICK_MAX_MOVE && wasOnButton) {
+        console.log('[XRMultiplayerPanel] 🖱️ Button click detected (movement:', (movement * 100).toFixed(1), 'cm)');
+        this.cancelGrabPending();
+        return 'click';
+      }
+      
+      // Otherwise cancel
+      console.log('[XRMultiplayerPanel] ❌ Grab canceled (released too early)');
+      this.cancelGrabPending();
+      return 'cancel';
+    }
+    
+    // Check if hand moved enough to activate grab
+    const movement = handPosition.distanceTo(this.grabPendingStartPos);
+    const holdTime = performance.now() - this.grabPendingStartTime;
+    
+    if (movement >= this.GRAB_MOVE_THRESHOLD && holdTime >= this.GRAB_MIN_HOLD_MS) {
+      // Movement detected + min hold time = ACTIVATE GRAB
+      console.log('[XRMultiplayerPanel] 🖐️ Grab activated (movement:', (movement * 100).toFixed(1), 'cm)');
+      this.activateGrab(this.grabPendingHand!, handPosition);
+      return 'grab';
+    }
+    
+    return 'pending';
+  }
+  
+  /**
+   * Activate actual grab (called after pending state confirms it's a grab, not a click)
+   */
+  private activateGrab(hand: 'left' | 'right', handPosition: THREE.Vector3): void {
     this.isGrabbed = true;
     this.grabHand = hand;
-    // Calculate offset from hand to panel center
     this.grabOffset.copy(this.group.position).sub(handPosition);
-    console.log('[XRMultiplayerPanel] 🖐️ Grabbed with', hand, 'hand');
+    this.grabPending = false;
+    this.grabPendingHand = null;
+    this.grabPendingStartPos = null;
+    this.grabPendingButton = null;
+  }
+  
+  /**
+   * Cancel grab pending
+   */
+  cancelGrabPending(): void {
+    this.grabPending = false;
+    this.grabPendingHand = null;
+    this.grabPendingStartPos = null;
+    this.grabPendingButton = null;
   }
   
   /**
@@ -365,6 +441,20 @@ export class XRMultiplayerPanel {
    */
   isCurrentlyGrabbed(): boolean {
     return this.isGrabbed;
+  }
+  
+  /**
+   * Check if grab is pending (waiting for movement)
+   */
+  isGrabPending(): boolean {
+    return this.grabPending;
+  }
+  
+  /**
+   * Get the button that was pressed during grab pending (for click after release)
+   */
+  getPendingButton(): ButtonType | null {
+    return this.grabPendingButton;
   }
   
   dispose(): void {
