@@ -42,10 +42,10 @@ export class XRMultiplayerPanel {
   private grabPendingStartTime = 0;
   private grabPendingButton: ButtonType | null = null; // Track if started on a button
   
-  // UX Constants - IMPROVED for better responsiveness
-  private readonly GRAB_MOVE_THRESHOLD = 0.02; // 2cm movement to trigger grab (was 5cm - too high)
-  private readonly GRAB_MIN_HOLD_MS = 100; // 100ms minimum hold before grab activates (was 150ms)
-  private readonly CLICK_MAX_MOVE = 0.015; // 1.5cm max movement for button click (more precise)
+  // UX Constants - SIMPLIFIED for better reliability
+  private readonly GRAB_MOVE_THRESHOLD = 0.03; // 3cm movement to trigger grab (easier to activate)
+  private readonly GRAB_MIN_HOLD_MS = 50; // 50ms minimum hold (very responsive)
+  private readonly CLICK_MAX_MOVE = 0.02; // 2cm max movement for button click (more forgiving)
   
   constructor(scene: THREE.Scene, multiplayer: MultiplayerManager) {
     this.multiplayer = multiplayer;
@@ -59,8 +59,8 @@ export class XRMultiplayerPanel {
     this.texture.minFilter = THREE.LinearFilter;
     this.texture.magFilter = THREE.LinearFilter;
     
-    // Create plane mesh (like tutorial) - COMFORTABLE SIZE for interaction
-    const geo = new THREE.PlaneGeometry(0.6, 0.45);  // Larger for easier interaction
+    // Create plane mesh (like tutorial) - MUCH LARGER for easier interaction and targeting
+    const geo = new THREE.PlaneGeometry(0.8, 0.6);  // BIGGER! Was 0.6x0.45, now 0.8x0.6 (33% larger)
     const mat = new THREE.MeshBasicMaterial({
       map: this.texture,
       transparent: true,
@@ -325,11 +325,12 @@ export class XRMultiplayerPanel {
   raycast(ray: THREE.Ray): { button?: ButtonType; panel?: boolean; distance: number; point?: THREE.Vector3 } | null {
     if (!this.visible) return null;
     
-    // Raycast against panel mesh
-    const raycaster = new THREE.Raycaster();
-    raycaster.ray.copy(ray);
+    // Normalize ray direction (critical for raycaster)
+    const normalizedDir = ray.direction.clone().normalize();
+    const raycaster = new THREE.Raycaster(ray.origin, normalizedDir);
     raycaster.near = 0.01;  // Very close
     raycaster.far = 100;    // Very far - ensure we catch the panel
+    
     const intersects = raycaster.intersectObject(this.panel, false);
     
     // Debug logging (throttled)
@@ -339,7 +340,7 @@ export class XRMultiplayerPanel {
         panelVisible: this.visible,
         groupVisible: this.group.visible,
         rayOrigin: ray.origin,
-        rayDir: ray.direction,
+        rayDirNormalized: normalizedDir,
         intersectsCount: intersects.length,
         panelMatrixWorld: this.panel.matrixWorld.elements.slice(12, 15) // Translation part
       });
@@ -400,8 +401,8 @@ export class XRMultiplayerPanel {
       camera.getWorldPosition(camPos);
       camera.getWorldDirection(camDir);
       
-      // Position panel CLOSER - 0.5m in front at eye height for easy reach
-      this.group.position.copy(camPos.add(camDir.multiplyScalar(0.5)));
+      // Position panel VERY CLOSE - 0.4m in front, directly in view for easy interaction
+      this.group.position.copy(camPos.add(camDir.multiplyScalar(0.4)));
       this.group.position.y = 1.5; // Eye height for easy reach and visibility
       
       // Face camera
@@ -603,6 +604,63 @@ export class XRMultiplayerPanel {
    */
   getPendingButton(): ButtonType | null {
     return this.grabPendingButton;
+  }
+  
+  /**
+   * Check proximity-based interaction (fallback when raycast doesn't work)
+   * Returns button if hand is close to a button region
+   */
+  checkProximity(handPosition: THREE.Vector3): { button?: ButtonType; distance: number } | null {
+    if (!this.visible) return null;
+    
+    const panelWorldPos = this.panel.getWorldPosition(new THREE.Vector3());
+    const distance = handPosition.distanceTo(panelWorldPos);
+    
+    // Panel is 0.8m x 0.6m, so max distance from center to corner is ~0.5m
+    // Allow interaction within 0.6m of panel center
+    const PROXIMITY_THRESHOLD = 0.6;
+    
+    if (distance > PROXIMITY_THRESHOLD) {
+      return null;
+    }
+    
+    // Hand is close to panel - check which button (if any)
+    // Project hand position onto panel plane to get relative position
+    const panelToHand = handPosition.clone().sub(panelWorldPos);
+    
+    // Get panel's local right and up vectors
+    const panelRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.panel.getWorldQuaternion(new THREE.Quaternion()));
+    const panelUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.panel.getWorldQuaternion(new THREE.Quaternion()));
+    
+    // Project onto panel axes
+    const localX = panelToHand.dot(panelRight);
+    const localY = panelToHand.dot(panelUp);
+    
+    // Panel is 0.8m wide, 0.6m tall, so local coords range from -0.4 to 0.4 in X, -0.3 to 0.3 in Y
+    // Check if within panel bounds
+    if (Math.abs(localX) > 0.4 || Math.abs(localY) > 0.3) {
+      return null; // Outside panel
+    }
+    
+    // Convert to UV-like coordinates (0 to 1)
+    const u = (localX + 0.4) / 0.8; // 0 at left, 1 at right
+    const v = (localY + 0.3) / 0.6; // 0 at bottom, 1 at top
+    
+    // Convert to canvas coordinates
+    const x = u * this.canvas.width;
+    const y = (1 - v) * this.canvas.height; // Flip Y for canvas
+    
+    // Check button regions
+    for (const [name, region] of Object.entries(this.buttonRegions)) {
+      if (x >= region.x && x <= region.x + region.w &&
+          y >= region.y && y <= region.y + region.h) {
+        console.log('[XRMultiplayerPanel] 🎯 Proximity hit on button:', name);
+        return { button: name as ButtonType, distance };
+      }
+    }
+    
+    console.log('[XRMultiplayerPanel] 🎯 Proximity hit on panel (no button)');
+    return { distance };
   }
   
   dispose(): void {
