@@ -232,6 +232,7 @@ async function loadMainFeed() {
     xrMusicPanel.update(app.camera);
     
     // FLOATING UI: Update multiplayer panel with grab support
+    // Panel is positioned LEFT of object (independent of scale/height)
     const modelInfo = store.getCurrentModelInfo();
     const mpGrabHand = xrMultiplayerPanel.isCurrentlyGrabbed() 
       ? (xrMultiplayerPanel.isGrabbedByHand('left') ? 'left' : 'right')
@@ -239,7 +240,8 @@ async function loadMainFeed() {
     const mpHandPos = mpGrabHand ? hands.pinchMid(mpGrabHand) : undefined;
     
     if (modelInfo) {
-      xrMultiplayerPanel.update(app.camera, modelInfo.position, modelInfo.height, mpHandPos || undefined);
+      // Pass only model position (not height) - panel positioning is independent of scale
+      xrMultiplayerPanel.update(app.camera, modelInfo.position, undefined, mpHandPos || undefined);
     } else {
       xrMultiplayerPanel.update(app.camera, undefined, undefined, mpHandPos || undefined);
     }
