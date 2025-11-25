@@ -28,6 +28,11 @@ export class XRMultiplayerPanel {
     close: { x: 0, y: 0, w: 0, h: 0 },
   };
   
+  // SPATIAL PLACEMENT: Grab state (like 3D models)
+  private isGrabbed = false;
+  private grabHand: 'left' | 'right' | null = null;
+  private grabOffset = new THREE.Vector3();
+  
   constructor(scene: THREE.Scene, multiplayer: MultiplayerManager) {
     this.multiplayer = multiplayer;
     
@@ -233,9 +238,11 @@ export class XRMultiplayerPanel {
   }
   
   /**
-   * Raycast to check if pointing at button
+   * Raycast to check if pointing at button OR panel (for grab/button interaction)
+   * Returns { button, distance } if hitting a button
+   * Returns { panel: true, distance, point } if hitting panel (but not button) - for grab
    */
-  raycast(ray: THREE.Ray): { button: ButtonType; distance: number } | null {
+  raycast(ray: THREE.Ray): { button?: ButtonType; panel?: boolean; distance: number; point?: THREE.Vector3 } | null {
     if (!this.visible) return null;
     
     // Raycast against panel mesh
@@ -261,7 +268,8 @@ export class XRMultiplayerPanel {
       }
     }
     
-    return null;
+    // Hit panel but not a button - allow grabbing
+    return { panel: true, distance: hit.distance, point: hit.point };
   }
   
   /**
@@ -301,12 +309,17 @@ export class XRMultiplayerPanel {
   /**
    * Update panel position to float above the current 3D model
    * CRITICAL: Panel is STATIONARY in world space, not following head movement
+   * SPATIAL PLACEMENT: Can be grabbed and placed anywhere by user
    */
-  update(camera: THREE.Camera, modelPosition?: THREE.Vector3, modelHeight?: number): void {
+  update(camera: THREE.Camera, modelPosition?: THREE.Vector3, modelHeight?: number, handPosition?: THREE.Vector3): void {
     if (!this.visible) return;
     
-    // If model position provided, position panel above it
-    if (modelPosition && modelHeight) {
+    // If being grabbed, follow hand with offset
+    if (this.isGrabbed && handPosition) {
+      this.group.position.copy(handPosition).add(this.grabOffset);
+    } 
+    // If model position provided and NOT grabbed, position panel above it
+    else if (modelPosition && modelHeight) {
       this.group.position.copy(modelPosition);
       this.group.position.y += modelHeight + 0.3;  // 30cm above model top
     }
@@ -315,6 +328,43 @@ export class XRMultiplayerPanel {
     const camPos = new THREE.Vector3();
     camera.getWorldPosition(camPos);
     this.group.lookAt(camPos);
+  }
+  
+  /**
+   * Start grabbing panel with specified hand
+   */
+  startGrab(hand: 'left' | 'right', handPosition: THREE.Vector3): void {
+    this.isGrabbed = true;
+    this.grabHand = hand;
+    // Calculate offset from hand to panel center
+    this.grabOffset.copy(this.group.position).sub(handPosition);
+    console.log('[XRMultiplayerPanel] 🖐️ Grabbed with', hand, 'hand');
+  }
+  
+  /**
+   * Stop grabbing panel
+   */
+  stopGrab(): void {
+    if (this.isGrabbed) {
+      console.log('[XRMultiplayerPanel] 📍 Placed at', this.group.position);
+    }
+    this.isGrabbed = false;
+    this.grabHand = null;
+    this.grabOffset.set(0, 0, 0);
+  }
+  
+  /**
+   * Check if panel is currently being grabbed
+   */
+  isGrabbedByHand(hand: 'left' | 'right'): boolean {
+    return this.isGrabbed && this.grabHand === hand;
+  }
+  
+  /**
+   * Check if panel is grabbed by any hand
+   */
+  isCurrentlyGrabbed(): boolean {
+    return this.isGrabbed;
   }
   
   dispose(): void {

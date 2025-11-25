@@ -778,7 +778,7 @@ export class FeedControls {
       const mpHit = multiplayerPanel.raycast(ray);
       
       if (mpHit?.button) {
-        // Show hover effect on the button we're pointing at
+        // Pointing at a BUTTON - show hover and allow clicking
         multiplayerPanel.setButtonHover(mpHit.button);
         
         // Use pinch gesture on pointing hand to click (hand gesture click)
@@ -790,9 +790,38 @@ export class FeedControls {
           multiplayerPanel.handleClick(mpHit.button);
           return;
         }
-      } else {
-        // Not pointing at any button - clear hover
+      } else if (mpHit?.panel && mpHit.point) {
+        // Pointing at PANEL (not button) - allow GRABBING
         multiplayerPanel.setButtonHover(null);
+        
+        const pointingHandPinch = pointingSide === 'right' 
+          ? this.hands.state.right.pinch 
+          : this.hands.state.left.pinch;
+        
+        const handPos = this.hands.pinchMid(pointingSide);
+        
+        // Start grab on pinch
+        if (pointingHandPinch && !multiplayerPanel.isCurrentlyGrabbed() && handPos) {
+          multiplayerPanel.startGrab(pointingSide, handPos);
+          console.log('[FeedControls] 🖐️ Started grabbing multiplayer panel');
+          return;
+        }
+      } else {
+        // Not pointing at panel - clear hover
+        multiplayerPanel.setButtonHover(null);
+      }
+      
+      // Handle ongoing grab (even if not pointing at panel anymore)
+      if (multiplayerPanel.isCurrentlyGrabbed()) {
+        const grabHand = multiplayerPanel.isGrabbedByHand('left') ? 'left' : 'right';
+        const isPinching = this.hands.state[grabHand].pinch;
+        
+        if (!isPinching) {
+          // Released pinch - stop grabbing
+          multiplayerPanel.stopGrab();
+          console.log('[FeedControls] 📍 Placed multiplayer panel');
+        }
+        return; // Block other interactions while grabbing
       }
     }
 
