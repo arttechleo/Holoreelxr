@@ -20,6 +20,7 @@ export class XRMultiplayerPanel {
   private currentCode = '';
   private mode: 'idle' | 'hosting' | 'waiting' = 'idle';
   private hoveredButton: ButtonType | null = null;
+  private panelHovered = false; // Track if panel is being pointed at (for visual feedback)
   
   // Button regions for raycasting (in canvas coordinates)
   private buttonRegions = {
@@ -40,10 +41,10 @@ export class XRMultiplayerPanel {
   private grabPendingStartTime = 0;
   private grabPendingButton: ButtonType | null = null; // Track if started on a button
   
-  // UX Constants
-  private readonly GRAB_MOVE_THRESHOLD = 0.05; // 5cm movement to trigger grab
-  private readonly GRAB_MIN_HOLD_MS = 150; // 150ms minimum hold before grab activates
-  private readonly CLICK_MAX_MOVE = 0.02; // 2cm max movement for button click
+  // UX Constants - IMPROVED for better responsiveness
+  private readonly GRAB_MOVE_THRESHOLD = 0.02; // 2cm movement to trigger grab (was 5cm - too high)
+  private readonly GRAB_MIN_HOLD_MS = 100; // 100ms minimum hold before grab activates (was 150ms)
+  private readonly CLICK_MAX_MOVE = 0.015; // 1.5cm max movement for button click (more precise)
   
   constructor(scene: THREE.Scene, multiplayer: MultiplayerManager) {
     this.multiplayer = multiplayer;
@@ -57,20 +58,22 @@ export class XRMultiplayerPanel {
     this.texture.minFilter = THREE.LinearFilter;
     this.texture.magFilter = THREE.LinearFilter;
     
-    // Create plane mesh (like tutorial) - COMPACT & READABLE
-    const geo = new THREE.PlaneGeometry(0.5, 0.35);  // Compact size
+    // Create plane mesh (like tutorial) - COMFORTABLE SIZE for interaction
+    const geo = new THREE.PlaneGeometry(0.6, 0.45);  // Larger for easier interaction
     const mat = new THREE.MeshBasicMaterial({
       map: this.texture,
       transparent: true,
       side: THREE.DoubleSide,
       depthTest: true,  // Enable depth test for proper 3D placement
       opacity: 1.0,
+      depthWrite: false,  // Prevent z-fighting with other UI elements
     });
     
     this.panel = new THREE.Mesh(geo, mat);
     this.panel.renderOrder = 9999;  // Always render on top
-    // FLOATING UI: Position above 3D model (will be updated dynamically)
-    this.panel.position.set(0, 0.6, 0);  // 60cm above model center
+    // FLOATING UI: Position in easy-to-reach location (will be updated dynamically)
+    // Start closer to user at comfortable height for interaction
+    this.panel.position.set(0, 1.4, -0.5);  // 1.4m height (chest level), 0.5m in front
     this.group.add(this.panel);
     this.group.visible = false;
     
@@ -97,6 +100,25 @@ export class XRMultiplayerPanel {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, w, h);
     
+    // VISUAL FEEDBACK: Add border to show panel state
+    // Blue = hovered/grabbable, Green = being grabbed, White = idle
+    if (this.isGrabbed) {
+      // Being grabbed - bright green border
+      ctx.strokeStyle = '#00ff00';
+      ctx.lineWidth = 12;
+      ctx.strokeRect(6, 6, w - 12, h - 12);
+    } else if (this.panelHovered || this.grabPending) {
+      // Hovered or grab pending - bright blue border (grabbable)
+      ctx.strokeStyle = '#00aaff';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(4, 4, w - 8, h - 8);
+    } else {
+      // Idle - subtle white border
+      ctx.strokeStyle = '#444444';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(2, 2, w - 4, h - 4);
+    }
+    
     // Title - COMPACT & READABLE
     ctx.fillStyle = '#00ff00';  // Bright green
     ctx.font = 'bold 70px Arial';
@@ -107,7 +129,12 @@ export class XRMultiplayerPanel {
     if (this.mode === 'idle') {
       ctx.fillStyle = '#ffffff';
       ctx.font = '36px Arial';
-      ctx.fillText('Tap to connect', w / 2, 160);
+      ctx.fillText('Point & pinch to select', w / 2, 160);
+      
+      // Help text - how to move panel
+      ctx.fillStyle = '#888888';
+      ctx.font = '24px Arial';
+      ctx.fillText('💡 Pinch & move to reposition panel', w / 2, 200);
       
       // HOST button - BIGGER for easy pinch targeting
       const hostY = 240;
@@ -153,15 +180,21 @@ export class XRMultiplayerPanel {
       const shortCode = this.currentCode.substring(0, 40) + '...';
       ctx.fillText(shortCode, w / 2, 540);
       
-      // Close button
+      // Close button - larger and more accessible
       const closeY = 620;
-      const closeH = 70;
-      this.buttonRegions.close = { x: 362, y: closeY, w: 300, h: closeH };
-      ctx.fillStyle = this.hoveredButton === 'close' ? '#888888' : '#444444';
+      const closeH = 90;
+      this.buttonRegions.close = { x: 312, y: closeY, w: 400, h: closeH };
+      ctx.fillStyle = this.hoveredButton === 'close' ? '#ff4444' : '#444444';
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
+      
+      // Border for visual feedback
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(this.buttonRegions.close.x + 2, closeY + 2, this.buttonRegions.close.w - 4, closeH - 4);
+      
       ctx.fillStyle = '#ffffff';
-      ctx.font = '32px Arial';
-      ctx.fillText('CLOSE', w / 2, closeY + 48);
+      ctx.font = 'bold 38px Arial';
+      ctx.fillText('CLOSE', w / 2, closeY + 56);
       
     } else if (this.mode === 'waiting') {
       ctx.fillStyle = '#ffff00';
@@ -183,22 +216,35 @@ export class XRMultiplayerPanel {
     const buttonW = 800;
     const buttonX = (w - buttonW) / 2;
     
-    // Button background with border for depth
-    ctx.fillStyle = hovered ? '#ffffff' : color;
-    ctx.fillRect(buttonX, y, buttonW, h);
-    
-    // Border for visual feedback
-    if (!hovered) {
+    // IMPROVED: More obvious hover effect with glow
+    if (hovered) {
+      // Outer glow effect when hovered
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 20;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(buttonX, y, buttonW, h);
+      ctx.shadowBlur = 0;
+      
+      // Bright border
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 6;
+      ctx.strokeRect(buttonX + 3, y + 3, buttonW - 6, h - 6);
+    } else {
+      // Normal state - colored background
+      ctx.fillStyle = color;
+      ctx.fillRect(buttonX, y, buttonW, h);
+      
+      // Border for visual feedback
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 4;
       ctx.strokeRect(buttonX + 2, y + 2, buttonW - 4, h - 4);
     }
     
-    // Button text - BIG & BOLD
+    // Button text - BIG & BOLD with better contrast
     ctx.fillStyle = hovered ? color : '#ffffff';
-    ctx.font = 'bold 60px Arial';
+    ctx.font = 'bold 64px Arial'; // Slightly bigger for better readability
     ctx.textAlign = 'center';
-    ctx.fillText(text, w / 2, y + h / 2 + 20);
+    ctx.fillText(text, w / 2, y + h / 2 + 22);
   }
   
   /**
@@ -294,10 +340,36 @@ export class XRMultiplayerPanel {
     }
   }
   
-  show(): void {
+  /**
+   * Set panel hover state (for visual feedback when panel is grabbable)
+   */
+  setPanelHover(hovered: boolean): void {
+    if (this.panelHovered !== hovered) {
+      this.panelHovered = hovered;
+      this.render();
+    }
+  }
+  
+  show(camera?: THREE.Camera): void {
     this.group.visible = true;
     this.visible = true;
     this.mode = 'idle';
+    
+    // Position panel in front of camera at comfortable reach distance
+    if (camera) {
+      const camPos = new THREE.Vector3();
+      const camDir = new THREE.Vector3();
+      camera.getWorldPosition(camPos);
+      camera.getWorldDirection(camDir);
+      
+      // Position panel 0.6m in front at chest height (1.4m)
+      this.group.position.copy(camPos.add(camDir.multiplyScalar(0.6)));
+      this.group.position.y = 1.4; // Comfortable chest height
+      
+      // Face camera
+      this.group.lookAt(camPos);
+    }
+    
     this.render();
   }
   
@@ -326,14 +398,22 @@ export class XRMultiplayerPanel {
   update(camera: THREE.Camera, modelPosition?: THREE.Vector3, modelHeight?: number, handPosition?: THREE.Vector3): void {
     if (!this.visible) return;
     
-    // If being grabbed, follow hand with offset
+    // If being grabbed, follow hand with offset - SMOOTH movement
     if (this.isGrabbed && handPosition) {
-      this.group.position.copy(handPosition).add(this.grabOffset);
+      const targetPos = handPosition.clone().add(this.grabOffset);
+      
+      // Smooth interpolation for more natural feel (lerp factor 0.3 = 30% per frame)
+      this.group.position.lerp(targetPos, 0.3);
     } 
     // If model position provided and NOT grabbed, position panel above it
-    else if (modelPosition && modelHeight) {
-      this.group.position.copy(modelPosition);
-      this.group.position.y += modelHeight + 0.3;  // 30cm above model top
+    // ONLY if panel hasn't been manually positioned yet (first show)
+    else if (modelPosition && modelHeight && !this.isGrabbed) {
+      // Don't auto-reposition if user has grabbed it before
+      // This ensures user-placed position is preserved
+      if (!this.grabOffset.length()) {
+        this.group.position.copy(modelPosition);
+        this.group.position.y += modelHeight + 0.3;  // 30cm above model top
+      }
     }
     
     // CRITICAL: Make panel face camera but keep it stationary in world space

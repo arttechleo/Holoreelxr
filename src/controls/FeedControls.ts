@@ -777,6 +777,9 @@ export class FeedControls {
     if (multiplayerPanel?.isVisible()) {
       const mpHit = multiplayerPanel.raycast(ray);
       
+      // Set panel hover state for visual feedback
+      multiplayerPanel.setPanelHover?.(!!mpHit);
+      
       // Handle ONGOING GRAB (highest priority)
       if (multiplayerPanel.isCurrentlyGrabbed()) {
         const grabHand = multiplayerPanel.isGrabbedByHand('left') ? 'left' : 'right';
@@ -847,9 +850,13 @@ export class FeedControls {
           return;
         }
       } else {
-        // Not pointing at panel - clear hover
+        // Not pointing at panel - clear all hover states
         multiplayerPanel.setButtonHover(null);
+        multiplayerPanel.setPanelHover?.(false);
       }
+    } else if (multiplayerPanel) {
+      // Panel not visible - ensure hover state is cleared
+      multiplayerPanel.setPanelHover?.(false);
     }
 
     const hit = this.hudMgr.raycastHit(ray);
