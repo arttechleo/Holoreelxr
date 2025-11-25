@@ -744,10 +744,11 @@ export class FeedControls {
       }
     }
     
-    // For other UI panels (auth, music), use hand-based ray (hand gesture pointing)
-    // Check XR panels (auth, music) with hand gesture ray
+    // For other UI panels (auth, music, multiplayer), use hand-based ray (hand gesture pointing)
+    // Check XR panels with hand gesture ray
     const authPanel = (this as any).authPanel as XRAuthPanel | undefined;
     const musicPanel = (this as any).musicPanel as XRMusicPanel | undefined;
+    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
     
     if (authPanel?.isVisible()) {
       const authHit = authPanel.raycast(ray);
@@ -769,6 +770,18 @@ export class FeedControls {
         : this.hands.state.left.pinch;
       if (musicHit?.button && pointingHandPinch) {
         musicPanel.handleClick(musicHit.button);
+        return;
+      }
+    }
+    
+    if (multiplayerPanel?.isVisible()) {
+      const mpHit = multiplayerPanel.raycast(ray);
+      // Use pinch gesture on pointing hand to click (hand gesture click)
+      const pointingHandPinch = pointingSide === 'right' 
+        ? this.hands.state.right.pinch 
+        : this.hands.state.left.pinch;
+      if (mpHit?.button && pointingHandPinch) {
+        multiplayerPanel.handleClick(mpHit.button);
         return;
       }
     }
