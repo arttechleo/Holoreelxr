@@ -190,7 +190,12 @@ export class FeedControls {
         if (!this.canTriggerGesture('thumbsup')) return;
         if (!this.acceptGesture('like')) return;
         const now = performance.now();
-        if (now - this.lastLikeAt < this.REACT_COOLDOWN_MS) return;
+        
+        // ENHANCED: More aggressive cooldown to prevent emoji spam
+        if (now - this.lastLikeAt < this.REACT_COOLDOWN_MS) {
+          console.log('[Like] Cooldown active - ignoring rapid gesture');
+          return;
+        }
         this.lastLikeAt = now;
         
         const side = detail?.side || 'right';
@@ -957,8 +962,28 @@ export class FeedControls {
     }
   }
 
+  // Anti-spam: Track pinch events to prevent rapid-fire crashes
+  private lastPinchStartTime = 0;
+  private pinchStartCount = 0;
+  private readonly PINCH_RATE_LIMIT_MS = 100; // Minimum 100ms between pinch starts
+  private readonly MAX_PINCH_BURST = 3; // Max 3 pinches in quick succession
+
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
+    const now = performance.now();
+    
+    // ANTI-SPAM: Rate limit rapid pinch starts to prevent crashes
+    if (now - this.lastPinchStartTime < this.PINCH_RATE_LIMIT_MS) {
+      this.pinchStartCount++;
+      if (this.pinchStartCount > this.MAX_PINCH_BURST) {
+        console.warn(`[FeedControls] ⚠️ Pinch rate limit exceeded - ignoring rapid pinch`);
+        return; // Ignore this pinch to prevent crash
+      }
+    } else {
+      this.pinchStartCount = 0; // Reset counter after cooldown
+    }
+    this.lastPinchStartTime = now;
+    
     // CRITICAL: After tutorial completion, FeedControls is the ONLY handler
     // Only block if tutorial is actively handling grab/scroll steps
     if (this.isTutorialActive()) {
@@ -977,7 +1002,9 @@ export class FeedControls {
       // For other tutorial steps, allow FeedControls to work normally
     } else {
       // Tutorial is NOT active - ensure scroll is enabled
-      console.log(`[FeedControls] Tutorial NOT active - enabling scroll for ${side} hand`);
+      if (Math.random() < 0.1) { // Log 10% of time
+        console.log(`[FeedControls] Tutorial NOT active - enabling scroll for ${side} hand`);
+      }
     }
     
     // PRIORITY 1: Try clicking the MR HUD
