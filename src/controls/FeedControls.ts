@@ -777,6 +777,15 @@ export class FeedControls {
     if (multiplayerPanel?.isVisible()) {
       const mpHit = multiplayerPanel.raycast(ray);
       
+      // Debug raycast (throttled)
+      if (Math.random() < 0.05) { // 5% of calls
+        console.log('[FeedControls] Multiplayer panel raycast:', {
+          visible: multiplayerPanel.isVisible(),
+          hit: !!mpHit,
+          hitType: mpHit?.button ? 'button' : mpHit?.panel ? 'panel' : 'none'
+        });
+      }
+      
       // Set panel hover state for visual feedback
       multiplayerPanel.setPanelHover?.(!!mpHit);
       

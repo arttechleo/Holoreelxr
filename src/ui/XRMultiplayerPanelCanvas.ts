@@ -73,9 +73,12 @@ export class XRMultiplayerPanel {
     
     this.panel = new THREE.Mesh(geo, mat);
     this.panel.renderOrder = 9999;  // Always render on top
+    this.panel.visible = true;      // Ensure panel mesh is visible
+    this.panel.raycast = THREE.Mesh.prototype.raycast;  // Ensure raycast method exists
+    
     // FLOATING UI: Position in easy-to-reach location (will be updated dynamically)
     // Start closer to user at comfortable height for interaction
-    this.panel.position.set(0, 1.6, -0.8);  // 1.6m height (eye level), 0.8m in front for better reach
+    this.panel.position.set(0, 1.5, -0.5);  // 1.5m height (eye level), 0.5m in front (CLOSER!)
     this.group.add(this.panel);
     this.group.visible = false;
     
@@ -325,7 +328,22 @@ export class XRMultiplayerPanel {
     // Raycast against panel mesh
     const raycaster = new THREE.Raycaster();
     raycaster.ray.copy(ray);
+    raycaster.near = 0.01;  // Very close
+    raycaster.far = 100;    // Very far - ensure we catch the panel
     const intersects = raycaster.intersectObject(this.panel, false);
+    
+    // Debug logging (throttled)
+    if (Math.random() < 0.1) { // 10% of calls for better debugging
+      console.log('[XRMultiplayerPanel] Raycast check:', {
+        panelWorldPos: this.panel.getWorldPosition(new THREE.Vector3()),
+        panelVisible: this.visible,
+        groupVisible: this.group.visible,
+        rayOrigin: ray.origin,
+        rayDir: ray.direction,
+        intersectsCount: intersects.length,
+        panelMatrixWorld: this.panel.matrixWorld.elements.slice(12, 15) // Translation part
+      });
+    }
     
     if (intersects.length === 0) return null;
     
@@ -382,18 +400,23 @@ export class XRMultiplayerPanel {
       camera.getWorldPosition(camPos);
       camera.getWorldDirection(camDir);
       
-      // Position panel 0.8m in front at eye height (1.6m) for better interaction
-      this.group.position.copy(camPos.add(camDir.multiplyScalar(0.8)));
-      this.group.position.y = 1.6; // Eye height for easy reach and visibility
+      // Position panel CLOSER - 0.5m in front at eye height for easy reach
+      this.group.position.copy(camPos.add(camDir.multiplyScalar(0.5)));
+      this.group.position.y = 1.5; // Eye height for easy reach and visibility
       
       // Face camera
       this.group.lookAt(camPos);
+      
+      // Force matrix update for proper raycasting
+      this.group.updateMatrixWorld(true);
+      this.panel.updateMatrixWorld(true);
     }
     
     this.render();
     
     console.log('[XRMultiplayerPanel] 🎮 Panel shown - INTERACTIVE MODE enabled');
-    console.log('[XRMultiplayerPanel] 📍 Position:', this.group.position);
+    console.log('[XRMultiplayerPanel] 📍 Group Position:', this.group.position);
+    console.log('[XRMultiplayerPanel] 📍 Panel World Position:', this.panel.getWorldPosition(new THREE.Vector3()));
     console.log('[XRMultiplayerPanel] 👆 Point your finger and pinch to interact!');
   }
   
@@ -418,7 +441,7 @@ export class XRMultiplayerPanel {
    * Update panel position to float to the RIGHT of the current 3D model
    * CRITICAL: Panel is STATIONARY in world space, not following head movement
    * SPATIAL PLACEMENT: Can be grabbed and placed anywhere by user
-   * FIXED POSITION: Always 0.5m to the RIGHT of object center (INDEPENDENT of scale)
+   * FIXED POSITION: Always 0.3m to the RIGHT of object center (INDEPENDENT of scale) - CLOSER!
    * Same side as reaction buttons (heart, like, repost)
    */
   update(camera: THREE.Camera, modelPosition?: THREE.Vector3, modelHeight?: number, handPosition?: THREE.Vector3): void {
@@ -446,20 +469,24 @@ export class XRMultiplayerPanel {
       // Calculate right vector (perpendicular to camera direction, to the right)
       const rightVector = new THREE.Vector3(toCamera.z, 0, -toCamera.x).normalize();
       
-      // Position panel 0.5m to the RIGHT of object center (FIXED distance, independent of scale)
-      // Slightly further out than reaction buttons (0.35m) for better separation
-      const FIXED_OFFSET = 0.5; // 50cm to the right
+      // Position panel CLOSER to the RIGHT of object center for easy reach
+      // REDUCED from 0.5m to 0.3m for better accessibility
+      const FIXED_OFFSET = 0.3; // 30cm to the right (closer!)
       this.group.position.copy(modelPosition);
       this.group.position.add(rightVector.multiplyScalar(FIXED_OFFSET));
       
-      // Position at same height as object center (no dependence on height/scale)
-      // This keeps it at a consistent, reachable position
+      // Position at comfortable eye level (slightly above model center)
+      this.group.position.y = modelPosition.y + 0.1; // 10cm above model center
     }
     
     // CRITICAL: Make panel face camera but keep it stationary in world space
     const camPos = new THREE.Vector3();
     camera.getWorldPosition(camPos);
     this.group.lookAt(camPos);
+    
+    // Force matrix update after any position/rotation change for proper raycasting
+    this.group.updateMatrixWorld(true);
+    this.panel.updateMatrixWorld(true);
   }
   
   /**
