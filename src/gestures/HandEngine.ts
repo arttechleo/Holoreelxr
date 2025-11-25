@@ -155,52 +155,53 @@ export class HandEngine {
         }
       } else {
         // FIX #5: IMPROVED heart gesture detection based on actual hand heart shape
-        // Reference image shows: index fingers touch at top, thumbs touch at bottom
+        // Heart gesture: hands come together with index fingers touching at top, thumbs touching at bottom
+        // This creates a heart shape when viewed from the front
+        
         const indexDist = dist(L_i, R_i);
         const thumbDist = dist(L_t, R_t);
-        const crossLeftIndexRightThumb = dist(L_i, R_t);
-        const crossRightIndexLeftThumb = dist(R_i, L_t);
-
-        // Primary detection: Index fingers AND thumbs are close (classic heart shape)
+        
+        // STRICT MODE: Classic heart shape - both index fingers AND thumbs are close
+        // This is the most accurate heart gesture detection
         const indexClose = indexDist < GESTURE.HEART_THRESHOLD;
         const thumbClose = thumbDist < GESTURE.HEART_THRESHOLD;
         const strictHeart = indexClose && thumbClose;
-
-        // Relaxed detection: Overall hand proximity forms heart-like shape
-        const combinedAvg = (indexDist + thumbDist) * 0.5;
-        const crossAvg = (crossLeftIndexRightThumb + crossRightIndexLeftThumb) * 0.5;
         
-        // FIX #5: More lenient relaxed detection
-        // Allow heart if hands are generally close together in heart formation
-        const relaxedHeart =
-          combinedAvg < GESTURE.HEART_COMBINED_THRESHOLD &&
-          crossAvg < GESTURE.HEART_CROSS_THRESHOLD;
+        // RELAXED MODE: Allow heart if at least ONE pair is very close
+        // This helps when one pair is slightly misaligned but the gesture is clear
+        const oneVeryClose = indexDist < GESTURE.HEART_THRESHOLD * 0.7 || thumbDist < GESTURE.HEART_THRESHOLD * 0.7;
         
-        // FIX #5: SUPER LENIENT mode - if any pair of fingers is close
-        // This catches partial heart shapes or slightly misaligned hands
-        const superLenient = 
-          indexDist < GESTURE.HEART_COMBINED_THRESHOLD ||
-          thumbDist < GESTURE.HEART_COMBINED_THRESHOLD ||
-          combinedAvg < GESTURE.HEART_CROSS_THRESHOLD;
-
-        // Accept any of the three detection modes
-        const heartNow = strictHeart || relaxedHeart || superLenient;
+        // SHAPE MODE: Check if hands form a heart-like configuration
+        // Calculate the center point between all 4 fingertips
+        const centerX = (L_i.x + R_i.x + L_t.x + R_t.x) / 4;
+        const centerY = (L_i.y + R_i.y + L_t.y + R_t.y) / 4;
+        const centerZ = (L_i.z + R_i.z + L_t.z + R_t.z) / 4;
+        const center = new THREE.Vector3(centerX, centerY, centerZ);
+        
+        // Check if all fingertips are reasonably close to the center (heart shape)
+        const maxDistFromCenter = Math.max(
+          center.distanceTo(L_i),
+          center.distanceTo(R_i),
+          center.distanceTo(L_t),
+          center.distanceTo(R_t)
+        );
+        const shapeHeart = maxDistFromCenter < GESTURE.HEART_COMBINED_THRESHOLD * 0.8;
+        
+        // COMBINED: Accept if any detection mode succeeds
+        const heartNow = strictHeart || (oneVeryClose && shapeHeart) || (indexClose && thumbClose);
         
         // DEBUG: Log heart gesture detection (throttled to avoid spam)
         if (Math.random() < 0.02) {  // 2% of frames
           console.log('[Heart Debug]', {
             indexDist: (indexDist * 100).toFixed(1) + 'cm',
             thumbDist: (thumbDist * 100).toFixed(1) + 'cm',
-            combinedAvg: (combinedAvg * 100).toFixed(1) + 'cm',
-            crossAvg: (crossAvg * 100).toFixed(1) + 'cm',
             threshold: (GESTURE.HEART_THRESHOLD * 100).toFixed(1) + 'cm',
-            combinedThreshold: (GESTURE.HEART_COMBINED_THRESHOLD * 100).toFixed(1) + 'cm',
-            crossThreshold: (GESTURE.HEART_CROSS_THRESHOLD * 100).toFixed(1) + 'cm',
+            maxDistFromCenter: (maxDistFromCenter * 100).toFixed(1) + 'cm',
             indexClose,
             thumbClose,
             strictHeart,
-            relaxedHeart,
-            superLenient,
+            oneVeryClose,
+            shapeHeart,
             heartNow
           });
         }

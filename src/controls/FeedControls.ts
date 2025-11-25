@@ -61,6 +61,7 @@ export class FeedControls {
   private readonly HOLD_MS = TRANSFORM.GRAB_HOLD_MS;
   private readonly PENDING_CANCEL_MOVE = TRANSFORM.GRAB_CANCEL_MOVEMENT;
   private readonly GRAB_MAX_DIST = TRANSFORM.GRAB_MAX_DISTANCE;
+  private readonly INSTANT_GRAB_DIST = TRANSFORM.INSTANT_GRAB_DISTANCE;
 
   // rays (visual helpers only; kept off while UI is hit)
   private rayGroup = new THREE.Group();
@@ -842,22 +843,31 @@ export class FeedControls {
       }
       const pinching = this.hands.state[side].pinch;
       
-      // FIX #4: Improved raycast logic for BOTH hands
-      // Only hide ray if:
-      // 1. Scroll is armed AND this is NOT the scrolling hand
-      // 2. OR the pinch is disarmed for this gesture
-      if (this.scrollArmed && this.scrollSide && this.scrollSide !== side) {
+      // FIX #4: IMPROVED raycast logic for BOTH hands
+      // Hide ray only in specific cases:
+      // 1. If two-hand transform is active (both hands working together)
+      // 2. If this hand is actively grabbing
+      // 3. If composing in HUD
+      // ALWAYS show ray for non-scrolling hand (e.g., left hand when right hand scrolls)
+      
+      // Hide if two-hand mode active (both hands are being used for scale/rotate)
+      if (this.twoHandActive) {
+        line.visible = false;
+        return;
+      }
+      
+      // Hide if this specific hand is grabbing
+      if (this.grabbing && this.grabSide === side) {
         line.visible = false;
         return;
       }
       
       // Show ray if:
-      // - Pinching
-      // - Not disarmed for this pinch
-      // - Not actively grabbing
+      // - Hand is pinching
       // - Not composing in HUD
-      const show =
-        pinching && !this.scrollDisarmedThisPinch && !this.grabbing && !this.hudMgr.isComposing();
+      // - Not disarmed (only applies to scrolling hand)
+      const show = pinching && !this.hudMgr.isComposing() && 
+        !(this.scrollDisarmedThisPinch && this.scrollSide === side);
       
       if (!show) {
         line.visible = false;
@@ -1130,7 +1140,13 @@ export class FeedControls {
     // FIX #1: BLOCK scroll during two-hand rotation/scaling
     // User shouldn't scroll while actively manipulating the model
     if (this.twoHandActive) {
-      console.log('[FeedControls-Scroll] ⚠️ Blocking scroll - two-hand gesture active');
+      // CRITICAL: Also disarm scroll and reset state to prevent scroll triggering after two-hand gesture ends
+      this.scrollArmed = false;
+      this.scrollDisarmedThisPinch = true;
+      this.scrollAccum = 0;
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      if (this.scrollRay) this.scrollRay.visible = false;
       return;
     }
     
@@ -1314,6 +1330,13 @@ export class FeedControls {
       if (this.twoHandActive) {
         this.twoHandActive = false;
         this.rotVel = 0;
+        // CRITICAL: Reset scroll state when exiting two-hand mode to prevent scroll triggering
+        this.scrollArmed = false;
+        this.scrollDisarmedThisPinch = true;
+        this.scrollAccum = 0;
+        this.lastPinchY = null;
+        this.filtPinchY = null;
+        if (this.scrollRay) this.scrollRay.visible = false;
       }
       return;
     }
@@ -1324,6 +1347,13 @@ export class FeedControls {
       if (this.twoHandActive) {
         this.twoHandActive = false;
         this.rotVel = 0;
+        // CRITICAL: Reset scroll state when exiting two-hand mode (hand tracking lost)
+        this.scrollArmed = false;
+        this.scrollDisarmedThisPinch = true;
+        this.scrollAccum = 0;
+        this.lastPinchY = null;
+        this.filtPinchY = null;
+        if (this.scrollRay) this.scrollRay.visible = false;
       }
       return;
     }
@@ -1340,6 +1370,14 @@ export class FeedControls {
       this.rotTarget = this.store.rotationY;
       this.LStart.copy(Lp);
       this.RStart.copy(Rp);
+      // CRITICAL: Immediately disarm scroll when entering two-hand mode
+      this.scrollArmed = false;
+      this.scrollDisarmedThisPinch = true;
+      this.scrollAccum = 0;
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      if (this.scrollRay) this.scrollRay.visible = false;
+      console.log('[FeedControls] ✅ Two-hand mode active - scroll DISABLED');
       return;
     }
 

@@ -8,11 +8,11 @@ export const GESTURE = {
   /** Distance (m) between thumb and index tips to register pinch */
   PINCH_THRESHOLD: 0.035,
   
-  /** Distance (m) for heart gesture pair collisions (index↔index & thumb↔thumb) - INCREASED for easier detection */
-  HEART_THRESHOLD: 0.20,
+  /** Distance (m) for heart gesture pair collisions (index↔index & thumb↔thumb) - TUNED for reliable detection */
+  HEART_THRESHOLD: 0.12,
   
-  /** Average distance (m) between both pairs to still consider it a heart - INCREASED for easier detection */
-  HEART_COMBINED_THRESHOLD: 0.25,
+  /** Average distance (m) between both pairs to still consider it a heart - TUNED for shape detection */
+  HEART_COMBINED_THRESHOLD: 0.15,
   
   /** Cross-hand thumb/index proximity threshold (m) for relaxed detection */
   HEART_CROSS_THRESHOLD: 0.17,
