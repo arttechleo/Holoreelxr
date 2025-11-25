@@ -74,7 +74,7 @@ export class XRMultiplayerPanel {
     this.panel.renderOrder = 9999;  // Always render on top
     // FLOATING UI: Position in easy-to-reach location (will be updated dynamically)
     // Start closer to user at comfortable height for interaction
-    this.panel.position.set(0, 1.4, -0.5);  // 1.4m height (chest level), 0.5m in front
+    this.panel.position.set(0, 1.6, -0.8);  // 1.6m height (eye level), 0.8m in front for better reach
     this.group.add(this.panel);
     this.group.visible = false;
     
@@ -364,9 +364,9 @@ export class XRMultiplayerPanel {
       camera.getWorldPosition(camPos);
       camera.getWorldDirection(camDir);
       
-      // Position panel 0.6m in front at chest height (1.4m)
-      this.group.position.copy(camPos.add(camDir.multiplyScalar(0.6)));
-      this.group.position.y = 1.4; // Comfortable chest height
+      // Position panel 0.8m in front at eye height (1.6m) for better interaction
+      this.group.position.copy(camPos.add(camDir.multiplyScalar(0.8)));
+      this.group.position.y = 1.6; // Eye height for easy reach and visibility
       
       // Face camera
       this.group.lookAt(camPos);
@@ -410,9 +410,9 @@ export class XRMultiplayerPanel {
     // If model position provided and NOT grabbed, position panel above it
     // ONLY if panel hasn't been manually positioned by user yet
     else if (modelPosition && modelHeight && !this.isGrabbed && !this.userHasPositioned) {
-      // Auto-position above model (30cm above)
+      // Auto-position above model (1.5m above for better reach and visibility)
       this.group.position.copy(modelPosition);
-      this.group.position.y += modelHeight + 0.4;  // 40cm above model top for better visibility
+      this.group.position.y += modelHeight + 1.5;  // 1.5m above model top for easy reach
     }
     
     // CRITICAL: Make panel face camera but keep it stationary in world space
