@@ -183,7 +183,7 @@ async function loadMainFeed() {
     // CRITICAL FIX: Only allow multiplayer panel AFTER tutorial is complete
     // Check if user does stop-palm gesture to open multiplayer menu
     if (hands.state.stopPalm && !xrMultiplayerPanel.isVisible() && !multiplayer.isConnected() && !onboarding.isTutorialActive()) {
-      xrMultiplayerPanel.show();
+      xrMultiplayerPanel.show(app.camera); // Pass camera for better positioning
       hud.toast('🎮 Multiplayer panel opened!');
     }
     
