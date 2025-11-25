@@ -170,6 +170,24 @@ export class HandEngine {
           crossAvg < GESTURE.HEART_CROSS_THRESHOLD;
 
         const heartNow = (indexClose && thumbClose) || relaxedHeart;
+        
+        // DEBUG: Log heart gesture detection (throttled to avoid spam)
+        if (Math.random() < 0.02) {  // 2% of frames
+          console.log('[Heart Debug]', {
+            indexDist: (indexDist * 100).toFixed(1) + 'cm',
+            thumbDist: (thumbDist * 100).toFixed(1) + 'cm',
+            combinedAvg: (combinedAvg * 100).toFixed(1) + 'cm',
+            crossAvg: (crossAvg * 100).toFixed(1) + 'cm',
+            threshold: (GESTURE.HEART_THRESHOLD * 100).toFixed(1) + 'cm',
+            combinedThreshold: (GESTURE.HEART_COMBINED_THRESHOLD * 100).toFixed(1) + 'cm',
+            crossThreshold: (GESTURE.HEART_CROSS_THRESHOLD * 100).toFixed(1) + 'cm',
+            indexClose,
+            thumbClose,
+            relaxedHeart,
+            heartNow
+          });
+        }
+        
         if (heartNow) {
           this.heartGraceUntil = now + 220;
         }
