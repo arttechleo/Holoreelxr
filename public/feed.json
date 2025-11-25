@@ -1,11 +1,4 @@
 [
-  { "id": "tutorial-rotate", "title": "[Tutorial] Rotate", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#4ECDC4" },
-  { "id": "tutorial-scale", "title": "[Tutorial] Scale", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#95E1D3" },
-  { "id": "tutorial-grab", "title": "[Tutorial] Grab & Move", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#FF6B6B" },
-  { "id": "tutorial-heart", "title": "[Tutorial] Heart Gesture", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#AA96DA" },
-  { "id": "tutorial-like", "title": "[Tutorial] Like (Thumbs Up)", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "sphere", "color": "#F38181" },
-  { "id": "tutorial-repost", "title": "[Tutorial] Repost (Peace)", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "pyramid", "color": "#FFD93D" },
-  { "id": "tutorial-scroll", "title": "[Tutorial] Scroll Feed", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "sphere", "color": "#6BCF7F" },
   { "id": "mainfeed-cube", "title": "Blue Cube", "author": "Basic Shapes", "type": "shape", "shape": "box", "color": "#0080FF" },
   { "id": "mainfeed-pyramid", "title": "Yellow Pyramid", "author": "Basic Shapes", "type": "shape", "shape": "pyramid", "color": "#FFD700" },
   { "id": "mainfeed-sphere", "title": "Red Sphere", "author": "Basic Shapes", "type": "shape", "shape": "sphere", "color": "#FF0000" },

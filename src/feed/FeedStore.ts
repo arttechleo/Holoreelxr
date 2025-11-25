@@ -476,12 +476,13 @@ export class FeedStore {
     }
     
     // FIX #2: IMPROVED target size for better screen fit
-    // Target: 0.5m (50cm) for largest dimension
+    // Target: 0.4m (40cm) for largest dimension
     // This ensures models are:
-    // - Large enough to see details
-    // - Small enough to fit in user's POV at arm's reach
-    // - Comfortable for interaction without moving head
-    const TARGET_SIZE = 0.5;
+    // - Large enough to see details clearly
+    // - Small enough to fit comfortably in user's POV
+    // - Optimized for arm's reach interaction (~60cm from face)
+    // - Prevents models from extending outside field of view
+    const TARGET_SIZE = 0.4;
     
     // Calculate scale factor needed
     const scaleFactor = TARGET_SIZE / maxDimension;
