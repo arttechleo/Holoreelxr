@@ -795,7 +795,8 @@ export class FeedControls {
       
       // Handle GRAB PENDING (checking if user is moving hand)
       if (multiplayerPanel.isGrabPending()) {
-        const pendingHand = multiplayerPanel.isGrabbedByHand('left') ? 'left' : 'right';
+        // Get the hand that started the pending grab (check which hand is actually pinching)
+        const pendingHand = this.hands.state.left.pinch ? 'left' : 'right';
         const handPos = this.hands.pinchMid(pendingHand);
         const isPinching = this.hands.state[pendingHand].pinch;
         

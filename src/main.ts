@@ -114,6 +114,14 @@ onboarding.setOnComplete(() => {
     console.error('[Main] Error showing current feed after tutorial:', err);
     logError(err, 'Show current after tutorial');
   });
+  
+  // Show multiplayer panel above 3D model after tutorial
+  if (!multiplayer.isConnected()) {
+    setTimeout(() => {
+      xrMultiplayerPanel.show(app.camera);
+      console.log('[Main] Multiplayer panel shown after tutorial');
+    }, 1000); // Small delay to let model load
+  }
 });
 
 // Sync asset links to feed when added
@@ -176,15 +184,26 @@ async function loadMainFeed() {
     }
 
     // Keep joints flowing
+  let lastStopPalmToggle = 0;
+  const STOP_PALM_COOLDOWN = 1000; // 1 second cooldown to prevent rapid toggling
+  
   app.onFrame((info) => { 
     hands.update(info);
     
-    // EXPERIMENTAL: Open multiplayer panel with stop-palm gesture (flat hand facing forward)
+    // EXPERIMENTAL: Toggle multiplayer panel with stop-palm gesture (flat hand facing forward)
     // CRITICAL FIX: Only allow multiplayer panel AFTER tutorial is complete
-    // Check if user does stop-palm gesture to open multiplayer menu
-    if (hands.state.stopPalm && !xrMultiplayerPanel.isVisible() && !multiplayer.isConnected() && !onboarding.isTutorialActive()) {
-      xrMultiplayerPanel.show(app.camera); // Pass camera for better positioning
-      hud.toast('🎮 Multiplayer panel opened!');
+    // Use stop-palm to toggle panel on/off with cooldown
+    const now = performance.now();
+    if (hands.state.stopPalm && !multiplayer.isConnected() && !onboarding.isTutorialActive() && (now - lastStopPalmToggle) > STOP_PALM_COOLDOWN) {
+      lastStopPalmToggle = now;
+      // Toggle panel visibility
+      if (!xrMultiplayerPanel.isVisible()) {
+        xrMultiplayerPanel.show(app.camera);
+        hud.toast('🎮 Multiplayer panel opened!');
+      } else {
+        xrMultiplayerPanel.hide();
+        hud.toast('Multiplayer panel closed');
+      }
     }
     
     // EXPERIMENTAL: Broadcast hand positions to multiplayer partner (throttled)
