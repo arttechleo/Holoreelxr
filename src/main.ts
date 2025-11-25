@@ -17,7 +17,7 @@ import { XRMusicPanel } from './ui/XRMusicPanel';
 import { OnboardingTutorial } from './ui/OnboardingTutorial';
 import { MultiplayerManager, HandState, GestureEvent, TransformEvent } from './multiplayer/MultiplayerManager';
 import { RemoteHands } from './multiplayer/RemoteHands';
-import { XRMultiplayerPanel } from './ui/XRMultiplayerPanel';
+import { XRMultiplayerPanel } from './ui/XRMultiplayerPanelCanvas';
 import * as THREE from 'three';
 
 // ========== INITIALIZATION ==========
