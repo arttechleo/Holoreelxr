@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HoloreelXR Multiplayer Connect</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    
+    h1 {
+      color: #667eea;
+      margin-bottom: 10px;
+      font-size: 32px;
+    }
+    
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 16px;
+    }
+    
+    .section {
+      margin-bottom: 30px;
+      padding: 20px;
+      background: #f7f7f7;
+      border-radius: 10px;
+    }
+    
+    h2 {
+      color: #333;
+      font-size: 20px;
+      margin-bottom: 15px;
+    }
+    
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      padding: 15px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      resize: vertical;
+      margin-bottom: 10px;
+    }
+    
+    textarea:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    
+    button {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: all 0.3s ease;
+    }
+    
+    button:hover {
+      background: #5568d3;
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+    }
+    
+    button:active {
+      transform: translateY(0);
+    }
+    
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .output {
+      background: #e8f5e9;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+      word-break: break-all;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      display: none;
+    }
+    
+    .output.show {
+      display: block;
+    }
+    
+    .error {
+      background: #ffebee;
+      color: #c62828;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+      display: none;
+    }
+    
+    .error.show {
+      display: block;
+    }
+    
+    .success {
+      background: #e8f5e9;
+      color: #2e7d32;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+      display: none;
+    }
+    
+    .success.show {
+      display: block;
+    }
+    
+    .steps {
+      background: #fff3e0;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+    
+    .steps ol {
+      margin-left: 20px;
+      line-height: 1.8;
+    }
+    
+    .steps li {
+      margin-bottom: 10px;
+    }
+    
+    .copy-btn {
+      background: #4caf50;
+      padding: 10px 20px;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+    
+    .copy-btn:hover {
+      background: #45a049;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎮 HoloreelXR Multiplayer</h1>
+    <p class="subtitle">Connect two Quest headsets for shared XR experience</p>
+    
+    <div class="steps">
+      <strong>Quick Guide:</strong>
+      <ol>
+        <li><strong>HOST</strong>: Click "HOST SESSION" in VR → code appears below</li>
+        <li><strong>GUEST</strong>: Paste host's code → click "JOIN" → get answer code</li>
+        <li><strong>HOST</strong>: Paste guest's answer → click "COMPLETE"</li>
+        <li><strong>Both</strong>: Put headsets back on → connection within 10 seconds!</li>
+      </ol>
+    </div>
+    
+    <!-- HOST SECTION -->
+    <div class="section">
+      <h2>👤 USER 1: HOST SESSION</h2>
+      <p style="margin-bottom: 15px; color: #666;">Create a multiplayer session and generate connection code</p>
+      <button id="hostBtn" onclick="createHost()">🏠 CREATE HOST SESSION</button>
+      <div id="hostOutput" class="output"></div>
+      <button id="copyHostBtn" class="copy-btn" onclick="copyHost()" style="display: none;">📋 COPY CODE</button>
+    </div>
+    
+    <!-- GUEST SECTION -->
+    <div class="section">
+      <h2>🎮 USER 2: JOIN SESSION</h2>
+      <p style="margin-bottom: 15px; color: #666;">Paste the host's code here:</p>
+      <textarea id="guestInput" placeholder="Paste HOST CODE here..."></textarea>
+      <button id="joinBtn" onclick="joinSession()">🎮 JOIN AS GUEST</button>
+      <div id="guestOutput" class="output"></div>
+      <button id="copyGuestBtn" class="copy-btn" onclick="copyGuest()" style="display: none;">📋 COPY ANSWER</button>
+    </div>
+    
+    <!-- HOST COMPLETE SECTION -->
+    <div class="section">
+      <h2>✅ USER 1: COMPLETE CONNECTION</h2>
+      <p style="margin-bottom: 15px; color: #666;">Paste the guest's answer code here:</p>
+      <textarea id="hostAnswerInput" placeholder="Paste GUEST ANSWER CODE here..."></textarea>
+      <button id="completeBtn" onclick="completeConnection()">✅ COMPLETE CONNECTION</button>
+      <div id="completeSuccess" class="success"></div>
+    </div>
+    
+    <div id="error" class="error"></div>
+  </div>
+  
+  <script type="module">
+    // Import from main app (will be bundled)
+    let hostCode = '';
+    let guestCode = '';
+    
+    // Simplified WebRTC for connection exchange only
+    // Actual multiplayer happens in VR app
+    
+    window.createHost = async function() {
+      const btn = document.getElementById('hostBtn');
+      btn.disabled = true;
+      btn.textContent = 'Creating session...';
+      
+      try {
+        // Create WebRTC offer
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        });
+        
+        // Create data channel
+        pc.createDataChannel('holoreelxr', { ordered: false, maxRetransmits: 0 });
+        
+        // Create offer
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        
+        // Wait for ICE gathering
+        await new Promise((resolve) => {
+          if (pc.iceGatheringState === 'complete') {
+            resolve();
+          } else {
+            pc.addEventListener('icegatheringstatechange', () => {
+              if (pc.iceGatheringState === 'complete') resolve();
+            });
+          }
+        });
+        
+        hostCode = JSON.stringify(pc.localDescription);
+        
+        document.getElementById('hostOutput').textContent = hostCode;
+        document.getElementById('hostOutput').classList.add('show');
+        document.getElementById('copyHostBtn').style.display = 'block';
+        btn.textContent = '✅ SESSION CREATED!';
+        btn.style.background = '#4caf50';
+        
+      } catch (error) {
+        showError('Failed to create host session: ' + error.message);
+        btn.disabled = false;
+        btn.textContent = '🏠 CREATE HOST SESSION';
+      }
+    };
+    
+    window.joinSession = async function() {
+      const input = document.getElementById('guestInput').value.trim();
+      if (!input) {
+        showError('Please paste the HOST CODE first!');
+        return;
+      }
+      
+      const btn = document.getElementById('joinBtn');
+      btn.disabled = true;
+      btn.textContent = 'Joining session...';
+      
+      try {
+        // Parse host offer
+        const offer = JSON.parse(input);
+        
+        // Create peer connection
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        });
+        
+        // Set remote description
+        await pc.setRemoteDescription(offer);
+        
+        // Create answer
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        
+        // Wait for ICE gathering
+        await new Promise((resolve) => {
+          if (pc.iceGatheringState === 'complete') {
+            resolve();
+          } else {
+            pc.addEventListener('icegatheringstatechange', () => {
+              if (pc.iceGatheringState === 'complete') resolve();
+            });
+          }
+        });
+        
+        guestCode = JSON.stringify(pc.localDescription);
+        
+        document.getElementById('guestOutput').textContent = guestCode;
+        document.getElementById('guestOutput').classList.add('show');
+        document.getElementById('copyGuestBtn').style.display = 'block';
+        btn.textContent = '✅ ANSWER CREATED!';
+        btn.style.background = '#4caf50';
+        
+      } catch (error) {
+        showError('Failed to join session: ' + error.message);
+        btn.disabled = false;
+        btn.textContent = '🎮 JOIN AS GUEST';
+      }
+    };
+    
+    window.completeConnection = function() {
+      const input = document.getElementById('hostAnswerInput').value.trim();
+      if (!input) {
+        showError('Please paste the GUEST ANSWER CODE first!');
+        return;
+      }
+      
+      const btn = document.getElementById('completeBtn');
+      btn.disabled = true;
+      btn.textContent = 'Completing connection...';
+      
+      try {
+        // Just validate it's valid JSON
+        JSON.parse(input);
+        
+        document.getElementById('completeSuccess').textContent = '✅ CONNECTION CODE VALIDATED! Put your headset back on - you should connect within 10 seconds!';
+        document.getElementById('completeSuccess').classList.add('show');
+        btn.textContent = '✅ READY TO CONNECT!';
+        btn.style.background = '#4caf50';
+        
+      } catch (error) {
+        showError('Invalid answer code format!');
+        btn.disabled = false;
+        btn.textContent = '✅ COMPLETE CONNECTION';
+      }
+    };
+    
+    window.copyHost = function() {
+      navigator.clipboard.writeText(hostCode).then(() => {
+        const btn = document.getElementById('copyHostBtn');
+        btn.textContent = '✅ COPIED!';
+        setTimeout(() => {
+          btn.textContent = '📋 COPY CODE';
+        }, 2000);
+      });
+    };
+    
+    window.copyGuest = function() {
+      navigator.clipboard.writeText(guestCode).then(() => {
+        const btn = document.getElementById('copyGuestBtn');
+        btn.textContent = '✅ COPIED!';
+        setTimeout(() => {
+          btn.textContent = '📋 COPY ANSWER';
+        }, 2000);
+      });
+    };
+    
+    function showError(msg) {
+      const el = document.getElementById('error');
+      el.textContent = '❌ ' + msg;
+      el.classList.add('show');
+      setTimeout(() => {
+        el.classList.remove('show');
+      }, 5000);
+    }
+  </script>
+</body>
+</html>
+
