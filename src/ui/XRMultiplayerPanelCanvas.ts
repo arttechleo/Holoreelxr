@@ -393,10 +393,11 @@ export class XRMultiplayerPanel {
   }
   
   /**
-   * Update panel position to float to the LEFT of the current 3D model
+   * Update panel position to float to the RIGHT of the current 3D model
    * CRITICAL: Panel is STATIONARY in world space, not following head movement
    * SPATIAL PLACEMENT: Can be grabbed and placed anywhere by user
-   * FIXED POSITION: Always 0.4m to the LEFT of object center (INDEPENDENT of scale)
+   * FIXED POSITION: Always 0.5m to the RIGHT of object center (INDEPENDENT of scale)
+   * Same side as reaction buttons (heart, like, repost)
    */
   update(camera: THREE.Camera, modelPosition?: THREE.Vector3, modelHeight?: number, handPosition?: THREE.Vector3): void {
     if (!this.visible) return;
@@ -408,25 +409,26 @@ export class XRMultiplayerPanel {
       // Smooth interpolation for more natural feel (lerp factor 0.3 = 30% per frame)
       this.group.position.lerp(targetPos, 0.3);
     } 
-    // If model position provided and NOT grabbed, position panel to LEFT of it
+    // If model position provided and NOT grabbed, position panel to RIGHT of it
     // ONLY if panel hasn't been manually positioned by user yet
     else if (modelPosition && !this.isGrabbed && !this.userHasPositioned) {
-      // Get camera position to determine left direction
+      // Get camera position to determine right direction
       const camPos = new THREE.Vector3();
       camera.getWorldPosition(camPos);
       
-      // Calculate right vector (camera's perspective)
+      // Calculate direction from model to camera
       const toCamera = new THREE.Vector3().subVectors(camPos, modelPosition).normalize();
       toCamera.y = 0; // Keep on horizontal plane
       toCamera.normalize();
       
-      // Calculate left vector (perpendicular to camera direction)
-      const leftVector = new THREE.Vector3(-toCamera.z, 0, toCamera.x).normalize();
+      // Calculate right vector (perpendicular to camera direction, to the right)
+      const rightVector = new THREE.Vector3(toCamera.z, 0, -toCamera.x).normalize();
       
-      // Position panel 0.4m to the LEFT of object center (FIXED distance, independent of scale)
-      const FIXED_OFFSET = 0.4; // 40cm to the left
+      // Position panel 0.5m to the RIGHT of object center (FIXED distance, independent of scale)
+      // Slightly further out than reaction buttons (0.35m) for better separation
+      const FIXED_OFFSET = 0.5; // 50cm to the right
       this.group.position.copy(modelPosition);
-      this.group.position.add(leftVector.multiplyScalar(FIXED_OFFSET));
+      this.group.position.add(rightVector.multiplyScalar(FIXED_OFFSET));
       
       // Position at same height as object center (no dependence on height/scale)
       // This keeps it at a consistent, reachable position
