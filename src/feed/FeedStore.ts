@@ -219,9 +219,15 @@ export class FeedStore {
           console.log(`[FeedStore] ✅ Successfully loaded GLB/GLTF: ${item.title}`, gltf);
           
           gltf.scene.name = 'content-gltf';
+          
+          // AUTO-SCALE: Calculate bounding box and scale to fit Mixed Reality viewport
+          const autoScale = this.calculateOptimalScale(gltf.scene);
+          console.log(`[FeedStore] Auto-scale for ${item.title}: ${autoScale.toFixed(3)}x (original size: ${autoScale.originalSize.toFixed(2)}m)`);
+          
           gltf.scene.position.copy(spawnPos);
           gltf.scene.rotation.y = this._rotY;
-          gltf.scene.scale.multiplyScalar(this._scale);
+          gltf.scene.scale.setScalar(autoScale.scale * this._scale);
+          
           this.parent.add(gltf.scene);
           this.currentGLTF = gltf.scene;
           this.preloadNextModels(3);
@@ -314,16 +320,21 @@ export class FeedStore {
       // Reset transform to default
       this.setTargetTransform(1, 0);
       
-      // FIX: Add small delay before loading next model to ensure cleanup completes
-      // This prevents overlap when scrolling quickly
+      // ENHANCED: Longer delay to ensure complete cleanup
+      // Previous models must be fully removed before new ones load
       setTimeout(() => {
+        // Force garbage collection hint (helps with memory cleanup)
+        if (this.currentGLTF) {
+          this.currentGLTF = undefined;
+        }
+        
         // CRITICAL: Always call showCurrent - don't let errors prevent scrolling
         this.showCurrent().catch(err => {
           console.error(`[FeedStore] ❌ Error showing item at index ${this.index}:`, err);
           logError(err, 'FeedStore.next');
           // Continue anyway - don't block scrolling
         });
-      }, 50); // 50ms delay to ensure previous model is fully removed
+      }, 150); // INCREASED from 50ms to 150ms for better cleanup
     } else {
       console.log(`[FeedStore] ⚠️ Scroll called but index didn't change (${oldIndex} = ${this.index})`);
     }
@@ -420,6 +431,57 @@ export class FeedStore {
       this.gltfLoader = new GLTFModelLoader();
     }
     return this.gltfLoader;
+  }
+
+  /**
+   * AUTO-SCALE SYSTEM for GLTF/GLB models
+   * Calculates optimal scale to fit Mixed Reality viewport
+   * Target: Models should be between 0.3m - 0.6m in largest dimension
+   */
+  private calculateOptimalScale(model: THREE.Object3D): { scale: number; originalSize: number } {
+    // Calculate bounding box of the entire model
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    
+    // Get the largest dimension (width, height, or depth)
+    const maxDimension = Math.max(size.x, size.y, size.z);
+    
+    // If model is tiny or has no dimensions, use default scale
+    if (maxDimension < 0.001) {
+      console.warn('[Auto-Scale] Model has no measurable size, using default scale');
+      return { scale: 1.0, originalSize: 0 };
+    }
+    
+    // Target size for Mixed Reality: 0.4m (40cm) for largest dimension
+    // This is a good size for arm's reach interaction in MR
+    const TARGET_SIZE = 0.4;
+    
+    // Calculate scale factor needed
+    const scaleFactor = TARGET_SIZE / maxDimension;
+    
+    // Clamp scale between reasonable bounds
+    // Min: 0.01 (prevent invisible models)
+    // Max: 50 (prevent astronomical scaling of tiny models)
+    const clampedScale = Math.max(0.01, Math.min(50, scaleFactor));
+    
+    // Log for debugging
+    console.log('[Auto-Scale]', {
+      originalSize: `${maxDimension.toFixed(3)}m`,
+      targetSize: `${TARGET_SIZE}m`,
+      calculatedScale: scaleFactor.toFixed(3),
+      finalScale: clampedScale.toFixed(3),
+      dimensions: {
+        x: size.x.toFixed(3),
+        y: size.y.toFixed(3),
+        z: size.z.toFixed(3)
+      }
+    });
+    
+    return {
+      scale: clampedScale,
+      originalSize: maxDimension
+    };
   }
 
   private preloadNextModels(count = 2) {
