@@ -155,8 +155,9 @@ export class OnboardingTutorial {
   private readonly SCROLL_DISP = CONTROLS.SCROLL_DISPLACEMENT;
   private readonly SCROLL_COOLDOWN_MS = CONTROLS.SCROLL_COOLDOWN_MS;
   private readonly SCROLL_VEL_MIN = CONTROLS.SCROLL_MIN_VELOCITY;
-  private readonly SCROLL_IN_AIR_DIST = CONTROLS.SCROLL_IN_AIR_DISTANCE;
-  private readonly SCROLL_START_FAR = CONTROLS.SCROLL_START_DISTANCE;
+  // Note: SCROLL_IN_AIR_DISTANCE and SCROLL_START_DISTANCE removed from CONTROLS
+  private readonly SCROLL_IN_AIR_DIST = 0.15; // 15cm away from object
+  private readonly SCROLL_START_FAR = 0.3; // 30cm to start scrolling
   private readonly LPF_SCROLL_ALPHA = CONTROLS.SCROLL_LPF_ALPHA;
   
   // Old interval-based system (to be removed)

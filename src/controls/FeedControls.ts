@@ -21,7 +21,7 @@ export class FeedControls {
   private pinchStartAt: number | null = null;
   private scrollArmed = false;
   private scrollDisarmedThisPinch = false;
-  private scrollSide: 'left' | 'right' | null = null; // Track which hand is scrolling
+  private scrollSide: 'left' | 'right' | undefined = undefined; // Track which hand is scrolling
   private transformEndCooldownUntil = 0; // Cooldown after transform ends to prevent accidental scroll
 
   // Scroll control constants
@@ -434,7 +434,7 @@ export class FeedControls {
     this.scrollAccum = 0;
     this.scrollArmed = false;
     this.scrollDisarmedThisPinch = false;
-    this.scrollSide = null;
+    this.scrollSide = undefined;
     this.pinchStartAt = null;
     this.scrollCooldownUntil = 0;
     this.transformEndCooldownUntil = 0; // Reset transform cooldown
@@ -954,7 +954,7 @@ export class FeedControls {
     
     const lp = this.hands.state.left.pinch;
     const rp = this.hands.state.right.pinch;
-    const side: 'left' | 'right' = rp ? 'right' : (lp ? 'left' : null);
+    const side: 'left' | 'right' | null = rp ? 'right' : (lp ? 'left' : null);
     
     // Hide if not pinching or actively grabbing
     if (!side || this.grabbing || this.grabPending) {
@@ -1087,7 +1087,7 @@ export class FeedControls {
     }
     this.scrollDisarmedThisPinch = false;
     this.scrollArmed = false;
-    this.scrollSide = null; // Reset scrolling hand on new pinch
+    this.scrollSide = undefined; // Reset scrolling hand on new pinch
 
     const other = side === 'left' ? 'right' : 'left';
     if (this.hands.state[other].pinch) {
@@ -1149,7 +1149,7 @@ export class FeedControls {
     }
     this.scrollArmed = false;
     this.scrollDisarmedThisPinch = false;
-    this.scrollSide = null; // Clear scrolling hand
+    this.scrollSide = undefined; // Clear scrolling hand
     this.lastPinchY = null;
     this.filtPinchY = null;
     this.scrollAccum = 0;
@@ -1214,7 +1214,7 @@ export class FeedControls {
       this.lastPinchY = null;
       this.filtPinchY = null;
       this.scrollArmed = false;
-      this.scrollSide = null; // Clear scrolling hand
+      this.scrollSide = undefined; // Clear scrolling hand
       if (this.scrollRay) this.scrollRay.visible = false;
       return;
     }
