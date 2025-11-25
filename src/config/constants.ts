@@ -47,14 +47,8 @@ export const CONTROLS = {
   /** Minimum vertical velocity to register scroll (m/s) */
   SCROLL_MIN_VELOCITY: 0.002,
   
-  /** Distance from object to allow "in air" scrolling (m) */
-  SCROLL_IN_AIR_DISTANCE: 0.18,
-  
-  /** Distance from object to start armed for scrolling (m) */
-  SCROLL_START_DISTANCE: 0.10,
-  
-  /** Minimum pinch hold time before scroll is allowed (ms) - Very short to allow immediate scroll */
-  SCROLL_MIN_HOLD_MS: 30,
+  /** Minimum pinch hold time before scroll is allowed (ms) - Short delay to detect scroll intent */
+  SCROLL_MIN_HOLD_MS: 50,
   
   /** Low-pass filter alpha for scroll smoothing - Balanced for responsive yet smooth tracking */
   SCROLL_LPF_ALPHA: 0.4,
@@ -62,17 +56,17 @@ export const CONTROLS = {
 
 // ========== GRAB & TRANSFORM ==========
 export const TRANSFORM = {
-  /** Distance from object surface for instant grab (m) - INCREASED for easier grabbing */
-  INSTANT_GRAB_DISTANCE: 0.20,
+  /** Distance from object surface for instant grab (m) */
+  INSTANT_GRAB_DISTANCE: 0.10,
   
-  /** Hold time before pending grab activates (ms) - Balanced to allow scroll priority but still responsive */
-  GRAB_HOLD_MS: 200,
+  /** Maximum distance for grab to be available (m) */
+  GRAB_MAX_DISTANCE: 0.20,
   
-  /** Movement threshold to cancel pending grab (m) */
-  GRAB_CANCEL_MOVEMENT: 0.06,
+  /** Hold time before pending grab activates (ms) - Longer to prevent scroll conflicts */
+  GRAB_HOLD_MS: 250,
   
-  /** Max distance for grab to be available (m) - INCREASED for easier grabbing */
-  GRAB_MAX_DISTANCE: 0.25,
+  /** Movement threshold to cancel pending grab (m) - Must stay stationary */
+  GRAB_CANCEL_MOVEMENT: 0.03,
   
   /** Scale limits */
   SCALE_MIN: 0.15,
