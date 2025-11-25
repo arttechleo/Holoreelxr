@@ -154,41 +154,19 @@ export class HandEngine {
           this.updateFlag('heart', false);
         }
       } else {
-        // FIX #5: IMPROVED heart gesture detection based on actual hand heart shape
-        // Heart gesture: hands come together with index fingers touching at top, thumbs touching at bottom
-        // This creates a heart shape when viewed from the front
+        // TUTORIAL-STYLE HEART GESTURE: Simple and reliable detection (matches tutorial)
+        // Heart gesture: Both hands come together - thumbs AND index fingers are close
         
         const indexDist = dist(L_i, R_i);
         const thumbDist = dist(L_t, R_t);
         
-        // STRICT MODE: Classic heart shape - both index fingers AND thumbs are close
-        // This is the most accurate heart gesture detection
-        const indexClose = indexDist < GESTURE.HEART_THRESHOLD;
-        const thumbClose = thumbDist < GESTURE.HEART_THRESHOLD;
-        const strictHeart = indexClose && thumbClose;
+        // SIMPLE DETECTION: Both pairs must be close (within 15cm) - same as tutorial
+        const HEART_DISTANCE = 0.15; // 15cm
+        const indexClose = indexDist < HEART_DISTANCE;
+        const thumbClose = thumbDist < HEART_DISTANCE;
         
-        // RELAXED MODE: Allow heart if at least ONE pair is very close
-        // This helps when one pair is slightly misaligned but the gesture is clear
-        const oneVeryClose = indexDist < GESTURE.HEART_THRESHOLD * 0.7 || thumbDist < GESTURE.HEART_THRESHOLD * 0.7;
-        
-        // SHAPE MODE: Check if hands form a heart-like configuration
-        // Calculate the center point between all 4 fingertips
-        const centerX = (L_i.x + R_i.x + L_t.x + R_t.x) / 4;
-        const centerY = (L_i.y + R_i.y + L_t.y + R_t.y) / 4;
-        const centerZ = (L_i.z + R_i.z + L_t.z + R_t.z) / 4;
-        const center = new THREE.Vector3(centerX, centerY, centerZ);
-        
-        // Check if all fingertips are reasonably close to the center (heart shape)
-        const maxDistFromCenter = Math.max(
-          center.distanceTo(L_i),
-          center.distanceTo(R_i),
-          center.distanceTo(L_t),
-          center.distanceTo(R_t)
-        );
-        const shapeHeart = maxDistFromCenter < GESTURE.HEART_COMBINED_THRESHOLD * 0.8;
-        
-        // COMBINED: Accept if any detection mode succeeds
-        const heartNow = strictHeart || (oneVeryClose && shapeHeart) || (indexClose && thumbClose);
+        // Both pairs must be close for heart gesture
+        const heartNow = indexClose && thumbClose;
         
         // DEBUG: Log heart gesture detection (throttled to avoid spam)
         if (Math.random() < 0.02) {  // 2% of frames
