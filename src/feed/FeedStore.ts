@@ -121,33 +121,60 @@ export class FeedStore {
 
     // CRITICAL: Remove ALL prior content meshes to prevent overlap
     // This includes shapes, meshes, GLTF models, and error placeholders
-    this.parent.children.slice().forEach((child) => {
-      if (child.name === 'content-shape' || child.name === 'content-mesh' || 
-          child.name === 'content-gltf' || child.name === 'content-error') {
-        // Dispose GLTF scene if it has a mixer (must be done before removal)
-        if ((child as any).mixer) {
-          (child as any).mixer.stopAllAction();
-          (child as any).mixer = null;
-        }
-        
-        // Remove from parent first
-        this.parent.remove(child);
-        
-        // Then dispose geometry
-        if ((child as any).geometry) {
-          (child as any).geometry.dispose();
+    // Use slice() to avoid modifying array while iterating
+    const childrenToRemove = this.parent.children.slice().filter(child => 
+      child.name === 'content-shape' || 
+      child.name === 'content-mesh' || 
+      child.name === 'content-gltf' || 
+      child.name === 'content-error'
+    );
+    
+    console.log(`[FeedStore] Removing ${childrenToRemove.length} previous content objects`);
+    
+    childrenToRemove.forEach((child) => {
+      // Stop and dispose animation mixer if present
+      if ((child as any).mixer) {
+        (child as any).mixer.stopAllAction();
+        (child as any).mixer = null;
+      }
+      
+      // RECURSIVE disposal for GLTF models with children
+      child.traverse((node: THREE.Object3D) => {
+        // Dispose geometry
+        if ((node as any).geometry) {
+          (node as any).geometry.dispose();
         }
         
         // Dispose material(s)
-        const mat = (child as any).material;
+        const mat = (node as any).material;
         if (mat) {
           if (Array.isArray(mat)) {
-            mat.forEach(m => m.dispose());
+            mat.forEach(m => {
+              // Dispose textures
+              if (m.map) m.map.dispose();
+              if (m.lightMap) m.lightMap.dispose();
+              if (m.bumpMap) m.bumpMap.dispose();
+              if (m.normalMap) m.normalMap.dispose();
+              if (m.specularMap) m.specularMap.dispose();
+              if (m.envMap) m.envMap.dispose();
+              m.dispose();
+            });
           } else {
+            // Dispose textures
+            if (mat.map) mat.map.dispose();
+            if (mat.lightMap) mat.lightMap.dispose();
+            if (mat.bumpMap) mat.bumpMap.dispose();
+            if (mat.normalMap) mat.normalMap.dispose();
+            if (mat.specularMap) mat.specularMap.dispose();
+            if (mat.envMap) mat.envMap.dispose();
             mat.dispose();
           }
         }
-      }
+      });
+      
+      // Remove from parent
+      this.parent.remove(child);
+      console.log(`[FeedStore] ✅ Removed and disposed: ${child.name}`);
     });
     
     // CRITICAL: Clear currentGLTF reference to prevent stale references
@@ -287,12 +314,16 @@ export class FeedStore {
       // Reset transform to default
       this.setTargetTransform(1, 0);
       
-      // CRITICAL: Always call showCurrent - don't let errors prevent scrolling
-      this.showCurrent().catch(err => {
-        console.error(`[FeedStore] ❌ Error showing item at index ${this.index}:`, err);
-        logError(err, 'FeedStore.next');
-        // Continue anyway - don't block scrolling
-      });
+      // FIX: Add small delay before loading next model to ensure cleanup completes
+      // This prevents overlap when scrolling quickly
+      setTimeout(() => {
+        // CRITICAL: Always call showCurrent - don't let errors prevent scrolling
+        this.showCurrent().catch(err => {
+          console.error(`[FeedStore] ❌ Error showing item at index ${this.index}:`, err);
+          logError(err, 'FeedStore.next');
+          // Continue anyway - don't block scrolling
+        });
+      }, 50); // 50ms delay to ensure previous model is fully removed
     } else {
       console.log(`[FeedStore] ⚠️ Scroll called but index didn't change (${oldIndex} = ${this.index})`);
     }
