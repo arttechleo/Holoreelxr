@@ -3,6 +3,8 @@
  * Centralizes magic numbers and thresholds for easier tuning.
  */
 
+import { PRODUCTION_CONFIG } from './production';
+
 // ========== GESTURE THRESHOLDS ==========
 export const GESTURE = {
   /** Distance (m) between thumb and index tips to register pinch */
@@ -204,12 +206,15 @@ export const CAMERA = {
 // ========== DEBUG ==========
 export const DEBUG = {
   /** Enable console logging for gestures */
-  LOG_GESTURES: false,
+  LOG_GESTURES: PRODUCTION_CONFIG.ENABLE_DEBUG_LOGS,
   
   /** Enable performance monitoring */
-  SHOW_STATS: false,
+  SHOW_STATS: PRODUCTION_CONFIG.ENABLE_PERFORMANCE_MONITORING,
   
   /** Enable visual debug helpers */
-  SHOW_DEBUG_RAYS: true,
+  SHOW_DEBUG_RAYS: PRODUCTION_CONFIG.SHOW_DEBUG_HELPERS,
+  
+  /** Enable FPS counter */
+  SHOW_FPS_COUNTER: PRODUCTION_CONFIG.SHOW_FPS_COUNTER,
 } as const;
 
