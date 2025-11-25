@@ -74,6 +74,20 @@ export class FeedStore {
     return item?.id ?? `item-${this.index}`;
   }
 
+  /** Get current model's position and height for UI placement */
+  getCurrentModelInfo(): { position: THREE.Vector3; height: number } | null {
+    const bounds = this.getObjectBounds();
+    if (!bounds) return null;
+    
+    const center = bounds.box.getCenter(new THREE.Vector3());
+    const size = bounds.box.getSize(new THREE.Vector3());
+    
+    return {
+      position: center,
+      height: size.y,
+    };
+  }
+
   async loadFeed(url = '/feed.json') {
     try {
       const res = await fetch(url, {

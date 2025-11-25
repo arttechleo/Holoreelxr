@@ -40,18 +40,20 @@ export class XRMultiplayerPanel {
     this.texture.minFilter = THREE.LinearFilter;
     this.texture.magFilter = THREE.LinearFilter;
     
-    // Create plane mesh (like tutorial)
-    const geo = new THREE.PlaneGeometry(0.9, 0.6);  // Slightly bigger
+    // Create plane mesh (like tutorial) - COMPACT & READABLE
+    const geo = new THREE.PlaneGeometry(0.5, 0.35);  // Compact size
     const mat = new THREE.MeshBasicMaterial({
       map: this.texture,
       transparent: true,
       side: THREE.DoubleSide,
-      depthTest: false,
+      depthTest: true,  // Enable depth test for proper 3D placement
       opacity: 1.0,
     });
     
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.position.set(0, 1.5, -0.5);  // In front of user
+    this.panel.renderOrder = 9999;  // Always render on top
+    // FLOATING UI: Position above 3D model (will be updated dynamically)
+    this.panel.position.set(0, 0.6, 0);  // 60cm above model center
     this.group.add(this.panel);
     this.group.visible = false;
     
@@ -60,7 +62,7 @@ export class XRMultiplayerPanel {
     // Initial render
     this.render();
     
-    console.log('[XRMultiplayerPanel] 🎮 Canvas-based panel created');
+    console.log('[XRMultiplayerPanel] 🎮 Canvas-based FLOATING panel created');
   }
   
   /**
@@ -78,42 +80,39 @@ export class XRMultiplayerPanel {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, w, h);
     
-    // Title
+    // Title - COMPACT & READABLE
     ctx.fillStyle = '#00ff00';  // Bright green
-    ctx.font = 'bold 80px Arial';
+    ctx.font = 'bold 70px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('MULTIPLAYER', w / 2, 100);
+    ctx.fillText('MULTIPLAYER', w / 2, 90);
     
     // Status/instructions
     if (this.mode === 'idle') {
       ctx.fillStyle = '#ffffff';
-      ctx.font = '40px Arial';
-      ctx.fillText('Join a friend in XR!', w / 2, 180);
-      ctx.font = '28px Arial';
-      ctx.fillStyle = '#aaaaaa';
-      ctx.fillText('Use hand to tap buttons below', w / 2, 230);
+      ctx.font = '36px Arial';
+      ctx.fillText('Tap to connect', w / 2, 160);
       
-      // HOST button
-      const hostY = 320;
-      const hostH = 100;
+      // HOST button - BIGGER for easy pinch targeting
+      const hostY = 240;
+      const hostH = 140;
       this.buttonRegions.host = { x: 112, y: hostY, w: 800, h: hostH };
-      this.drawButton(ctx, 'HOST SESSION', hostY, hostH, '#667eea', this.hoveredButton === 'host');
+      this.drawButton(ctx, 'HOST', hostY, hostH, '#667eea', this.hoveredButton === 'host');
       
-      // JOIN button
-      const joinY = 450;
-      const joinH = 100;
+      // JOIN button - BIGGER for easy pinch targeting
+      const joinY = 420;
+      const joinH = 140;
       this.buttonRegions.join = { x: 112, y: joinY, w: 800, h: joinH };
-      this.drawButton(ctx, 'JOIN SESSION', joinY, joinH, '#f5576c', this.hoveredButton === 'join');
+      this.drawButton(ctx, 'JOIN', joinY, joinH, '#f5576c', this.hoveredButton === 'join');
       
       // Close button
       const closeY = 650;
-      const closeH = 70;
+      const closeH = 80;
       this.buttonRegions.close = { x: 362, y: closeY, w: 300, h: closeH };
       ctx.fillStyle = this.hoveredButton === 'close' ? '#888888' : '#444444';
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
       ctx.fillStyle = '#ffffff';
-      ctx.font = '32px Arial';
-      ctx.fillText('CLOSE', w / 2, closeY + 48);
+      ctx.font = '40px Arial';
+      ctx.fillText('X', w / 2, closeY + 55);
       
     } else if (this.mode === 'hosting') {
       ctx.fillStyle = '#ffffff';
@@ -167,15 +166,22 @@ export class XRMultiplayerPanel {
     const buttonW = 800;
     const buttonX = (w - buttonW) / 2;
     
-    // Button background
+    // Button background with border for depth
     ctx.fillStyle = hovered ? '#ffffff' : color;
     ctx.fillRect(buttonX, y, buttonW, h);
     
-    // Button text
+    // Border for visual feedback
+    if (!hovered) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(buttonX + 2, y + 2, buttonW - 4, h - 4);
+    }
+    
+    // Button text - BIG & BOLD
     ctx.fillStyle = hovered ? color : '#ffffff';
-    ctx.font = 'bold 48px Arial';
+    ctx.font = 'bold 60px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(text, w / 2, y + h / 2 + 16);
+    ctx.fillText(text, w / 2, y + h / 2 + 20);
   }
   
   /**
@@ -293,11 +299,19 @@ export class XRMultiplayerPanel {
   }
   
   /**
-   * Update panel to face camera
+   * Update panel position to float above the current 3D model
+   * CRITICAL: Panel is STATIONARY in world space, not following head movement
    */
-  update(camera: THREE.Camera): void {
+  update(camera: THREE.Camera, modelPosition?: THREE.Vector3, modelHeight?: number): void {
     if (!this.visible) return;
     
+    // If model position provided, position panel above it
+    if (modelPosition && modelHeight) {
+      this.group.position.copy(modelPosition);
+      this.group.position.y += modelHeight + 0.3;  // 30cm above model top
+    }
+    
+    // CRITICAL: Make panel face camera but keep it stationary in world space
     const camPos = new THREE.Vector3();
     camera.getWorldPosition(camPos);
     this.group.lookAt(camPos);

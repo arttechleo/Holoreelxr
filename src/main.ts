@@ -211,7 +211,14 @@ async function loadMainFeed() {
     // Update 3D panels to face camera
     xrAuthPanel.update(app.camera);
     xrMusicPanel.update(app.camera);
-    xrMultiplayerPanel.update(app.camera);
+    
+    // FLOATING UI: Update multiplayer panel to float above current 3D model
+    const modelInfo = store.getCurrentModelInfo();
+    if (modelInfo) {
+      xrMultiplayerPanel.update(app.camera, modelInfo.position, modelInfo.height);
+    } else {
+      xrMultiplayerPanel.update(app.camera);
+    }
     
     // Update tutorial panel position to the right of the 3D model
     // CRITICAL: Only update if tutorial is actually active
