@@ -75,17 +75,19 @@ export class ParticleSystem {
       sprite.scale.set(0.05, 0.05, 1);
       sprite.visible = true;
       
+      // FIX: More aggressive upward velocity to prevent stuck particles
       const velocity = new THREE.Vector3(
-        (Math.random() - 0.5) * 0.3,
-        Math.random() * 0.5 + 0.2,
-        (Math.random() - 0.5) * 0.3
+        (Math.random() - 0.5) * 0.5,      // More horizontal spread
+        Math.random() * 0.8 + 0.5,        // Stronger upward velocity
+        (Math.random() - 0.5) * 0.5       // More depth spread
       );
       
+      // FIX: Shorter lifetime to prevent particles getting stuck in view
       this.particles.push({
         sprite,
         velocity,
         lifetime: 0,
-        maxLifetime: type === 'confetti' ? 2.0 : 1.5,
+        maxLifetime: type === 'confetti' ? 1.2 : 0.8,  // Reduced from 2.0/1.5 to 1.2/0.8
         rotation: Math.random() * Math.PI * 2,
         rotationSpeed: (Math.random() - 0.5) * 5,
       });
@@ -151,8 +153,8 @@ export class ParticleSystem {
       // Update position
       p.sprite.position.add(p.velocity.clone().multiplyScalar(dt));
       
-      // Apply gravity
-      p.velocity.y -= 0.5 * dt;
+      // FIX: Stronger gravity for faster descent
+      p.velocity.y -= 1.2 * dt;  // Increased from 0.5 to 1.2
       
       // Rotation
       p.rotation += p.rotationSpeed * dt;
@@ -170,6 +172,14 @@ export class ParticleSystem {
       } else {
         const scale = (1 - (lifeRatio - 0.2) / 0.8) * 0.08;
         p.sprite.scale.set(scale, scale, 1);
+      }
+      
+      // FIX: Immediately hide and remove particles that are too close to camera
+      // This prevents particles from getting stuck in user's POV
+      if (p.sprite.position.z > -0.1) {  // Less than 10cm in front of camera
+        p.sprite.visible = false;
+        this.particles.splice(i, 1);
+        continue;
       }
       
       // Remove expired particles
