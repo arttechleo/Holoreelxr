@@ -45,12 +45,12 @@ export class XRMultiplayerPanel {
   }
   
   private createPanel(): void {
-    // Main container
+    // Main container - BIGGER for better readability
     this.panel = new ThreeMeshUI.Block({
-      width: 0.6,
-      height: 0.5,
-      padding: 0.03,
-      backgroundOpacity: 0.95,
+      width: 0.8,  // Increased from 0.6
+      height: 0.7,  // Increased from 0.5
+      padding: 0.05,  // More padding
+      backgroundOpacity: 0.98,  // More opaque
       backgroundColor: new THREE.Color(0x0a0a0a),
       borderRadius: 0.02,
       justifyContent: 'start',
@@ -58,24 +58,25 @@ export class XRMultiplayerPanel {
       // CRITICAL FIX: Don't specify fonts - ThreeMeshUI will use built-in defaults
     });
     
-    this.panel.position.set(0, 1.4, -0.8);
-    this.panel.rotation.x = -0.2;
+    // BETTER POSITIONING: More centered, closer to user
+    this.panel.position.set(0, 1.5, -0.6);  // Closer (was -0.8)
+    this.panel.rotation.x = -0.15;  // Less angle (was -0.2)
     this.panel.visible = false;
     this.scene.add(this.panel);
     
-    // Title
+    // Title - MUCH BIGGER
     const title = new ThreeMeshUI.Text({
-      content: '🎮 MULTIPLAYER',
-      fontSize: 0.05,
+      content: 'MULTIPLAYER',  // Removed emoji for better rendering
+      fontSize: 0.08,  // Increased from 0.05
       fontColor: new THREE.Color(0x4ECDC4),
     });
     this.panel.add(title);
     
-    // Status text
+    // Status text - BIGGER
     this.statusText = new ThreeMeshUI.Text({
       content: 'Join a friend in XR!',
-      fontSize: 0.03,
-      fontColor: new THREE.Color(0xeeeeee),
+      fontSize: 0.045,  // Increased from 0.03
+      fontColor: new THREE.Color(0xffffff),  // Pure white
     });
     this.panel.add(this.statusText);
     
@@ -95,10 +96,10 @@ export class XRMultiplayerPanel {
     this.joinButton = this.createButton('🎮 JOIN SESSION', 0xf5576c);
     this.panel.add(this.joinButton);
     
-    // Code display (hidden initially)
+    // Code display (hidden initially) - BIGGER
     this.codeDisplay = new ThreeMeshUI.Text({
       content: '',
-      fontSize: 0.025,
+      fontSize: 0.035,  // Increased from 0.025
       fontColor: new THREE.Color(0x4ECDC4),
     });
     this.codeDisplay.visible = false;
@@ -121,36 +122,36 @@ export class XRMultiplayerPanel {
     this.closeButton = this.createButton('✕ CLOSE', 0x666666);
     this.panel.add(this.closeButton);
     
-    // CRITICAL: Create invisible hitboxes for raycasting
-    this.hostHitbox = this.createHitbox(0.5, 0.08);
+    // CRITICAL: Create invisible hitboxes for raycasting - BIGGER to match buttons
+    this.hostHitbox = this.createHitbox(0.65, 0.1);  // Match button size
     this.scene.add(this.hostHitbox);
     
-    this.joinHitbox = this.createHitbox(0.5, 0.08);
+    this.joinHitbox = this.createHitbox(0.65, 0.1);
     this.scene.add(this.joinHitbox);
     
-    this.acceptHitbox = this.createHitbox(0.5, 0.08);
+    this.acceptHitbox = this.createHitbox(0.65, 0.1);
     this.scene.add(this.acceptHitbox);
     
-    this.closeHitbox = this.createHitbox(0.5, 0.08);
+    this.closeHitbox = this.createHitbox(0.65, 0.1);
     this.scene.add(this.closeHitbox);
   }
   
   private createButton(text: string, color: number): ThreeMeshUI.Block {
     const button = new ThreeMeshUI.Block({
-      width: 0.5,
-      height: 0.08,
-      margin: 0.01,
-      padding: 0.02,
+      width: 0.65,  // Wider buttons
+      height: 0.1,  // Taller buttons
+      margin: 0.015,  // More spacing
+      padding: 0.025,
       backgroundColor: new THREE.Color(color),
       backgroundOpacity: 1,
-      borderRadius: 0.02,
+      borderRadius: 0.025,
       justifyContent: 'center',
       alignItems: 'center',
     });
     
     const buttonText = new ThreeMeshUI.Text({
       content: text,
-      fontSize: 0.03,
+      fontSize: 0.045,  // MUCH BIGGER (was 0.03)
       fontColor: new THREE.Color(0xffffff),
     });
     
