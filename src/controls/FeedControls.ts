@@ -777,41 +777,7 @@ export class FeedControls {
     if (multiplayerPanel?.isVisible()) {
       const mpHit = multiplayerPanel.raycast(ray);
       
-      if (mpHit?.button) {
-        // Pointing at a BUTTON - show hover and allow clicking
-        multiplayerPanel.setButtonHover(mpHit.button);
-        
-        // Use pinch gesture on pointing hand to click (hand gesture click)
-        const pointingHandPinch = pointingSide === 'right' 
-          ? this.hands.state.right.pinch 
-          : this.hands.state.left.pinch;
-        
-        if (pointingHandPinch) {
-          multiplayerPanel.handleClick(mpHit.button);
-          return;
-        }
-      } else if (mpHit?.panel && mpHit.point) {
-        // Pointing at PANEL (not button) - allow GRABBING
-        multiplayerPanel.setButtonHover(null);
-        
-        const pointingHandPinch = pointingSide === 'right' 
-          ? this.hands.state.right.pinch 
-          : this.hands.state.left.pinch;
-        
-        const handPos = this.hands.pinchMid(pointingSide);
-        
-        // Start grab on pinch
-        if (pointingHandPinch && !multiplayerPanel.isCurrentlyGrabbed() && handPos) {
-          multiplayerPanel.startGrab(pointingSide, handPos);
-          console.log('[FeedControls] 🖐️ Started grabbing multiplayer panel');
-          return;
-        }
-      } else {
-        // Not pointing at panel - clear hover
-        multiplayerPanel.setButtonHover(null);
-      }
-      
-      // Handle ongoing grab (even if not pointing at panel anymore)
+      // Handle ONGOING GRAB (highest priority)
       if (multiplayerPanel.isCurrentlyGrabbed()) {
         const grabHand = multiplayerPanel.isGrabbedByHand('left') ? 'left' : 'right';
         const isPinching = this.hands.state[grabHand].pinch;
@@ -822,6 +788,67 @@ export class FeedControls {
           console.log('[FeedControls] 📍 Placed multiplayer panel');
         }
         return; // Block other interactions while grabbing
+      }
+      
+      // Handle GRAB PENDING (checking if user is moving hand)
+      if (multiplayerPanel.isGrabPending()) {
+        const pendingHand = multiplayerPanel.isGrabbedByHand('left') ? 'left' : 'right';
+        const handPos = this.hands.pinchMid(pendingHand);
+        const isPinching = this.hands.state[pendingHand].pinch;
+        
+        if (handPos) {
+          const result = multiplayerPanel.updateGrabPending(handPos, isPinching);
+          
+          if (result === 'click') {
+            // User wants to CLICK button (minimal movement)
+            const button = multiplayerPanel.getPendingButton();
+            if (button) {
+              multiplayerPanel.handleClick(button);
+              console.log('[FeedControls] 🖱️ Button clicked after pending');
+            }
+          } else if (result === 'grab') {
+            // Grab activated - will be handled in next frame
+            console.log('[FeedControls] 🖐️ Grab activated from pending');
+          }
+          // 'pending' or 'cancel' - just continue waiting
+        }
+        return; // Block other interactions while pending
+      }
+      
+      // NEW INTERACTION: Start grab pending on pinch
+      if (mpHit?.button) {
+        // Pointing at a BUTTON
+        multiplayerPanel.setButtonHover(mpHit.button);
+        
+        const pointingHandPinch = pointingSide === 'right' 
+          ? this.hands.state.right.pinch 
+          : this.hands.state.left.pinch;
+        
+        const handPos = this.hands.pinchMid(pointingSide);
+        
+        if (pointingHandPinch && handPos) {
+          // Start PENDING - will become click if no movement, or grab if movement detected
+          multiplayerPanel.startGrabPending(pointingSide, handPos, mpHit.button);
+          return;
+        }
+      } else if (mpHit?.panel && mpHit.point) {
+        // Pointing at PANEL (not button)
+        multiplayerPanel.setButtonHover(null);
+        
+        const pointingHandPinch = pointingSide === 'right' 
+          ? this.hands.state.right.pinch 
+          : this.hands.state.left.pinch;
+        
+        const handPos = this.hands.pinchMid(pointingSide);
+        
+        if (pointingHandPinch && handPos) {
+          // Start PENDING - will become grab if movement detected
+          multiplayerPanel.startGrabPending(pointingSide, handPos);
+          return;
+        }
+      } else {
+        // Not pointing at panel - clear hover
+        multiplayerPanel.setButtonHover(null);
       }
     }
 
