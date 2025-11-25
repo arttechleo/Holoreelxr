@@ -33,6 +33,7 @@ export class XRMultiplayerPanel {
   private isGrabbed = false;
   private grabHand: 'left' | 'right' | null = null;
   private grabOffset = new THREE.Vector3();
+  private userHasPositioned = false; // Track if user has manually positioned panel
   
   // GRAB PENDING: Wait for movement before grabbing (prevents accidental button clicks)
   private grabPending = false;
@@ -356,7 +357,8 @@ export class XRMultiplayerPanel {
     this.mode = 'idle';
     
     // Position panel in front of camera at comfortable reach distance
-    if (camera) {
+    // Don't reset userHasPositioned if already shown - preserve user placement
+    if (camera && !this.userHasPositioned) {
       const camPos = new THREE.Vector3();
       const camDir = new THREE.Vector3();
       camera.getWorldPosition(camPos);
@@ -406,14 +408,11 @@ export class XRMultiplayerPanel {
       this.group.position.lerp(targetPos, 0.3);
     } 
     // If model position provided and NOT grabbed, position panel above it
-    // ONLY if panel hasn't been manually positioned yet (first show)
-    else if (modelPosition && modelHeight && !this.isGrabbed) {
-      // Don't auto-reposition if user has grabbed it before
-      // This ensures user-placed position is preserved
-      if (!this.grabOffset.length()) {
-        this.group.position.copy(modelPosition);
-        this.group.position.y += modelHeight + 0.3;  // 30cm above model top
-      }
+    // ONLY if panel hasn't been manually positioned by user yet
+    else if (modelPosition && modelHeight && !this.isGrabbed && !this.userHasPositioned) {
+      // Auto-position above model (30cm above)
+      this.group.position.copy(modelPosition);
+      this.group.position.y += modelHeight + 0.4;  // 40cm above model top for better visibility
     }
     
     // CRITICAL: Make panel face camera but keep it stationary in world space
@@ -503,6 +502,7 @@ export class XRMultiplayerPanel {
   stopGrab(): void {
     if (this.isGrabbed) {
       console.log('[XRMultiplayerPanel] 📍 Placed at', this.group.position);
+      this.userHasPositioned = true; // User has manually positioned panel
     }
     this.isGrabbed = false;
     this.grabHand = null;
