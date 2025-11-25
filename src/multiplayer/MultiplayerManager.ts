@@ -60,6 +60,7 @@ export class MultiplayerManager {
   // Connection stats
   private latency = 0;
   private lastPingTime = 0;
+  private pingIntervalId: number | null = null; // CRITICAL: Store interval ID for cleanup
   
   constructor() {
     console.log('[Multiplayer] 🎮 Initializing MultiplayerManager');
@@ -68,9 +69,19 @@ export class MultiplayerManager {
   /**
    * Create a new multiplayer session as HOST
    * Returns an offer SDP that should be sent to the guest
+   * CRITICAL FIX: Cleanup old connection if exists
    */
   async createSession(): Promise<string> {
     console.log('[Multiplayer] 🏠 Creating session as HOST');
+    
+    // CRITICAL: If already connected, disconnect first
+    if (this.peerConnection || this.dataChannel) {
+      console.warn('[Multiplayer] ⚠️ Existing connection found, cleaning up...');
+      this.disconnect();
+      // Wait a bit for cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
     this.isHost = true;
     
     // Create peer connection with Google's public STUN server
@@ -106,9 +117,19 @@ export class MultiplayerManager {
   /**
    * Join an existing session as GUEST
    * Takes the host's offer and returns an answer
+   * CRITICAL FIX: Cleanup old connection if exists
    */
   async joinSession(offerSDP: string): Promise<string> {
     console.log('[Multiplayer] 🎮 Joining session as GUEST');
+    
+    // CRITICAL: If already connected, disconnect first
+    if (this.peerConnection || this.dataChannel) {
+      console.warn('[Multiplayer] ⚠️ Existing connection found, cleaning up...');
+      this.disconnect();
+      // Wait a bit for cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
     this.isHost = false;
     
     // Create peer connection
@@ -122,7 +143,16 @@ export class MultiplayerManager {
     this.setupPeerConnection(this.peerConnection);
     
     // Set remote description (host's offer)
-    const offer = JSON.parse(offerSDP);
+    // CRITICAL: Validate and parse offer
+    let offer: RTCSessionDescriptionInit;
+    try {
+      offer = JSON.parse(offerSDP);
+      if (!offer || !offer.type || !offer.sdp) {
+        throw new Error('Invalid offer structure');
+      }
+    } catch (error) {
+      throw new Error(`Failed to parse offer: ${error}`);
+    }
     await this.peerConnection.setRemoteDescription(offer);
     
     // Create answer
@@ -140,13 +170,28 @@ export class MultiplayerManager {
   
   /**
    * HOST: Receive answer from guest to complete connection
+   * CRITICAL FIX: Validate answer before processing
    */
   async receiveAnswer(answerSDP: string): Promise<void> {
     if (!this.peerConnection || !this.isHost) {
       throw new Error('Must be host to receive answer');
     }
     
-    const answer = JSON.parse(answerSDP);
+    // CRITICAL: Validate and parse answer
+    if (!answerSDP || typeof answerSDP !== 'string') {
+      throw new Error('Invalid answer SDP');
+    }
+    
+    let answer: RTCSessionDescriptionInit;
+    try {
+      answer = JSON.parse(answerSDP);
+      if (!answer || !answer.type || !answer.sdp) {
+        throw new Error('Invalid answer structure');
+      }
+    } catch (error) {
+      throw new Error(`Failed to parse answer: ${error}`);
+    }
+    
     await this.peerConnection.setRemoteDescription(answer);
     console.log('[Multiplayer] ✅ Answer received. Connection should establish soon.');
   }
@@ -204,6 +249,7 @@ export class MultiplayerManager {
   
   /**
    * Setup data channel for game data
+   * CRITICAL FIX: Handle disconnection and cleanup properly
    */
   private setupDataChannel(dc: RTCDataChannel): void {
     dc.addEventListener('open', () => {
@@ -218,6 +264,10 @@ export class MultiplayerManager {
     dc.addEventListener('close', () => {
       console.log('[Multiplayer] 📡 Data channel closed');
       this.connected = false;
+      
+      // CRITICAL: Stop ping loop to prevent memory leak
+      this.stopPingLoop();
+      
       this.onConnectionChangeCallback?.(false);
     });
     
@@ -228,33 +278,63 @@ export class MultiplayerManager {
     dc.addEventListener('error', (error) => {
       console.error('[Multiplayer] Data channel error:', error);
       logError(error, 'Multiplayer data channel');
+      
+      // CRITICAL: On error, cleanup and disconnect
+      this.disconnect();
     });
   }
   
   /**
    * Handle incoming message
+   * CRITICAL: Validate all incoming data to prevent crashes from malformed messages
    */
   private handleMessage(data: string): void {
     try {
+      // CRITICAL: Validate JSON format
+      if (!data || typeof data !== 'string') {
+        console.warn('[Multiplayer] ⚠️ Invalid message data type');
+        return;
+      }
+      
       const message: MessageType = JSON.parse(data);
+      
+      // CRITICAL: Validate message structure
+      if (!message || typeof message !== 'object' || !message.type) {
+        console.warn('[Multiplayer] ⚠️ Invalid message structure:', message);
+        return;
+      }
       
       switch (message.type) {
         case 'hands':
-          this.onRemoteHandsCallback?.(message.data);
+          // CRITICAL: Validate hand data before passing to callback
+          if (message.data && typeof message.data === 'object') {
+            this.onRemoteHandsCallback?.(message.data);
+          }
           break;
         case 'gesture':
-          this.onRemoteGestureCallback?.(message.data);
+          // CRITICAL: Validate gesture data
+          if (message.data && message.data.type && message.data.timestamp) {
+            this.onRemoteGestureCallback?.(message.data);
+          }
           break;
         case 'transform':
-          this.onRemoteTransformCallback?.(message.data);
+          // CRITICAL: Validate transform data
+          if (message.data && message.data.type && message.data.modelId) {
+            this.onRemoteTransformCallback?.(message.data);
+          }
           break;
         case 'ping':
           // Respond with pong
-          this.sendMessage({ type: 'ping', timestamp: message.timestamp });
+          if (typeof message.timestamp === 'number') {
+            this.sendMessage({ type: 'ping', timestamp: message.timestamp });
+          }
           break;
+        default:
+          console.warn('[Multiplayer] ⚠️ Unknown message type:', (message as any).type);
       }
     } catch (error) {
       logError(error, 'Multiplayer message handling');
+      // CRITICAL: Don't disconnect on single message error - might be transient
     }
   }
   
@@ -304,10 +384,16 @@ export class MultiplayerManager {
   
   /**
    * Start ping loop to measure latency
+   * CRITICAL FIX: Store interval ID so we can clear it on disconnect
    */
   private startPingLoop(): void {
-    setInterval(() => {
-      if (this.connected) {
+    // Clear any existing ping loop first
+    if (this.pingIntervalId !== null) {
+      clearInterval(this.pingIntervalId);
+    }
+    
+    this.pingIntervalId = window.setInterval(() => {
+      if (this.connected && this.dataChannel?.readyState === 'open') {
         const now = performance.now();
         this.sendMessage({ type: 'ping', timestamp: now });
         
@@ -318,6 +404,18 @@ export class MultiplayerManager {
         this.lastPingTime = now;
       }
     }, 1000); // Ping every second
+  }
+  
+  /**
+   * Stop ping loop
+   * CRITICAL: Must be called on disconnect to prevent memory leak
+   */
+  private stopPingLoop(): void {
+    if (this.pingIntervalId !== null) {
+      clearInterval(this.pingIntervalId);
+      this.pingIntervalId = null;
+      console.log('[Multiplayer] 🛑 Ping loop stopped');
+    }
   }
   
   /**
@@ -355,22 +453,53 @@ export class MultiplayerManager {
   
   /**
    * Disconnect and cleanup
+   * CRITICAL FIX: Properly cleanup all resources to prevent memory leaks
    */
   disconnect(): void {
-    console.log('[Multiplayer] Disconnecting...');
+    console.log('[Multiplayer] 🛑 Disconnecting and cleaning up...');
     
+    // Stop ping loop to prevent memory leak
+    this.stopPingLoop();
+    
+    // Close data channel
     if (this.dataChannel) {
-      this.dataChannel.close();
+      // Remove event listeners before closing
+      this.dataChannel.onopen = null;
+      this.dataChannel.onclose = null;
+      this.dataChannel.onmessage = null;
+      this.dataChannel.onerror = null;
+      
+      if (this.dataChannel.readyState === 'open') {
+        this.dataChannel.close();
+      }
       this.dataChannel = null;
     }
     
+    // Close peer connection
     if (this.peerConnection) {
-      this.peerConnection.close();
+      // Remove event listeners before closing
+      this.peerConnection.onconnectionstatechange = null;
+      this.peerConnection.onicecandidate = null;
+      this.peerConnection.ondatachannel = null;
+      this.peerConnection.onicegatheringstatechange = null;
+      
+      if (this.peerConnection.connectionState !== 'closed') {
+        this.peerConnection.close();
+      }
       this.peerConnection = null;
     }
     
+    // Reset state
     this.connected = false;
+    this.isHost = false;
+    this.latency = 0;
+    this.lastPingTime = 0;
+    this.lastHandUpdateTime = 0;
+    
+    // Notify disconnection
     this.onConnectionChangeCallback?.(false);
+    
+    console.log('[Multiplayer] ✅ Cleanup complete');
   }
 }
 

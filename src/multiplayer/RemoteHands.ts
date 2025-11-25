@@ -82,10 +82,16 @@ export class RemoteHands {
   
   /**
    * Update remote hand positions
+   * CRITICAL FIX: Validate incoming data to prevent null reference errors
    */
-  update(hands: HandState): void {
+  update(hands: HandState | null | undefined): void {
+    // CRITICAL: Validate hands data
+    if (!hands || typeof hands !== 'object') {
+      return;
+    }
+    
     // Update left hand
-    if (hands.left.position && this.leftHandMesh) {
+    if (hands.left && hands.left.position && this.leftHandMesh) {
       this.leftHandMesh.position.set(
         hands.left.position.x,
         hands.left.position.y,
@@ -121,7 +127,7 @@ export class RemoteHands {
     }
     
     // Update right hand
-    if (hands.right.position && this.rightHandMesh) {
+    if (hands.right && hands.right.position && this.rightHandMesh) {
       this.rightHandMesh.position.set(
         hands.right.position.x,
         hands.right.position.y,
