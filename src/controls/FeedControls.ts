@@ -924,14 +924,15 @@ export class FeedControls {
         // Check if touch has been held long enough to trigger press
         const pressedKey = keypad.checkTouchPress();
         if (pressedKey) {
-          // Valid press - handle it
+          // CRITICAL FIX: Valid press - handle it (this will trigger onInputChange callback)
           keypad.handleKeyPress(pressedKey);
         }
         
         return; // Block other UI and 3D interaction
       } else {
-        // Not touching any key
+        // Not touching any key - clear hover and reset touch state
         keypad.setHoveredKey(null);
+        keypad.resetTouchState();
       }
     }
     
@@ -1264,20 +1265,22 @@ export class FeedControls {
     }
     
     // PRIORITY 1: Context-aware UI interaction
-    // CRITICAL FIX: Check if keyboard is active - if so, disable ALL 3D interaction
+    // CRITICAL FIX: Check if keyboard or multiplayer panel is active - if so, disable ALL 3D interaction
     const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
     const keypad = multiplayerPanel?.getKeypad?.();
     const keyboardActive = keypad?.isActive() || false;
+    const panelActive = multiplayerPanel?.isVisible() || false;
     
-    // If keyboard is active, completely block 3D interaction
-    if (keyboardActive) {
-      // Only allow UI interaction - no 3D model interaction
+    // CRITICAL FIX: Strict UI priority - if ANY UI is active, block 3D interaction completely
+    if (keyboardActive || panelActive) {
+      // UI is active - check UI first and block all 3D interaction
       if (this.tryClickMultiplayerPanel(side)) return;
       if (this.tryClickHud(side)) return;
-      return; // Block all 3D interaction
+      // CRITICAL: Block all 3D interaction when UI is active
+      return;
     }
     
-    // Check if UI is active (keypad, panels) - if so, prioritize UI over 3D objects
+    // Check if UI was recently active (priority window)
     const uiNow = performance.now();
     const uiIsActive = this.uiActive || uiNow < this.uiActiveUntil;
     
