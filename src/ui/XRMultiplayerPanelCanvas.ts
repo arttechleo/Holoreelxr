@@ -80,6 +80,14 @@ export class XRMultiplayerPanel {
       // Connect button pressed on keypad
       this.executeJoin();
     });
+    this.keypad.onCancelClick(() => {
+      // Cancel button pressed - hide keypad and return to idle
+      this.keypad?.hide();
+      this.mode = 'idle';
+      this.joinInputCode = '';
+      this.render();
+      console.log('[XRMultiplayerPanel] Keypad cancelled');
+    });
     
     // Create canvas
     this.canvas = document.createElement('canvas');

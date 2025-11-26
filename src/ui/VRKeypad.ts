@@ -9,7 +9,7 @@ type KeypadKey =
   | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
   | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j' | 'k' | 'l' | 'm'
   | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w' | 'x' | 'y' | 'z'
-  | '-' | 'backspace' | 'clear' | 'connect';
+  | '-' | 'backspace' | 'clear' | 'connect' | 'cancel';
 
 interface KeyRegion {
   key: KeypadKey;
@@ -44,6 +44,15 @@ export class VRKeypad {
   private hoveredKey: KeypadKey | null = null;
   private onInputChange?: (text: string) => void;
   private onConnect?: () => void;
+  private onCancel?: () => void;
+  
+  // Key press stability (prevent accidental presses)
+  private lastKeyPressTime = 0;
+  private lastPressedKey: KeypadKey | null = null;
+  private keyPressStartTime: number | null = null;
+  private readonly KEY_DEBOUNCE_MS = 200; // Minimum 200ms between key presses
+  private readonly KEY_PRESS_MIN_DURATION_MS = 50; // Must hold pinch for 50ms
+  private readonly HIT_ZONE_PADDING = 5; // Enlarge hit zones by 5px for easier targeting
   
   constructor(scene: THREE.Scene) {
     // Create canvas
@@ -129,6 +138,13 @@ export class VRKeypad {
   }
   
   /**
+   * Set cancel callback
+   */
+  onCancelClick(callback: () => void): void {
+    this.onCancel = callback;
+  }
+  
+  /**
    * Get current input text
    */
   getInputText(): string {
@@ -144,7 +160,7 @@ export class VRKeypad {
   }
   
   /**
-   * Raycast to check key hit
+   * Raycast to check key hit (with enlarged hit zones for stability)
    */
   raycastHit(ray: THREE.Ray): KeypadKey | null {
     if (!this.visible) return null;
@@ -170,15 +186,65 @@ export class VRKeypad {
     const px = u * this.CANVAS_W;
     const py = v * this.CANVAS_H;
     
-    // Check which key was hit
+    // Check which key was hit (with enlarged hit zones)
     for (const region of this.keyRegions) {
-      if (px >= region.x && px <= region.x + region.w &&
-          py >= region.y && py <= region.y + region.h) {
+      // Enlarge hit zone by padding for easier targeting
+      const expandedX = region.x - this.HIT_ZONE_PADDING;
+      const expandedY = region.y - this.HIT_ZONE_PADDING;
+      const expandedW = region.w + (this.HIT_ZONE_PADDING * 2);
+      const expandedH = region.h + (this.HIT_ZONE_PADDING * 2);
+      
+      if (px >= expandedX && px <= expandedX + expandedW &&
+          py >= expandedY && py <= expandedY + expandedH) {
         return region.key;
       }
     }
     
     return null;
+  }
+  
+  /**
+   * Start key press (called when pinch starts on key)
+   */
+  startKeyPress(key: KeypadKey): void {
+    const now = performance.now();
+    
+    // Debounce: prevent rapid-fire presses
+    if (now - this.lastKeyPressTime < this.KEY_DEBOUNCE_MS) {
+      return;
+    }
+    
+    // Prevent same key from being pressed twice in quick succession
+    if (this.lastPressedKey === key && now - this.lastKeyPressTime < this.KEY_DEBOUNCE_MS * 2) {
+      return;
+    }
+    
+    this.keyPressStartTime = now;
+    this.lastPressedKey = key;
+  }
+  
+  /**
+   * End key press (called when pinch ends) - only registers if held long enough
+   */
+  endKeyPress(key: KeypadKey): boolean {
+    const now = performance.now();
+    
+    if (this.keyPressStartTime === null) {
+      return false; // No press started
+    }
+    
+    // Check if key matches and was held long enough
+    if (this.lastPressedKey === key) {
+      const pressDuration = now - this.keyPressStartTime;
+      if (pressDuration >= this.KEY_PRESS_MIN_DURATION_MS) {
+        this.lastKeyPressTime = now;
+        this.keyPressStartTime = null;
+        return true; // Valid press
+      }
+    }
+    
+    this.keyPressStartTime = null;
+    return false; // Too short or wrong key
   }
   
   /**
@@ -192,15 +258,27 @@ export class VRKeypad {
   }
   
   /**
-   * Handle key press
+   * Handle key press (with stability checks)
    */
   handleKeyPress(key: KeypadKey): void {
+    const now = performance.now();
+    
+    // Additional debounce check
+    if (now - this.lastKeyPressTime < this.KEY_DEBOUNCE_MS) {
+      return;
+    }
+    
     if (key === 'backspace') {
       this.inputText = this.inputText.slice(0, -1);
     } else if (key === 'clear') {
       this.inputText = '';
     } else if (key === 'connect') {
       this.onConnect?.();
+      this.lastKeyPressTime = now;
+      return;
+    } else if (key === 'cancel') {
+      this.onCancel?.();
+      this.lastKeyPressTime = now;
       return;
     } else {
       // Limit input length (Peer IDs are typically short)
@@ -209,6 +287,7 @@ export class VRKeypad {
       }
     }
     
+    this.lastKeyPressTime = now;
     this.onInputChange?.(this.inputText);
     this.render();
   }
@@ -237,17 +316,17 @@ export class VRKeypad {
     // Clear
     ctx.clearRect(0, 0, w, h);
     
-    // Background
-    ctx.fillStyle = '#1a1a1a';
+    // Background - neutral grey
+    ctx.fillStyle = '#2a2a2a';
     ctx.fillRect(0, 0, w, h);
     
-    // Border
-    ctx.strokeStyle = '#00ff00';
+    // Border - white
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 6;
     ctx.strokeRect(4, 4, w - 8, h - 8);
     
-    // Title
-    ctx.fillStyle = '#00ff00';
+    // Title - white
+    ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 48px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('ENTER PEER ID', w / 2, 50);
@@ -284,7 +363,8 @@ export class VRKeypad {
     const controlY = startY + (keySize + keySpacing) * 4;
     this.drawKey(ctx, 'backspace', startX, controlY, keySize * 2, keySize, '⌫');
     this.drawKey(ctx, 'clear', startX + (keySize + keySpacing) * 2.5, controlY, keySize * 2, keySize, 'CLEAR');
-    this.drawKey(ctx, 'connect', startX + (keySize + keySpacing) * 5, controlY, keySize * 3, keySize, 'CONNECT', '#4caf50');
+    this.drawKey(ctx, 'cancel', startX + (keySize + keySpacing) * 5, controlY, keySize * 2.5, keySize, 'CANCEL', '#666666');
+    this.drawKey(ctx, 'connect', startX + (keySize + keySpacing) * 7.8, controlY, keySize * 2.5, keySize, 'CONNECT', '#888888');
     
     // Update texture
     this.texture.needsUpdate = true;
@@ -300,24 +380,33 @@ export class VRKeypad {
   }
   
   /**
-   * Draw a single key
+   * Draw a single key (grey/white styling)
    */
-  private drawKey(ctx: CanvasRenderingContext2D, key: KeypadKey, x: number, y: number, w: number, h: number, label: string, color: string = '#333333'): void {
+  private drawKey(ctx: CanvasRenderingContext2D, key: KeypadKey, x: number, y: number, w: number, h: number, label: string, color: string = '#555555'): void {
     const isHovered = this.hoveredKey === key;
     
-    // Store region for raycasting
+    // Store region for raycasting (use original size, padding applied in raycastHit)
     this.keyRegions.push({ key, x, y, w, h });
     
-    // Key background
-    ctx.fillStyle = isHovered ? '#ffffff' : color;
+    // Key background - grey/white scheme
+    if (key === 'cancel') {
+      // Cancel button - darker grey
+      ctx.fillStyle = isHovered ? '#ffffff' : '#444444';
+    } else if (key === 'connect') {
+      // Connect button - lighter grey
+      ctx.fillStyle = isHovered ? '#ffffff' : '#666666';
+    } else {
+      // Regular keys - medium grey
+      ctx.fillStyle = isHovered ? '#ffffff' : color;
+    }
     ctx.fillRect(x, y, w, h);
     
-    // Key border
-    ctx.strokeStyle = isHovered ? '#00ff00' : '#666666';
+    // Key border - white when hovered, grey otherwise
+    ctx.strokeStyle = isHovered ? '#ffffff' : '#888888';
     ctx.lineWidth = isHovered ? 4 : 2;
     ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
     
-    // Key label
+    // Key label - black on white when hovered, white on grey otherwise
     ctx.fillStyle = isHovered ? '#000000' : '#ffffff';
     ctx.font = isHovered ? 'bold 32px Arial' : '28px Arial';
     ctx.textAlign = 'center';
