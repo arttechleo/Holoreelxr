@@ -797,6 +797,7 @@ export class FeedControls {
         // Check if dwelled long enough
         if (now - this.mpHoverBeganAt >= this.DWELL_MS) {
           this.mpHoverBeganAt = now + 10000; // Prevent repeat
+          multiplayerPanel.hideRayLine(this.app.scene); // Hide ray before click
           multiplayerPanel.handleClick(mpHit.button);
           return; // Block other UI
         }
