@@ -608,19 +608,26 @@ export class FeedControls {
         handDir = from.clone().sub(camPos).normalize();
       }
       
-      const ray = new THREE.Ray(from, handDir);
-      const keypadHit = keypad.raycastHit(ray);
-      
-      if (keypadHit) {
-        // CRITICAL FIX: Start key press (actual press handled on pinch end with duration check)
-        keypad.startKeyPress(keypadHit);
-        // Mark UI as active
-        const now = performance.now();
-        this.uiActive = true;
-        this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-        this.setRayVisible(side, false);
-        this.scrollDisarmedThisPinch = true;
-        return true; // Handled
+      // CRITICAL FIX: Touch-based interaction (check finger proximity)
+      const indexTip = this.hands.indexTip(side);
+      if (indexTip) {
+        const touchedKey = keypad.checkTouchInteraction(indexTip);
+        if (touchedKey) {
+          // Finger is touching a key - mark UI as active
+          const now = performance.now();
+          this.uiActive = true;
+          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+          
+          // Check if touch has been held long enough
+          const pressedKey = keypad.checkTouchPress();
+          if (pressedKey) {
+            keypad.handleKeyPress(pressedKey);
+          }
+          
+          this.setRayVisible(side, false);
+          this.scrollDisarmedThisPinch = true;
+          return true; // Handled - block 3D interaction
+        }
       }
     }
     
@@ -880,33 +887,50 @@ export class FeedControls {
       }
     }
     
-    // Check VR keypad FIRST (highest priority when visible)
+    // CRITICAL FIX: Touch-based keyboard interaction (proximity/collider detection)
     const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
     const keypad = multiplayerPanel?.getKeypad?.();
     if (keypad?.isVisible()) {
-      const keypadHit = keypad.raycastHit(ray);
+      // CRITICAL FIX: Use touch-based interaction instead of raycast
+      // Check both hands for finger proximity to keys
+      const leftIndexTip = this.hands.indexTip('left');
+      const rightIndexTip = this.hands.indexTip('right');
       
-      if (keypadHit) {
-        // Set hover for visual feedback
-        keypad.setHoveredKey(keypadHit);
+      let touchedKey: KeypadKey | null = null;
+      
+      // Check left hand
+      if (leftIndexTip) {
+        const leftTouch = keypad.checkTouchInteraction(leftIndexTip);
+        if (leftTouch) {
+          touchedKey = leftTouch;
+          keypad.setHoveredKey(leftTouch);
+        }
+      }
+      
+      // Check right hand (right hand takes priority if both are touching)
+      if (rightIndexTip) {
+        const rightTouch = keypad.checkTouchInteraction(rightIndexTip);
+        if (rightTouch) {
+          touchedKey = rightTouch;
+          keypad.setHoveredKey(rightTouch);
+        }
+      }
+      
+      if (touchedKey) {
+        // Finger is touching a key - mark UI as active and block 3D interaction
+        this.uiActive = true;
+        this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
         
-        // Check if pointing hand is pinching
-        const pointingHandPinch = pointingSide === 'right' 
-          ? this.hands.state.right.pinch 
-          : this.hands.state.left.pinch;
-        
-        if (pointingHandPinch) {
-          // CRITICAL FIX: Start key press (actual press handled on pinch end with duration check)
-          keypad.startKeyPress(keypadHit);
-          // Mark UI as active
-          this.uiActive = true;
-          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-          return; // Block other UI
+        // Check if touch has been held long enough to trigger press
+        const pressedKey = keypad.checkTouchPress();
+        if (pressedKey) {
+          // Valid press - handle it
+          keypad.handleKeyPress(pressedKey);
         }
         
-        return; // Hovering - block other UI
+        return; // Block other UI and 3D interaction
       } else {
-        // Not pointing at keypad
+        // Not touching any key
         keypad.setHoveredKey(null);
       }
     }
@@ -1240,6 +1264,19 @@ export class FeedControls {
     }
     
     // PRIORITY 1: Context-aware UI interaction
+    // CRITICAL FIX: Check if keyboard is active - if so, disable ALL 3D interaction
+    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+    const keypad = multiplayerPanel?.getKeypad?.();
+    const keyboardActive = keypad?.isActive() || false;
+    
+    // If keyboard is active, completely block 3D interaction
+    if (keyboardActive) {
+      // Only allow UI interaction - no 3D model interaction
+      if (this.tryClickMultiplayerPanel(side)) return;
+      if (this.tryClickHud(side)) return;
+      return; // Block all 3D interaction
+    }
+    
     // Check if UI is active (keypad, panels) - if so, prioritize UI over 3D objects
     const uiNow = performance.now();
     const uiIsActive = this.uiActive || uiNow < this.uiActiveUntil;

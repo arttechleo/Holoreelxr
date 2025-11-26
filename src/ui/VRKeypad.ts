@@ -39,6 +39,11 @@ export class VRKeypad {
   // Hit detection
   private readonly HIT_THICKNESS = 0.1;
   
+  // Touch-based interaction (proximity/collider)
+  private readonly TOUCH_THRESHOLD = 0.03; // 3cm proximity for touch detection
+  private touchedKey: KeypadKey | null = null;
+  private touchStartTime: number | null = null;
+  
   // State
   private inputText = '';
   private hoveredKey: KeypadKey | null = null;
@@ -79,7 +84,7 @@ export class VRKeypad {
     });
     
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.renderOrder = 10000; // Above other UI
+    this.panel.renderOrder = 20000; // CRITICAL FIX: Keyboard in foreground (above multiplayer panel)
     this.group.add(this.panel);
     scene.add(this.group);
     
@@ -303,6 +308,99 @@ export class VRKeypad {
     
     // Smoothly face camera
     this.group.lookAt(camPos);
+  }
+  
+  /**
+   * CRITICAL FIX: Touch-based interaction (proximity/collider detection)
+   * Check if finger is touching a key
+   */
+  checkTouchInteraction(fingerPosition: THREE.Vector3): KeypadKey | null {
+    if (!this.visible) return null;
+    
+    // Convert finger position to keypad local space
+    const localPos = new THREE.Vector3();
+    this.group.worldToLocal(localPos.copy(fingerPosition));
+    
+    // Check distance to keypad plane
+    const planeNormal = new THREE.Vector3(0, 0, 1);
+    const planePoint = new THREE.Vector3(0, 0, 0);
+    const distToPlane = Math.abs(localPos.z);
+    
+    // Must be close to keypad plane (within touch threshold)
+    if (distToPlane > this.TOUCH_THRESHOLD) {
+      this.touchedKey = null;
+      this.touchStartTime = null;
+      return null;
+    }
+    
+    // Convert to UV coordinates (same as raycast)
+    const dx = localPos.x;
+    const dy = localPos.y;
+    
+    // Check if within panel bounds
+    if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) {
+      this.touchedKey = null;
+      this.touchStartTime = null;
+      return null;
+    }
+    
+    // Convert to canvas pixel coordinates
+    const u = (dx / this.PANEL_W) + 0.5;
+    const v = 0.5 - (dy / this.PANEL_H);
+    const px = u * this.CANVAS_W;
+    const py = v * this.CANVAS_H;
+    
+    // Check which key is being touched (with enlarged hit zones)
+    for (const region of this.keyRegions) {
+      const expandedX = region.x - this.HIT_ZONE_PADDING;
+      const expandedY = region.y - this.HIT_ZONE_PADDING;
+      const expandedW = region.w + (this.HIT_ZONE_PADDING * 2);
+      const expandedH = region.h + (this.HIT_ZONE_PADDING * 2);
+      
+      if (px >= expandedX && px <= expandedX + expandedW &&
+          py >= expandedY && py <= expandedY + expandedH) {
+        // Key is being touched
+        if (this.touchedKey !== region.key) {
+          // New key touched - start touch timer
+          this.touchedKey = region.key;
+          this.touchStartTime = performance.now();
+        }
+        return region.key;
+      }
+    }
+    
+    // Not touching any key
+    this.touchedKey = null;
+    this.touchStartTime = null;
+    return null;
+  }
+  
+  /**
+   * Check if touch has been held long enough to trigger press
+   */
+  checkTouchPress(): KeypadKey | null {
+    if (!this.touchedKey || !this.touchStartTime) return null;
+    
+    const now = performance.now();
+    const touchDuration = now - this.touchStartTime;
+    
+    // Must hold touch for minimum duration (prevents accidental presses)
+    if (touchDuration >= this.KEY_PRESS_MIN_DURATION_MS) {
+      const key = this.touchedKey;
+      // Reset touch state
+      this.touchedKey = null;
+      this.touchStartTime = null;
+      return key;
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Check if keyboard is active (for disabling 3D interaction)
+   */
+  isActive(): boolean {
+    return this.visible;
   }
   
   /**
