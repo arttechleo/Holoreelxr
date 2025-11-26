@@ -34,6 +34,9 @@ export class XRMultiplayerPanel {
   private grabHand: 'left' | 'right' | null = null;
   private grabOffset = new THREE.Vector3();
   private userHasPositioned = false; // Track if user has manually positioned panel
+  private isPositionLocked = false; // Lock position to prevent drift
+  private lastModelPosition: THREE.Vector3 | null = null; // Track model position changes
+  private lastRenderState: string = ''; // Track render state to prevent redundant renders
   
   // GRAB PENDING: Wait for movement before grabbing (prevents accidental button clicks)
   private grabPending = false;
@@ -65,22 +68,26 @@ export class XRMultiplayerPanel {
       map: this.texture,
       transparent: true,
       side: THREE.DoubleSide,
-      depthTest: true,  // Enable depth test for proper 3D placement
-      depthWrite: true,  // Enable depth writing for proper raycasting
+      depthTest: false,  // Disable depth test to prevent z-fighting flicker
+      depthWrite: false, // Disable depth write to prevent flicker
       opacity: 1.0,
-      alphaTest: 0.1,  // Discard fully transparent pixels for better interaction
+      alphaTest: 0.01,  // Lower threshold to reduce pixel discard flickering
+      toneMapped: false, // Prevent tone mapping interference
     });
     
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.renderOrder = 9999;  // Always render on top
-    this.panel.visible = true;      // Ensure panel mesh is visible
+    this.panel.renderOrder = 999;  // High render order for overlay-like rendering
+    this.panel.visible = true;     // Ensure panel mesh is visible
     this.panel.raycast = THREE.Mesh.prototype.raycast;  // Ensure raycast method exists
+    this.panel.matrixAutoUpdate = true; // Ensure transforms update correctly
+    this.panel.frustumCulled = false; // Don't cull - always render
     
     // FLOATING UI: Position in easy-to-reach location (will be updated dynamically)
     // Start closer to user at comfortable height for interaction
     this.panel.position.set(0, 1.5, -0.5);  // 1.5m height (eye level), 0.5m in front (CLOSER!)
     this.group.add(this.panel);
     this.group.visible = false;
+    this.group.matrixAutoUpdate = true;
     
     scene.add(this.group);
     
@@ -92,8 +99,17 @@ export class XRMultiplayerPanel {
   
   /**
    * Render the panel content to canvas
+   * OPTIMIZED: Only renders when state actually changes
    */
   private render(): void {
+    // Generate state hash to check if we need to re-render
+    const stateHash = `${this.mode}_${this.hoveredButton}_${this.panelHovered}_${this.isGrabbed}_${this.grabPending}`;
+    
+    // Skip render if nothing changed (prevents flickering from redundant draws)
+    if (stateHash === this.lastRenderState && this.mode !== 'idle') {
+      return;
+    }
+    this.lastRenderState = stateHash;
     const ctx = this.canvas.getContext('2d')!;
     const w = this.canvas.width;
     const h = this.canvas.height;
@@ -224,8 +240,13 @@ export class XRMultiplayerPanel {
       ctx.fillText('Connection will happen automatically', w / 2, 430);
     }
     
-    // Update texture
+    // Update texture only when actually changed (prevent flicker from constant updates)
     this.texture.needsUpdate = true;
+    
+    // Ensure texture stays stable
+    this.texture.generateMipmaps = false;
+    this.texture.minFilter = THREE.LinearFilter;
+    this.texture.magFilter = THREE.LinearFilter;
   }
   
   private drawButton(ctx: CanvasRenderingContext2D, text: string, y: number, h: number, color: string, hovered: boolean): void {
@@ -370,21 +391,41 @@ export class XRMultiplayerPanel {
   
   /**
    * Set button hover (for visual feedback)
+   * OPTIMIZED: Debounced to prevent excessive renders
    */
+  private hoverUpdateTimeout: number | null = null;
+  
   setButtonHover(button: ButtonType | null): void {
     if (this.hoveredButton !== button) {
       this.hoveredButton = button;
-      this.render();
+      
+      // Debounce render to prevent flicker from rapid hover changes
+      if (this.hoverUpdateTimeout) {
+        clearTimeout(this.hoverUpdateTimeout);
+      }
+      this.hoverUpdateTimeout = window.setTimeout(() => {
+        this.render();
+        this.hoverUpdateTimeout = null;
+      }, 16); // ~60fps max update rate
     }
   }
   
   /**
    * Set panel hover state (for visual feedback when panel is grabbable)
+   * OPTIMIZED: Debounced to prevent excessive renders
    */
   setPanelHover(hovered: boolean): void {
     if (this.panelHovered !== hovered) {
       this.panelHovered = hovered;
-      this.render();
+      
+      // Debounce render to prevent flicker from rapid hover changes
+      if (this.hoverUpdateTimeout) {
+        clearTimeout(this.hoverUpdateTimeout);
+      }
+      this.hoverUpdateTimeout = window.setTimeout(() => {
+        this.render();
+        this.hoverUpdateTimeout = null;
+      }, 16); // ~60fps max update rate
     }
   }
   
@@ -395,7 +436,7 @@ export class XRMultiplayerPanel {
     
     // Position panel in front of camera at comfortable reach distance
     // Don't reset userHasPositioned if already shown - preserve user placement
-    if (camera && !this.userHasPositioned) {
+    if (camera && !this.userHasPositioned && !this.isPositionLocked) {
       const camPos = new THREE.Vector3();
       const camDir = new THREE.Vector3();
       camera.getWorldPosition(camPos);
@@ -411,8 +452,18 @@ export class XRMultiplayerPanel {
       // Force matrix update for proper raycasting
       this.group.updateMatrixWorld(true);
       this.panel.updateMatrixWorld(true);
+      
+      // Lock position after showing to prevent drift
+      setTimeout(() => {
+        if (!this.userHasPositioned) {
+          this.isPositionLocked = true;
+          console.log('[XRMultiplayerPanel] 🔒 Initial position locked');
+        }
+      }, 1000); // Lock after 1 second
     }
     
+    // Force initial render
+    this.lastRenderState = ''; // Clear state to force render
     this.render();
     
     console.log('[XRMultiplayerPanel] 🎮 Panel shown - INTERACTIVE MODE enabled');
@@ -440,7 +491,7 @@ export class XRMultiplayerPanel {
   
   /**
    * Update panel position to float to the RIGHT of the current 3D model
-   * CRITICAL: Panel is STATIONARY in world space, not following head movement
+   * CRITICAL: Panel LOCKS IN PLACE after initial positioning to prevent drift
    * SPATIAL PLACEMENT: Can be grabbed and placed anywhere by user
    * FIXED POSITION: Always 0.3m to the RIGHT of object center (INDEPENDENT of scale) - CLOSER!
    * Same side as reaction buttons (heart, like, repost)
@@ -448,46 +499,67 @@ export class XRMultiplayerPanel {
   update(camera: THREE.Camera, modelPosition?: THREE.Vector3, modelHeight?: number, handPosition?: THREE.Vector3): void {
     if (!this.visible) return;
     
+    let positionChanged = false;
+    
     // If being grabbed, follow hand with offset - SMOOTH movement
     if (this.isGrabbed && handPosition) {
       const targetPos = handPosition.clone().add(this.grabOffset);
       
       // Smooth interpolation for more natural feel (lerp factor 0.3 = 30% per frame)
       this.group.position.lerp(targetPos, 0.3);
+      positionChanged = true;
+      this.isPositionLocked = false; // Unlock while grabbing
     } 
     // If model position provided and NOT grabbed, position panel to RIGHT of it
-    // ONLY if panel hasn't been manually positioned by user yet
-    else if (modelPosition && !this.isGrabbed && !this.userHasPositioned) {
-      // Get camera position to determine right direction
-      const camPos = new THREE.Vector3();
-      camera.getWorldPosition(camPos);
+    // ONLY ONCE - then lock position to prevent drift
+    else if (modelPosition && !this.isGrabbed && !this.userHasPositioned && !this.isPositionLocked) {
+      // Check if model position has changed significantly (more than 5cm)
+      const modelMoved = !this.lastModelPosition || 
+                         this.lastModelPosition.distanceTo(modelPosition) > 0.05;
       
-      // Calculate direction from model to camera
-      const toCamera = new THREE.Vector3().subVectors(camPos, modelPosition).normalize();
-      toCamera.y = 0; // Keep on horizontal plane
-      toCamera.normalize();
-      
-      // Calculate right vector (perpendicular to camera direction, to the right)
-      const rightVector = new THREE.Vector3(toCamera.z, 0, -toCamera.x).normalize();
-      
-      // Position panel CLOSER to the RIGHT of object center for easy reach
-      // REDUCED from 0.5m to 0.3m for better accessibility
-      const FIXED_OFFSET = 0.3; // 30cm to the right (closer!)
-      this.group.position.copy(modelPosition);
-      this.group.position.add(rightVector.multiplyScalar(FIXED_OFFSET));
-      
-      // Position at comfortable eye level (slightly above model center)
-      this.group.position.y = modelPosition.y + 0.1; // 10cm above model center
+      if (modelMoved) {
+        // Get camera position to determine right direction
+        const camPos = new THREE.Vector3();
+        camera.getWorldPosition(camPos);
+        
+        // Calculate direction from model to camera
+        const toCamera = new THREE.Vector3().subVectors(camPos, modelPosition).normalize();
+        toCamera.y = 0; // Keep on horizontal plane
+        toCamera.normalize();
+        
+        // Calculate right vector (perpendicular to camera direction, to the right)
+        const rightVector = new THREE.Vector3(toCamera.z, 0, -toCamera.x).normalize();
+        
+        // Position panel CLOSER to the RIGHT of object center for easy reach
+        const FIXED_OFFSET = 0.3; // 30cm to the right (closer!)
+        this.group.position.copy(modelPosition);
+        this.group.position.add(rightVector.multiplyScalar(FIXED_OFFSET));
+        
+        // Position at comfortable eye level (slightly above model center)
+        this.group.position.y = modelPosition.y + 0.1; // 10cm above model center
+        
+        this.lastModelPosition = modelPosition.clone();
+        positionChanged = true;
+        
+        // Lock position after 2 seconds to prevent constant updates
+        setTimeout(() => {
+          this.isPositionLocked = true;
+          console.log('[XRMultiplayerPanel] 🔒 Position locked to prevent drift');
+        }, 2000);
+      }
     }
     
-    // CRITICAL: Make panel face camera but keep it stationary in world space
-    const camPos = new THREE.Vector3();
-    camera.getWorldPosition(camPos);
-    this.group.lookAt(camPos);
-    
-    // Force matrix update after any position/rotation change for proper raycasting
-    this.group.updateMatrixWorld(true);
-    this.panel.updateMatrixWorld(true);
+    // ONLY update lookAt if position changed or not yet facing camera
+    // This prevents constant rotation updates that cause flickering
+    if (positionChanged || !this.isPositionLocked) {
+      const camPos = new THREE.Vector3();
+      camera.getWorldPosition(camPos);
+      this.group.lookAt(camPos);
+      
+      // Force matrix update only when needed
+      this.group.updateMatrixWorld(true);
+      this.panel.updateMatrixWorld(true);
+    }
   }
   
   /**
@@ -572,10 +644,21 @@ export class XRMultiplayerPanel {
     if (this.isGrabbed) {
       console.log('[XRMultiplayerPanel] 📍 Placed at', this.group.position);
       this.userHasPositioned = true; // User has manually positioned panel
+      this.isPositionLocked = true; // Lock position after manual placement
     }
     this.isGrabbed = false;
     this.grabHand = null;
     this.grabOffset.set(0, 0, 0);
+  }
+  
+  /**
+   * Reset position lock (for debugging or re-positioning)
+   */
+  unlockPosition(): void {
+    this.isPositionLocked = false;
+    this.userHasPositioned = false;
+    this.lastModelPosition = null;
+    console.log('[XRMultiplayerPanel] 🔓 Position unlocked - will reposition');
   }
   
   /**
