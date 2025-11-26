@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { MultiplayerManager } from '../multiplayer/MultiplayerManager';
+import { VRKeypad } from './VRKeypad';
 
 type ButtonType = 'host' | 'join' | 'close';
 
@@ -40,6 +41,10 @@ export class XRMultiplayerPanel {
   // Callback to get object position
   private getObjectWorldPos: () => THREE.Vector3 | null;
   
+  // VR Keypad for entering Peer ID
+  private keypad: VRKeypad | null = null;
+  private getCamera: () => THREE.Camera;
+  
   // State
   private currentCode = ''; // Peer ID for connection
   private mode: 'idle' | 'hosting' | 'waiting' | 'joining' = 'idle';
@@ -57,10 +62,24 @@ export class XRMultiplayerPanel {
   constructor(
     scene: THREE.Scene, 
     multiplayer: MultiplayerManager,
-    getObjectWorldPos: () => THREE.Vector3 | null
+    getObjectWorldPos: () => THREE.Vector3 | null,
+    getCamera: () => THREE.Camera
   ) {
     this.multiplayer = multiplayer;
     this.getObjectWorldPos = getObjectWorldPos;
+    this.getCamera = getCamera;
+    
+    // Create VR keypad
+    this.keypad = new VRKeypad(scene);
+    this.keypad.onInput((text) => {
+      // Sync keypad input with panel state
+      this.joinInputCode = text;
+      this.render(); // Update panel display
+    });
+    this.keypad.onConnectClick(() => {
+      // Connect button pressed on keypad
+      this.executeJoin();
+    });
     
     // Create canvas
     this.canvas = document.createElement('canvas');
@@ -201,7 +220,8 @@ export class XRMultiplayerPanel {
         break;
       case 'close':
         if (this.mode === 'joining') {
-          // Go back to idle
+          // Hide keypad and go back to idle
+          this.keypad?.hide();
           this.mode = 'idle';
           this.joinInputCode = '';
           this.render();
@@ -252,11 +272,24 @@ export class XRMultiplayerPanel {
   }
   
   private async handleJoin(): Promise<void> {
-    // Switch to joining mode - will show input UI
+    // Switch to joining mode - show keypad
     this.mode = 'joining';
     this.joinInputCode = '';
     this.render();
-    console.log('[XRMultiplayerPanel] Join mode - waiting for code input');
+    
+    // Show keypad in front of camera
+    const camera = this.getCamera();
+    const camPos = new THREE.Vector3();
+    const camDir = new THREE.Vector3();
+    camera.getWorldPosition(camPos);
+    camera.getWorldDirection(camDir);
+    
+    // Position keypad 0.7m in front, slightly below eye level
+    const keypadPos = camPos.clone().add(camDir.multiplyScalar(0.7));
+    keypadPos.y -= 0.15; // Lower for comfortable typing
+    
+    this.keypad?.show(keypadPos, camPos);
+    console.log('[XRMultiplayerPanel] Join mode - keypad shown');
   }
   
   /**
@@ -280,7 +313,11 @@ export class XRMultiplayerPanel {
    * Execute join with current code
    */
   async executeJoin(): Promise<void> {
-    if (!this.joinInputCode) {
+    // Get code from keypad if available, otherwise use stored code
+    const keypadCode = this.keypad?.getInputText() || '';
+    const codeToUse = keypadCode || this.joinInputCode;
+    
+    if (!codeToUse || codeToUse.trim().length === 0) {
       console.warn('[XRMultiplayerPanel] No join code provided');
       return;
     }
@@ -292,9 +329,11 @@ export class XRMultiplayerPanel {
     
     this.isCreatingSession = true;
     this.mode = 'waiting';
+    this.joinInputCode = codeToUse.trim(); // Store the code
     this.render();
     
     try {
+      // Yield to event loop before async work (prevents blocking)
       await new Promise(resolve => setTimeout(resolve, 0));
       
       const joinPromise = this.multiplayer.joinSession(this.joinInputCode);
@@ -305,12 +344,18 @@ export class XRMultiplayerPanel {
       await Promise.race([joinPromise, timeoutPromise]);
       
       console.log('[XRMultiplayerPanel] ✅ Successfully joined session!');
+      
+      // Hide keypad on successful connection
+      this.keypad?.hide();
+      
       // Connection change callback will update UI
       
     } catch (error) {
       console.error('[XRMultiplayerPanel] Join error:', error);
-      this.mode = 'idle';
-      this.joinInputCode = '';
+      this.mode = 'joining'; // Go back to joining mode so user can retry
+      // Keep keypad visible and restore input
+      const currentInput = this.keypad?.getInputText() || this.joinInputCode;
+      this.joinInputCode = currentInput;
       this.render();
     } finally {
       this.isCreatingSession = false;
@@ -336,6 +381,18 @@ export class XRMultiplayerPanel {
     if (center) {
       this.anchor.position.copy(center).add(this.OFFSET);
     }
+    
+    // Update keypad position to face camera
+    if (this.keypad?.isVisible()) {
+      this.keypad.update(this.getCamera());
+    }
+  }
+  
+  /**
+   * Get keypad for interaction handling
+   */
+  getKeypad(): VRKeypad | null {
+    return this.keypad;
   }
   
   /**
@@ -455,25 +512,20 @@ export class XRMultiplayerPanel {
       // Instructions
       ctx.fillStyle = '#ffffff';
       ctx.font = '28px Arial';
-      ctx.fillText('Use connect.html page', w / 2, 200);
-      ctx.fillText('or set code programmatically', w / 2, 240);
+      ctx.fillText('Use keypad to type', w / 2, 200);
+      ctx.fillText('Peer ID below', w / 2, 240);
       
-      // Show current input if any
-      if (this.joinInputCode) {
-        ctx.fillStyle = '#00ff00';
-        ctx.font = 'bold 40px monospace';
-        ctx.fillText(this.joinInputCode, w / 2, 320);
-        
-        // Connect button
-        const connectY = 420;
-        const connectH = 100;
-        this.buttonRegions.join = { x: 212, y: connectY, w: 600, h: connectH };
-        ctx.fillStyle = this.hoveredButton === 'join' ? '#4caf50' : '#2e7d32';
-        ctx.fillRect(this.buttonRegions.join.x, connectY, this.buttonRegions.join.w, connectH);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 48px Arial';
-        ctx.fillText('CONNECT', w / 2, connectY + 60);
-      }
+      // Show current input
+      ctx.fillStyle = '#00ff00';
+      ctx.font = 'bold 36px monospace';
+      const displayText = this.joinInputCode || '...';
+      ctx.fillText(displayText, w / 2, 320);
+      
+      // Instructions for keypad
+      ctx.fillStyle = '#aaaaaa';
+      ctx.font = '20px Arial';
+      ctx.fillText('Pinch on keypad keys to type', w / 2, 380);
+      ctx.fillText('Press CONNECT when done', w / 2, 410);
       
       // Close button to go back
       const closeY = 650;
