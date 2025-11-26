@@ -888,9 +888,14 @@ export class FeedControls {
     }
     
     // CRITICAL FIX: Touch-based keyboard interaction (proximity/collider detection)
-    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
-    const keypad = multiplayerPanel?.getKeypad?.();
-    if (keypad?.isVisible()) {
+    // Enhanced with error handling and null safety
+    try {
+      const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+      if (!multiplayerPanel) return; // Early return if panel doesn't exist
+      
+      const keypad = multiplayerPanel.getKeypad?.();
+      if (!keypad || !keypad.isVisible()) return; // Early return if keypad not visible
+      
       // CRITICAL FIX: Use touch-based interaction instead of raycast
       // Check both hands for finger proximity to keys
       const leftIndexTip = this.hands.indexTip('left');
@@ -900,19 +905,27 @@ export class FeedControls {
       
       // Check left hand
       if (leftIndexTip) {
-        const leftTouch = keypad.checkTouchInteraction(leftIndexTip);
-        if (leftTouch) {
-          touchedKey = leftTouch;
-          keypad.setHoveredKey(leftTouch);
+        try {
+          const leftTouch = keypad.checkTouchInteraction(leftIndexTip);
+          if (leftTouch) {
+            touchedKey = leftTouch;
+            keypad.setHoveredKey(leftTouch);
+          }
+        } catch (error) {
+          logError(error, 'FeedControls.keypad.leftTouch');
         }
       }
       
       // Check right hand (right hand takes priority if both are touching)
       if (rightIndexTip) {
-        const rightTouch = keypad.checkTouchInteraction(rightIndexTip);
-        if (rightTouch) {
-          touchedKey = rightTouch;
-          keypad.setHoveredKey(rightTouch);
+        try {
+          const rightTouch = keypad.checkTouchInteraction(rightIndexTip);
+          if (rightTouch) {
+            touchedKey = rightTouch;
+            keypad.setHoveredKey(rightTouch);
+          }
+        } catch (error) {
+          logError(error, 'FeedControls.keypad.rightTouch');
         }
       }
       
@@ -922,18 +935,29 @@ export class FeedControls {
         this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
         
         // Check if touch has been held long enough to trigger press
-        const pressedKey = keypad.checkTouchPress();
-        if (pressedKey) {
-          // CRITICAL FIX: Valid press - handle it (this will trigger onInputChange callback)
-          keypad.handleKeyPress(pressedKey);
+        try {
+          const pressedKey = keypad.checkTouchPress();
+          if (pressedKey) {
+            // CRITICAL FIX: Valid press - handle it (this will trigger onInputChange callback)
+            keypad.handleKeyPress(pressedKey);
+          }
+        } catch (error) {
+          logError(error, 'FeedControls.keypad.handleKeyPress');
         }
         
         return; // Block other UI and 3D interaction
       } else {
         // Not touching any key - clear hover and reset touch state
-        keypad.setHoveredKey(null);
-        keypad.resetTouchState();
+        try {
+          keypad.setHoveredKey(null);
+          keypad.resetTouchState();
+        } catch (error) {
+          logError(error, 'FeedControls.keypad.resetState');
+        }
       }
+    } catch (error) {
+      // CRITICAL FIX: Don't crash on keyboard interaction errors
+      logError(error, 'FeedControls.keypad.interaction');
     }
     
     // Check multiplayer panel (lower priority than keypad)
@@ -1266,18 +1290,34 @@ export class FeedControls {
     
     // PRIORITY 1: Context-aware UI interaction
     // CRITICAL FIX: Check if keyboard or multiplayer panel is active - if so, disable ALL 3D interaction
-    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
-    const keypad = multiplayerPanel?.getKeypad?.();
-    const keyboardActive = keypad?.isActive() || false;
-    const panelActive = multiplayerPanel?.isVisible() || false;
-    
-    // CRITICAL FIX: Strict UI priority - if ANY UI is active, block 3D interaction completely
-    if (keyboardActive || panelActive) {
-      // UI is active - check UI first and block all 3D interaction
-      if (this.tryClickMultiplayerPanel(side)) return;
-      if (this.tryClickHud(side)) return;
-      // CRITICAL: Block all 3D interaction when UI is active
-      return;
+    // Enhanced with error handling and null safety
+    try {
+      const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+      if (multiplayerPanel) {
+        const keypad = multiplayerPanel.getKeypad?.();
+        const keyboardActive = keypad?.isActive() || false;
+        const panelActive = multiplayerPanel.isVisible?.() || false;
+        
+        // CRITICAL FIX: Strict UI priority - if ANY UI is active, block 3D interaction completely
+        if (keyboardActive || panelActive) {
+          // UI is active - check UI first and block all 3D interaction
+          try {
+            if (this.tryClickMultiplayerPanel(side)) return;
+          } catch (error) {
+            logError(error, 'FeedControls.tryClickMultiplayerPanel');
+          }
+          try {
+            if (this.tryClickHud(side)) return;
+          } catch (error) {
+            logError(error, 'FeedControls.tryClickHud');
+          }
+          // CRITICAL: Block all 3D interaction when UI is active
+          return;
+        }
+      }
+    } catch (error) {
+      // CRITICAL FIX: Don't crash on UI priority check errors
+      logError(error, 'FeedControls.UI.priorityCheck');
     }
     
     // Check if UI was recently active (priority window)
@@ -1985,12 +2025,21 @@ export class FeedControls {
   }
 
   // helpers
+  // CRITICAL FIX: Enhanced null safety and error handling
   private distanceToObjectSurface(worldPoint: THREE.Vector3): number | null {
-    const info = this.store.getObjectBounds();
-    if (!info) return null;
-    const { center, radius } = info;
-    const distCenter = worldPoint.distanceTo(center);
-    return Math.max(0, distCenter - (radius + 0.04));
+    if (!worldPoint) return null;
+    
+    try {
+      const info = this.store.getObjectBounds();
+      if (!info || !info.center || typeof info.radius !== 'number') return null;
+      
+      const { center, radius } = info;
+      const distCenter = worldPoint.distanceTo(center);
+      return Math.max(0, distCenter - (radius + 0.04));
+    } catch (error) {
+      logError(error, 'FeedControls.distanceToObjectSurface');
+      return null;
+    }
   }
   private currentModelKey(): string {
     const anyStore = this.store as any;

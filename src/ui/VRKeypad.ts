@@ -317,64 +317,80 @@ export class VRKeypad {
   /**
    * CRITICAL FIX: Touch-based interaction (proximity/collider detection)
    * Check if finger is touching a key
+   * Enhanced with error handling and null safety
    */
   checkTouchInteraction(fingerPosition: THREE.Vector3): KeypadKey | null {
-    if (!this.visible) return null;
+    if (!this.visible || !fingerPosition) return null;
     
-    // Convert finger position to keypad local space
-    const localPos = new THREE.Vector3();
-    this.group.worldToLocal(localPos.copy(fingerPosition));
-    
-    // Check distance to keypad plane
-    const planeNormal = new THREE.Vector3(0, 0, 1);
-    const planePoint = new THREE.Vector3(0, 0, 0);
-    const distToPlane = Math.abs(localPos.z);
-    
-    // Must be close to keypad plane (within touch threshold)
-    if (distToPlane > this.TOUCH_THRESHOLD) {
-      this.resetTouchState();
-      return null;
-    }
-    
-    // Convert to UV coordinates (same as raycast)
-    const dx = localPos.x;
-    const dy = localPos.y;
-    
-    // Check if within panel bounds
-    if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) {
-      this.resetTouchState();
-      return null;
-    }
-    
-    // Convert to canvas pixel coordinates
-    const u = (dx / this.PANEL_W) + 0.5;
-    const v = 0.5 - (dy / this.PANEL_H);
-    const px = u * this.CANVAS_W;
-    const py = v * this.CANVAS_H;
-    
-    // Check which key is being touched (with enlarged hit zones)
-    for (const region of this.keyRegions) {
-      const expandedX = region.x - this.HIT_ZONE_PADDING;
-      const expandedY = region.y - this.HIT_ZONE_PADDING;
-      const expandedW = region.w + (this.HIT_ZONE_PADDING * 2);
-      const expandedH = region.h + (this.HIT_ZONE_PADDING * 2);
+    try {
+      // CRITICAL FIX: Validate group exists and has valid transform
+      if (!this.group || !this.group.parent) return null;
       
-      if (px >= expandedX && px <= expandedX + expandedW &&
-          py >= expandedY && py <= expandedY + expandedH) {
-        // Key is being touched
-        if (this.touchedKey !== region.key) {
-          // New key touched - start touch timer and reset consumed flag
-          this.touchedKey = region.key;
-          this.touchStartTime = performance.now();
-          this.touchConsumed = false;
-        }
-        return region.key;
+      // Convert finger position to keypad local space
+      const localPos = new THREE.Vector3();
+      this.group.worldToLocal(localPos.copy(fingerPosition));
+      
+      // Check distance to keypad plane
+      const distToPlane = Math.abs(localPos.z);
+      
+      // Must be close to keypad plane (within touch threshold)
+      if (distToPlane > this.TOUCH_THRESHOLD) {
+        this.resetTouchState();
+        return null;
       }
+      
+      // Convert to UV coordinates (same as raycast)
+      const dx = localPos.x;
+      const dy = localPos.y;
+      
+      // Check if within panel bounds
+      if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) {
+        this.resetTouchState();
+        return null;
+      }
+      
+      // Convert to canvas pixel coordinates
+      const u = (dx / this.PANEL_W) + 0.5;
+      const v = 0.5 - (dy / this.PANEL_H);
+      const px = u * this.CANVAS_W;
+      const py = v * this.CANVAS_H;
+      
+      // CRITICAL FIX: Validate key regions exist
+      if (!this.keyRegions || this.keyRegions.length === 0) {
+        return null;
+      }
+      
+      // Check which key is being touched (with enlarged hit zones)
+      for (const region of this.keyRegions) {
+        if (!region) continue; // Skip invalid regions
+        
+        const expandedX = region.x - this.HIT_ZONE_PADDING;
+        const expandedY = region.y - this.HIT_ZONE_PADDING;
+        const expandedW = region.w + (this.HIT_ZONE_PADDING * 2);
+        const expandedH = region.h + (this.HIT_ZONE_PADDING * 2);
+        
+        if (px >= expandedX && px <= expandedX + expandedW &&
+            py >= expandedY && py <= expandedY + expandedH) {
+          // Key is being touched
+          if (this.touchedKey !== region.key) {
+            // New key touched - start touch timer and reset consumed flag
+            this.touchedKey = region.key;
+            this.touchStartTime = performance.now();
+            this.touchConsumed = false;
+          }
+          return region.key;
+        }
+      }
+      
+      // Not touching any key - reset touch state
+      this.resetTouchState();
+      return null;
+    } catch (error) {
+      // CRITICAL FIX: Don't crash on touch interaction errors
+      console.error('[VRKeypad] Error in checkTouchInteraction:', error);
+      this.resetTouchState();
+      return null;
     }
-    
-    // Not touching any key - reset touch state
-    this.resetTouchState();
-    return null;
   }
   
   /**

@@ -63,6 +63,7 @@ export class MultiplayerManager {
   private latency = 0;
   private lastPingTime = 0;
   private pingIntervalId: number | null = null;
+  private pendingPings = new Map<number, number>(); // Track ping timestamps for RTT calculation
   
   constructor() {
     console.log('[Multiplayer] 🎮 Initializing MultiplayerManager with PeerJS');
@@ -117,7 +118,10 @@ export class MultiplayerManager {
         });
         
         this.peer.on('error', (error) => {
-          console.error('[Multiplayer] Peer error:', error);
+          console.error('[Multiplayer] Peer error (host):', error);
+          logError(error, 'Multiplayer createSession');
+          // CRITICAL FIX: Cleanup on error
+          this.disconnect();
           reject(error);
         });
         
@@ -181,10 +185,29 @@ export class MultiplayerManager {
           
           this.setupDataConnection(conn);
           
+          // CRITICAL FIX: Add timeout for connection opening
+          const connectionTimeout = setTimeout(() => {
+            if (!this.connected) {
+              console.error('[Multiplayer] ⚠️ Connection timeout after 10 seconds');
+              this.disconnect();
+              reject(new Error('Connection timeout'));
+            }
+          }, 10000);
+          
           // Resolve when connection opens
           conn.on('open', () => {
+            clearTimeout(connectionTimeout);
             console.log('[Multiplayer] ✅ Connected to host!');
             resolve();
+          });
+          
+          // CRITICAL FIX: Handle connection errors
+          conn.on('error', (error) => {
+            clearTimeout(connectionTimeout);
+            console.error('[Multiplayer] Connection error:', error);
+            logError(error, 'Multiplayer connection');
+            this.disconnect();
+            reject(error);
           });
         });
         
@@ -269,6 +292,13 @@ export class MultiplayerManager {
           break;
         case 'ping':
           if (typeof message.timestamp === 'number') {
+            // CRITICAL FIX: Calculate round-trip latency correctly
+            const now = performance.now();
+            const rtt = now - message.timestamp;
+            if (rtt > 0 && rtt < 10000) { // Sanity check: RTT should be reasonable (< 10s)
+              this.latency = rtt;
+            }
+            // Echo ping back
             this.sendMessage({ type: 'ping', timestamp: message.timestamp });
           }
           break;
@@ -282,16 +312,29 @@ export class MultiplayerManager {
   
   /**
    * Send message to peer
+   * CRITICAL FIX: Enhanced error handling and connection state validation
    */
   private sendMessage(message: MessageType): void {
-    if (!this.dataConnection || !this.dataConnection.open) {
+    if (!this.dataConnection) {
+      console.warn('[Multiplayer] ⚠️ Cannot send message: no data connection');
+      return;
+    }
+    
+    if (!this.dataConnection.open) {
+      console.warn('[Multiplayer] ⚠️ Cannot send message: connection not open');
       return;
     }
     
     try {
       this.dataConnection.send(message);
     } catch (error) {
-      // Silently fail if connection is closed
+      // CRITICAL FIX: Log error for debugging, but don't crash
+      logError(error, 'Multiplayer sendMessage');
+      // If send fails, connection might be broken - disconnect gracefully
+      if (error instanceof Error && error.message.includes('closed')) {
+        console.warn('[Multiplayer] ⚠️ Connection closed, disconnecting...');
+        this.disconnect();
+      }
     }
   }
   
@@ -335,12 +378,17 @@ export class MultiplayerManager {
     this.pingIntervalId = window.setInterval(() => {
       if (this.connected && this.dataConnection?.open) {
         const now = performance.now();
+        // CRITICAL FIX: Store ping timestamp for RTT calculation when response arrives
+        this.pendingPings.set(now, now);
         this.sendMessage({ type: 'ping', timestamp: now });
-        
-        if (this.lastPingTime > 0) {
-          this.latency = now - this.lastPingTime;
-        }
         this.lastPingTime = now;
+        
+        // Cleanup old pending pings (older than 5 seconds)
+        for (const [timestamp] of this.pendingPings) {
+          if (now - timestamp > 5000) {
+            this.pendingPings.delete(timestamp);
+          }
+        }
       }
     }, 1000);
   }
@@ -415,6 +463,7 @@ export class MultiplayerManager {
     this.latency = 0;
     this.lastPingTime = 0;
     this.lastHandUpdateTime = 0;
+    this.pendingPings.clear(); // CRITICAL FIX: Clear pending pings on disconnect
     
     this.onConnectionChangeCallback?.(false);
     

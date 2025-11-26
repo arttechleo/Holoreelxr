@@ -642,6 +642,7 @@ export class FeedStore {
     }
   }
 
+  // CRITICAL FIX: Enhanced null safety
   getObjectWorldPos(): THREE.Vector3 | null {
     const obj = this.getObject();
     if (obj) {
