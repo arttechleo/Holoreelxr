@@ -57,6 +57,14 @@ const xrMultiplayerPanel = new XRMultiplayerPanel(
   () => store.getObjectWorldPos() // Like ReactionHud - callback to get object position
 );
 
+// Expose multiplayer panel globally for easy access from connect.html or console
+(window as any).multiplayerPanel = xrMultiplayerPanel;
+(window as any).multiplayer = multiplayer;
+(window as any).setMultiplayerJoinCode = (code: string) => {
+  xrMultiplayerPanel.setJoinCode(code);
+  console.log('[Main] Join code set via global function:', code);
+};
+
 // Setup multiplayer callbacks
 multiplayer.onRemoteHands((hands: HandState) => {
   remoteHands.update(hands);

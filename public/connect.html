@@ -55,19 +55,17 @@
       margin-bottom: 15px;
     }
     
-    textarea {
+    input, textarea {
       width: 100%;
-      min-height: 120px;
       padding: 15px;
       border: 2px solid #ddd;
       border-radius: 8px;
       font-family: 'Courier New', monospace;
-      font-size: 12px;
-      resize: vertical;
+      font-size: 14px;
       margin-bottom: 10px;
     }
     
-    textarea:focus {
+    input:focus, textarea:focus {
       outline: none;
       border-color: #667eea;
     }
@@ -108,7 +106,7 @@
       margin-top: 15px;
       word-break: break-all;
       font-family: 'Courier New', monospace;
-      font-size: 12px;
+      font-size: 14px;
       display: none;
     }
     
@@ -168,6 +166,15 @@
     .copy-btn:hover {
       background: #45a049;
     }
+    
+    .info {
+      background: #e3f2fd;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+      font-size: 14px;
+      color: #1976d2;
+    }
   </style>
 </head>
 <body>
@@ -176,213 +183,153 @@
     <p class="subtitle">Connect two Quest headsets for shared XR experience</p>
     
     <div class="steps">
-      <strong>Quick Guide:</strong>
+      <strong>Quick Guide (NEW - Using PeerJS):</strong>
       <ol>
-        <li><strong>HOST</strong>: Click "HOST SESSION" in VR → code appears below</li>
-        <li><strong>GUEST</strong>: Paste host's code → click "JOIN" → get answer code</li>
-        <li><strong>HOST</strong>: Paste guest's answer → click "COMPLETE"</li>
-        <li><strong>Both</strong>: Put headsets back on → connection within 10 seconds!</li>
+        <li><strong>HOST</strong>: Click "HOST" in VR → Peer ID appears (also in browser console)</li>
+        <li><strong>GUEST</strong>: Enter host's Peer ID below → Click "JOIN"</li>
+        <li><strong>Both</strong>: Connection establishes automatically!</li>
       </ol>
+      <div class="info" style="margin-top: 15px;">
+        💡 <strong>Tip:</strong> You can also set the join code from browser console:<br>
+        <code>setMultiplayerJoinCode('host-peer-id')</code>
+      </div>
     </div>
     
     <!-- HOST SECTION -->
     <div class="section">
       <h2>👤 USER 1: HOST SESSION</h2>
-      <p style="margin-bottom: 15px; color: #666;">Create a multiplayer session and generate connection code</p>
-      <button id="hostBtn" onclick="createHost()">🏠 CREATE HOST SESSION</button>
-      <div id="hostOutput" class="output"></div>
-      <button id="copyHostBtn" class="copy-btn" onclick="copyHost()" style="display: none;">📋 COPY CODE</button>
+      <p style="margin-bottom: 15px; color: #666;">Create a multiplayer session in VR, then copy the Peer ID shown</p>
+      <div id="hostInfo" class="info" style="display: none;">
+        <strong>Host Peer ID:</strong> <span id="hostPeerId"></span><br>
+        <small>This ID is also logged to browser console</small>
+      </div>
+      <button id="copyHostBtn" class="copy-btn" onclick="copyHostFromVR()" style="display: none;">📋 COPY FROM VR</button>
     </div>
     
     <!-- GUEST SECTION -->
     <div class="section">
       <h2>🎮 USER 2: JOIN SESSION</h2>
-      <p style="margin-bottom: 15px; color: #666;">Paste the host's code here:</p>
-      <textarea id="guestInput" placeholder="Paste HOST CODE here..."></textarea>
-      <button id="joinBtn" onclick="joinSession()">🎮 JOIN AS GUEST</button>
-      <div id="guestOutput" class="output"></div>
-      <button id="copyGuestBtn" class="copy-btn" onclick="copyGuest()" style="display: none;">📋 COPY ANSWER</button>
-    </div>
-    
-    <!-- HOST COMPLETE SECTION -->
-    <div class="section">
-      <h2>✅ USER 1: COMPLETE CONNECTION</h2>
-      <p style="margin-bottom: 15px; color: #666;">Paste the guest's answer code here:</p>
-      <textarea id="hostAnswerInput" placeholder="Paste GUEST ANSWER CODE here..."></textarea>
-      <button id="completeBtn" onclick="completeConnection()">✅ COMPLETE CONNECTION</button>
-      <div id="completeSuccess" class="success"></div>
+      <p style="margin-bottom: 15px; color: #666;">Enter the host's Peer ID:</p>
+      <input type="text" id="guestInput" placeholder="Enter HOST Peer ID (e.g., host-abc123)" />
+      <button id="joinBtn" onclick="joinSession()">🎮 JOIN SESSION</button>
+      <div id="joinSuccess" class="success"></div>
     </div>
     
     <div id="error" class="error"></div>
   </div>
   
-  <script type="module">
-    // Import from main app (will be bundled)
-    let hostCode = '';
-    let guestCode = '';
+  <script>
+    // Wait for main app to load and expose multiplayer functions
+    let checkInterval = null;
     
-    // Simplified WebRTC for connection exchange only
-    // Actual multiplayer happens in VR app
-    
-    window.createHost = async function() {
-      const btn = document.getElementById('hostBtn');
-      btn.disabled = true;
-      btn.textContent = 'Creating session...';
-      
-      try {
-        // Create WebRTC offer
-        const pc = new RTCPeerConnection({
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-          ]
-        });
-        
-        // Create data channel
-        pc.createDataChannel('holoreelxr', { ordered: false, maxRetransmits: 0 });
-        
-        // Create offer
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        
-        // Wait for ICE gathering
-        await new Promise((resolve) => {
-          if (pc.iceGatheringState === 'complete') {
-            resolve();
-          } else {
-            pc.addEventListener('icegatheringstatechange', () => {
-              if (pc.iceGatheringState === 'complete') resolve();
-            });
-          }
-        });
-        
-        hostCode = JSON.stringify(pc.localDescription);
-        
-        document.getElementById('hostOutput').textContent = hostCode;
-        document.getElementById('hostOutput').classList.add('show');
-        document.getElementById('copyHostBtn').style.display = 'block';
-        btn.textContent = '✅ SESSION CREATED!';
-        btn.style.background = '#4caf50';
-        
-      } catch (error) {
-        showError('Failed to create host session: ' + error.message);
-        btn.disabled = false;
-        btn.textContent = '🏠 CREATE HOST SESSION';
+    function checkMultiplayerReady() {
+      if (window.setMultiplayerJoinCode && window.multiplayerPanel) {
+        clearInterval(checkInterval);
+        console.log('[Connect] Multiplayer system ready!');
+        setupHostMonitoring();
       }
-    };
+    }
+    
+    // Check every 500ms for multiplayer system
+    checkInterval = setInterval(checkMultiplayerReady, 500);
+    
+    // Also check immediately
+    checkMultiplayerReady();
+    
+    function setupHostMonitoring() {
+      // Monitor for host code changes (polling - simple approach)
+      setInterval(() => {
+        if (window.multiplayerPanel) {
+          const hostCode = window.multiplayerPanel.getHostCode();
+          if (hostCode) {
+            const hostInfo = document.getElementById('hostInfo');
+            const hostPeerId = document.getElementById('hostPeerId');
+            const copyBtn = document.getElementById('copyHostBtn');
+            
+            if (hostInfo && hostPeerId) {
+              hostInfo.style.display = 'block';
+              hostPeerId.textContent = hostCode;
+              if (copyBtn) copyBtn.style.display = 'block';
+            }
+          }
+        }
+      }, 1000);
+    }
     
     window.joinSession = async function() {
-      const input = document.getElementById('guestInput').value.trim();
-      if (!input) {
-        showError('Please paste the HOST CODE first!');
+      const input = document.getElementById('guestInput');
+      const code = input?.value.trim();
+      
+      if (!code) {
+        showError('Please enter the HOST Peer ID!');
         return;
       }
       
       const btn = document.getElementById('joinBtn');
-      btn.disabled = true;
-      btn.textContent = 'Joining session...';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Joining...';
+      }
       
       try {
-        // Parse host offer
-        const offer = JSON.parse(input);
-        
-        // Create peer connection
-        const pc = new RTCPeerConnection({
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-          ]
-        });
-        
-        // Set remote description
-        await pc.setRemoteDescription(offer);
-        
-        // Create answer
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        
-        // Wait for ICE gathering
-        await new Promise((resolve) => {
-          if (pc.iceGatheringState === 'complete') {
-            resolve();
-          } else {
-            pc.addEventListener('icegatheringstatechange', () => {
-              if (pc.iceGatheringState === 'complete') resolve();
-            });
+        // Set join code in VR app
+        if (window.setMultiplayerJoinCode) {
+          window.setMultiplayerJoinCode(code);
+          
+          // Trigger join
+          if (window.multiplayerPanel && window.multiplayerPanel.executeJoin) {
+            await window.multiplayerPanel.executeJoin();
           }
-        });
-        
-        guestCode = JSON.stringify(pc.localDescription);
-        
-        document.getElementById('guestOutput').textContent = guestCode;
-        document.getElementById('guestOutput').classList.add('show');
-        document.getElementById('copyGuestBtn').style.display = 'block';
-        btn.textContent = '✅ ANSWER CREATED!';
-        btn.style.background = '#4caf50';
-        
+          
+          const success = document.getElementById('joinSuccess');
+          if (success) {
+            success.textContent = '✅ Join code set! Check VR headset - connection should establish automatically.';
+            success.classList.add('show');
+          }
+          
+          if (btn) {
+            btn.textContent = '✅ JOINED!';
+            btn.style.background = '#4caf50';
+          }
+        } else {
+          throw new Error('Multiplayer system not ready. Please refresh and try again.');
+        }
       } catch (error) {
-        showError('Failed to join session: ' + error.message);
-        btn.disabled = false;
-        btn.textContent = '🎮 JOIN AS GUEST';
+        showError('Failed to join: ' + error.message);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '🎮 JOIN SESSION';
+        }
       }
     };
     
-    window.completeConnection = function() {
-      const input = document.getElementById('hostAnswerInput').value.trim();
-      if (!input) {
-        showError('Please paste the GUEST ANSWER CODE first!');
-        return;
+    window.copyHostFromVR = function() {
+      if (window.multiplayerPanel) {
+        const code = window.multiplayerPanel.getHostCode();
+        if (code && navigator.clipboard) {
+          navigator.clipboard.writeText(code).then(() => {
+            const btn = document.getElementById('copyHostBtn');
+            if (btn) {
+              btn.textContent = '✅ COPIED!';
+              setTimeout(() => {
+                btn.textContent = '📋 COPY FROM VR';
+              }, 2000);
+            }
+          });
+        }
       }
-      
-      const btn = document.getElementById('completeBtn');
-      btn.disabled = true;
-      btn.textContent = 'Completing connection...';
-      
-      try {
-        // Just validate it's valid JSON
-        JSON.parse(input);
-        
-        document.getElementById('completeSuccess').textContent = '✅ CONNECTION CODE VALIDATED! Put your headset back on - you should connect within 10 seconds!';
-        document.getElementById('completeSuccess').classList.add('show');
-        btn.textContent = '✅ READY TO CONNECT!';
-        btn.style.background = '#4caf50';
-        
-      } catch (error) {
-        showError('Invalid answer code format!');
-        btn.disabled = false;
-        btn.textContent = '✅ COMPLETE CONNECTION';
-      }
-    };
-    
-    window.copyHost = function() {
-      navigator.clipboard.writeText(hostCode).then(() => {
-        const btn = document.getElementById('copyHostBtn');
-        btn.textContent = '✅ COPIED!';
-        setTimeout(() => {
-          btn.textContent = '📋 COPY CODE';
-        }, 2000);
-      });
-    };
-    
-    window.copyGuest = function() {
-      navigator.clipboard.writeText(guestCode).then(() => {
-        const btn = document.getElementById('copyGuestBtn');
-        btn.textContent = '✅ COPIED!';
-        setTimeout(() => {
-          btn.textContent = '📋 COPY ANSWER';
-        }, 2000);
-      });
     };
     
     function showError(msg) {
       const el = document.getElementById('error');
-      el.textContent = '❌ ' + msg;
-      el.classList.add('show');
-      setTimeout(() => {
-        el.classList.remove('show');
-      }, 5000);
+      if (el) {
+        el.textContent = '❌ ' + msg;
+        el.classList.add('show');
+        setTimeout(() => {
+          el.classList.remove('show');
+        }, 5000);
+      }
     }
   </script>
 </body>
 </html>
-
