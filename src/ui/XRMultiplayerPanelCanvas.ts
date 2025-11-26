@@ -21,6 +21,10 @@ export class XRMultiplayerPanel {
   private multiplayer: MultiplayerManager;
   private visible = false;
   
+  // Visual raycast lines
+  private rayLine: THREE.Line | null = null;
+  private rayMaterial: THREE.LineBasicMaterial;
+  
   // Panel geometry (matching ReactionHud style)
   private readonly PANEL_W = 0.6;  // 60cm wide
   private readonly PANEL_H = 0.45; // 45cm tall
@@ -84,10 +88,18 @@ export class XRMultiplayerPanel {
     this.anchor.add(this.panel);
     scene.add(this.anchor);
     
+    // Create raycast line material
+    this.rayMaterial = new THREE.LineBasicMaterial({
+      color: 0x00aaff,
+      linewidth: 3,
+      transparent: true,
+      opacity: 0.8
+    });
+    
     // Initial render
     this.render();
     
-    console.log('[XRMultiplayerPanel] 🎮 Panel created (ReactionHud pattern)');
+    console.log('[XRMultiplayerPanel] Panel created');
   }
   
   // ============== PUBLIC API (like ReactionHud) ==============
@@ -224,6 +236,35 @@ export class XRMultiplayerPanel {
     }
   }
   
+  /**
+   * Show visual raycast line from hand to panel
+   */
+  showRayLine(handPos: THREE.Vector3, hitPoint: THREE.Vector3, scene: THREE.Scene): void {
+    // Remove old line
+    if (this.rayLine) {
+      scene.remove(this.rayLine);
+      this.rayLine.geometry.dispose();
+    }
+    
+    // Create new line from hand to hit point
+    const points = [handPos, hitPoint];
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    this.rayLine = new THREE.Line(geometry, this.rayMaterial);
+    this.rayLine.renderOrder = 10000;
+    scene.add(this.rayLine);
+  }
+  
+  /**
+   * Hide raycast line
+   */
+  hideRayLine(scene: THREE.Scene): void {
+    if (this.rayLine) {
+      scene.remove(this.rayLine);
+      this.rayLine.geometry.dispose();
+      this.rayLine = null;
+    }
+  }
+  
   // ============== RENDERING ==============
   
   private render(): void {
@@ -278,26 +319,31 @@ export class XRMultiplayerPanel {
       ctx.fillText('X', w / 2, closeY + 55);
       
     } else if (this.mode === 'hosting') {
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '36px Arial';
-      ctx.fillText('HOST SESSION CREATED!', w / 2, 200);
-      
-      ctx.font = '28px Arial';
-      ctx.fillStyle = '#ffff00';
-      ctx.fillText('Code copied to clipboard!', w / 2, 260);
-      
-      ctx.fillStyle = '#aaaaaa';
-      ctx.font = '24px Arial';
-      ctx.fillText('Share code with friend:', w / 2, 320);
-      
       ctx.fillStyle = '#00ff00';
-      ctx.font = 'bold 22px monospace';
-      const shortCode = this.currentCode.substring(0, 40) + '...';
-      ctx.fillText(shortCode, w / 2, 540);
+      ctx.font = 'bold 48px Arial';
+      ctx.fillText('SESSION CODE:', w / 2, 120);
+      
+      // Display code in chunks for readability
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 40px monospace';
+      const codeLength = this.currentCode.length;
+      const chunkSize = 8;
+      let yPos = 200;
+      
+      for (let i = 0; i < codeLength; i += chunkSize) {
+        const chunk = this.currentCode.substring(i, i + chunkSize);
+        ctx.fillText(chunk, w / 2, yPos);
+        yPos += 60;
+        if (yPos > 550) break; // Don't overflow
+      }
+      
+      ctx.fillStyle = '#ffff00';
+      ctx.font = '24px Arial';
+      ctx.fillText('(Copied to clipboard)', w / 2, yPos + 20);
       
       // Close button
-      const closeY = 620;
-      const closeH = 90;
+      const closeY = 650;
+      const closeH = 80;
       this.buttonRegions.close = { x: 312, y: closeY, w: 400, h: closeH };
       ctx.fillStyle = this.hoveredButton === 'close' ? '#ff4444' : '#444444';
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
@@ -352,5 +398,9 @@ export class XRMultiplayerPanel {
     this.texture.dispose();
     this.panel.geometry.dispose();
     this.panel.material.dispose();
+    this.rayMaterial.dispose();
+    if (this.rayLine) {
+      this.rayLine.geometry.dispose();
+    }
   }
 }

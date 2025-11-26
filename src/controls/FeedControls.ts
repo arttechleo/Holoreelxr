@@ -779,8 +779,13 @@ export class FeedControls {
       const mpHit = multiplayerPanel.raycastHit(ray);
       
       if (mpHit?.button) {
-        // Pointing at a button - set hover
+        // Pointing at a button - set hover and show ray line
         multiplayerPanel.setButtonHover(mpHit.button);
+        
+        // Show visual ray line from hand to panel
+        if (tip && mpHit.point) {
+          multiplayerPanel.showRayLine(tip, mpHit.point, this.app.scene);
+        }
         
         // Check for pinch on pointing hand
         const pointingHandPinch = pointingSide === 'right' 
@@ -788,15 +793,18 @@ export class FeedControls {
           : this.hands.state.left.pinch;
         
         if (pointingHandPinch) {
-          // IMMEDIATE CLICK (like ReactionHud uses dwell/click)
+          // IMMEDIATE CLICK
           multiplayerPanel.handleClick(mpHit.button);
-          console.log('[FeedControls] 🖱️ Multiplayer button clicked:', mpHit.button);
           return; // Block other UI interactions
         }
       } else {
-        // Not pointing at button - clear hover
+        // Not pointing at button - clear hover and hide ray line
         multiplayerPanel.setButtonHover(null);
+        multiplayerPanel.hideRayLine(this.app.scene);
       }
+    } else if (multiplayerPanel) {
+      // Panel not visible - hide ray line
+      multiplayerPanel.hideRayLine(this.app.scene);
     }
 
     const hit = this.hudMgr.raycastHit(ray);
