@@ -100,6 +100,12 @@ export const TRANSFORM = {
   
   /** Minimum movement to consider for rotation (m) */
   MIN_MOVEMENT_FOR_ROTATION: 0.006,
+  
+  /** Grab zone distance threshold (m) - within this distance, grab is prioritized over scroll */
+  GRAB_ZONE_DISTANCE: 0.10,
+  
+  /** Surface offset for distance calculations (m) */
+  SURFACE_OFFSET: 0.04,
 } as const;
 
 // ========== REACTION COOLDOWNS ==========
@@ -141,6 +147,24 @@ export const HUD = {
   
   /** Scroll step size for comments (pixels) */
   COMMENT_SCROLL_STEP: 42,
+} as const;
+
+// ========== MULTIPLAYER ==========
+export const MULTIPLAYER = {
+  /** UI priority duration after interaction (ms) - how long UI stays prioritized */
+  UI_PRIORITY_DURATION_MS: 2000,
+  
+  /** Distance threshold for "far from object" UI priority (m) */
+  FAR_FROM_OBJECT_DISTANCE: 0.3,
+  
+  /** Connection timeout (ms) */
+  CONNECTION_TIMEOUT_MS: 10000,
+  
+  /** Hand update interval (ms) - throttling for network efficiency */
+  HAND_UPDATE_INTERVAL_MS: 50,
+  
+  /** Click debounce time (ms) - prevents rapid-fire clicks */
+  CLICK_DEBOUNCE_MS: 500,
 } as const;
 
 // ========== VISUAL EFFECTS ==========

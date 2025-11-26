@@ -95,7 +95,10 @@ export class VRKeypad {
     // Initial render
     this.render();
     
-    console.log('[VRKeypad] Keypad created');
+    // Debug logging only in development
+    if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
+      console.log('[VRKeypad] Keypad created');
+    }
   }
   
   /**
@@ -110,7 +113,10 @@ export class VRKeypad {
     this.hoveredKey = null;
     this.resetTouchState(); // CRITICAL FIX: Reset touch state when showing
     this.render(); // CRITICAL FIX: Render to set up key regions
-    console.log('[VRKeypad] Keypad shown');
+    // Debug logging only in development
+    if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
+      console.log('[VRKeypad] Keypad shown');
+    }
   }
   
   /**
@@ -120,7 +126,10 @@ export class VRKeypad {
     this.visible = false;
     this.group.visible = false;
     this.hoveredKey = null;
-    console.log('[VRKeypad] Keypad hidden');
+    // Debug logging only in development
+    if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
+      console.log('[VRKeypad] Keypad hidden');
+    }
   }
   
   /**
@@ -298,7 +307,10 @@ export class VRKeypad {
     // CRITICAL FIX: Call input change callback to update panel display
     this.onInputChange?.(this.inputText);
     this.render(); // Update keypad display
-    console.log('[VRKeypad] Key pressed:', key, 'Input text:', this.inputText);
+    // Debug logging only in development
+    if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
+      console.log('[VRKeypad] Key pressed:', key, 'Input text:', this.inputText);
+    }
   }
   
   /**

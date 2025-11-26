@@ -57,7 +57,7 @@ export class MultiplayerManager {
   
   // Throttling for hand updates (send max 20 times per second)
   private lastHandUpdateTime = 0;
-  private readonly HAND_UPDATE_INTERVAL = 50; // 50ms = 20 FPS
+  private readonly HAND_UPDATE_INTERVAL = 50; // 50ms = 20 FPS - matches MULTIPLAYER.HAND_UPDATE_INTERVAL_MS
   
   // Connection stats
   private latency = 0;
@@ -66,7 +66,10 @@ export class MultiplayerManager {
   private pendingPings = new Map<number, number>(); // Track ping timestamps for RTT calculation
   
   constructor() {
-    console.log('[Multiplayer] 🎮 Initializing MultiplayerManager with PeerJS');
+    // Logging controlled by PRODUCTION_CONFIG
+    if (typeof window !== 'undefined' && (window as any).__DEBUG_MULTIPLAYER) {
+      console.log('[Multiplayer] 🎮 Initializing MultiplayerManager with PeerJS');
+    }
   }
   
   /**
@@ -81,7 +84,10 @@ export class MultiplayerManager {
    * Returns a Peer ID that guest can use to connect
    */
   async createSession(): Promise<string> {
-    console.log('[Multiplayer] Creating session as HOST');
+    // Debug logging only in development
+    if (typeof window !== 'undefined' && (window as any).__DEBUG_MULTIPLAYER) {
+      console.log('[Multiplayer] Creating session as HOST');
+    }
     
     try {
       // Cleanup old connection if exists
@@ -186,13 +192,14 @@ export class MultiplayerManager {
           this.setupDataConnection(conn);
           
           // CRITICAL FIX: Add timeout for connection opening
+          const CONNECTION_TIMEOUT_MS = 10000; // 10 seconds - matches MULTIPLAYER.CONNECTION_TIMEOUT_MS
           const connectionTimeout = setTimeout(() => {
             if (!this.connected) {
-              console.error('[Multiplayer] ⚠️ Connection timeout after 10 seconds');
+              console.error(`[Multiplayer] ⚠️ Connection timeout after ${CONNECTION_TIMEOUT_MS / 1000} seconds`);
               this.disconnect();
               reject(new Error('Connection timeout'));
             }
-          }, 10000);
+          }, CONNECTION_TIMEOUT_MS);
           
           // Resolve when connection opens
           conn.on('open', () => {

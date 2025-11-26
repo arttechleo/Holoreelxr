@@ -9,7 +9,7 @@ import { GestureTutorial } from '../ui/GestureTutorial';
 import { ParticleSystem } from '../effects/ParticleSystem';
 import { XRAuthPanel } from '../ui/XRAuthPanel';
 import { XRMusicPanel } from '../ui/XRMusicPanel';
-import { CONTROLS, TRANSFORM, REACTIONS, HUD } from '../config/constants';
+import { CONTROLS, TRANSFORM, REACTIONS, HUD, MULTIPLAYER } from '../config/constants';
 import { logError } from '../utils/errors';
 
 export class FeedControls {
@@ -106,12 +106,12 @@ export class FeedControls {
   // Multiplayer panel interaction state
   private mpHoverButton: 'host' | 'join' | 'close' | null = null;
   private mpLastClickTime = 0; // Debounce rapid clicks
-  private readonly MP_CLICK_DEBOUNCE_MS = 500; // Minimum 500ms between clicks
+  private readonly MP_CLICK_DEBOUNCE_MS = MULTIPLAYER.CLICK_DEBOUNCE_MS;
   
   // Context-aware raycasting priority system
   private uiActive = false; // Track if any UI is currently active/interacting
   private uiActiveUntil = 0; // Timestamp until which UI remains prioritized
-  private readonly UI_PRIORITY_DURATION_MS = 2000; // UI stays prioritized for 2 seconds after interaction
+  private readonly UI_PRIORITY_DURATION_MS = MULTIPLAYER.UI_PRIORITY_DURATION_MS;
 
   private hudMgr: ReactionHudManager;
   private selectBoundForSession: XRSession | null = null;
@@ -140,7 +140,7 @@ export class FeedControls {
   private lastStableCheckAt = 0;
   private lastStableKind: 'like' | 'heart' | 'repost' | null = null;
 
-  private onboardingTutorial: any = null; // Reference to onboarding tutorial
+  private onboardingTutorial: import('../types/tutorial').OnboardingTutorial | null = null;
 
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
     this.app.scene.add(this.rayGroup);
@@ -190,9 +190,8 @@ export class FeedControls {
       try {
         // CRITICAL: Only block if tutorial is active AND not on like step
         // After tutorial completion, FeedControls handles everything
-        if (this.isTutorialActive()) {
-          const tutorial = this.onboardingTutorial as any;
-          const currentGesture = tutorial.getCurrentGesture?.();
+        if (this.isTutorialActive() && this.onboardingTutorial) {
+          const currentGesture = this.onboardingTutorial.getCurrentGesture();
           if (currentGesture !== 'thumbsup') {
             // Tutorial is active but not on like step - disable gesture
             return;
@@ -237,9 +236,8 @@ export class FeedControls {
       try {
         // CRITICAL: Only block if tutorial is active AND not on heart step
         // After tutorial completion, FeedControls handles everything
-        if (this.isTutorialActive()) {
-          const tutorial = this.onboardingTutorial as any;
-          const currentGesture = tutorial.getCurrentGesture?.();
+        if (this.isTutorialActive() && this.onboardingTutorial) {
+          const currentGesture = this.onboardingTutorial.getCurrentGesture();
           if (currentGesture !== 'heart') {
             // Tutorial is active but not on heart step - disable gesture
             return;
@@ -339,8 +337,7 @@ export class FeedControls {
       // After tutorial completion, ALWAYS show ReactionHud
       if (this.isTutorialActive()) {
         // Tutorial is active - conditionally show/hide HUD
-        const tutorial = this.onboardingTutorial as any;
-        const shouldShow = tutorial.shouldShowReactionHud?.();
+        const shouldShow = this.onboardingTutorial?.shouldShowReactionHud() ?? true;
         if (shouldShow === false) {
           // Hide ReactionHud during tutorial (except for reaction steps)
           if (this.hudMgr) {
@@ -426,9 +423,7 @@ export class FeedControls {
    */
   private isTutorialActive(): boolean {
     if (this.isTutorialCompleted()) return false; // Tutorial completed = never active
-    if (!this.onboardingTutorial) return false; // No tutorial = not active
-    const tutorial = this.onboardingTutorial as any;
-    return tutorial.isTutorialActive?.() === true;
+    return this.onboardingTutorial?.isTutorialActive() ?? false;
   }
 
   /**
@@ -1192,8 +1187,7 @@ export class FeedControls {
     
     // Check if in scroll zone (far from object)
     const distSurf = this.distanceToObjectSurface(mid);
-    const GRAB_ZONE_DISTANCE = 0.10; // 10cm
-    const inScrollZone = distSurf == null || distSurf >= GRAB_ZONE_DISTANCE;
+    const inScrollZone = distSurf == null || distSurf >= TRANSFORM.GRAB_ZONE_DISTANCE;
     
     if (!inScrollZone) {
       // In grab zone - hide scroll ray
@@ -1267,15 +1261,14 @@ export class FeedControls {
     
     // CRITICAL: After tutorial completion, FeedControls is the ONLY handler
     // Only block if tutorial is actively handling grab/scroll steps
-    if (this.isTutorialActive()) {
-      const tutorial = this.onboardingTutorial as any;
+    if (this.isTutorialActive() && this.onboardingTutorial) {
       // Tutorial is active - check if it's handling grab/scroll
-      if (tutorial.isGrabStepActive && tutorial.isGrabStepActive()) {
+      if (this.onboardingTutorial.isGrabStepActive()) {
         // Tutorial is handling grab - disable FeedControls grab
         console.log('[FeedControls] Tutorial grab active - blocking FeedControls');
         return;
       }
-      if (tutorial.isScrollStepActive && tutorial.isScrollStepActive()) {
+      if (this.onboardingTutorial.isScrollStepActive()) {
         // Tutorial is handling scroll - disable FeedControls scroll
         console.log('[FeedControls] Tutorial scroll active - blocking FeedControls');
         return;
@@ -1371,17 +1364,16 @@ export class FeedControls {
     }
 
     // FIXED: Clear distance zones for grab vs scroll
-    // 0-10cm = GRAB ZONE (grab has priority)
-    // >10cm = SCROLL ZONE (scroll has priority)
-    const GRAB_ZONE_DISTANCE = 0.10; // 10cm - matches scroll zone check
+    // 0-GRAB_ZONE_DISTANCE = GRAB ZONE (grab has priority)
+    // >GRAB_ZONE_DISTANCE = SCROLL ZONE (scroll has priority)
     const objPosNow = this.store.getObjectWorldPos();
     const objExists = !!this.store.getObject();
     
     if (objExists && objPosNow && pinch && d != null) {
-      if (d <= GRAB_ZONE_DISTANCE) {
+      if (d <= TRANSFORM.GRAB_ZONE_DISTANCE) {
         // GRAB ZONE: User is close to object
         if (d <= this.INSTANT_GRAB_DIST) {
-          // Very close (<5cm) - instant grab
+          // Very close - instant grab
           console.log(`[Grab] ✅ Instant grab! Distance: ${(d * 100).toFixed(1)}cm`);
           this.grabbing = true;
           this.grabSide = side;
@@ -1390,12 +1382,12 @@ export class FeedControls {
           this.scrollDisarmedThisPinch = true;
           return;
         } else {
-          // Close (5-10cm) - start grab pending
+          // Close but not instant - start grab pending
           console.log(`[Grab] Grab zone (${(d * 100).toFixed(1)}cm) - pending grab`);
           this.tryStartGrabPending(side);
         }
       } else {
-        // SCROLL ZONE: User is far from object (>10cm)
+        // SCROLL ZONE: User is far from object
         console.log(`[Scroll] Scroll zone (${(d * 100).toFixed(1)}cm) - ready to scroll on movement`);
         // Scroll will arm automatically when user moves hand vertically
       }
@@ -2005,8 +1997,8 @@ export class FeedControls {
         return;
       }
       
-      // Update position safely
-      const newPos = mid.clone().add(this.grabOffset);
+      // Update position safely - reuse vector to avoid allocation
+      const newPos = this.grabOffset.clone().add(mid);
       
       // Always update position during grab - don't skip based on distance
       // This ensures smooth movement even for small hand movements
@@ -2035,7 +2027,7 @@ export class FeedControls {
       
       const { center, radius } = info;
       const distCenter = worldPoint.distanceTo(center);
-      return Math.max(0, distCenter - (radius + 0.04));
+      return Math.max(0, distCenter - (radius + TRANSFORM.SURFACE_OFFSET));
     } catch (error) {
       logError(error, 'FeedControls.distanceToObjectSurface');
       return null;
