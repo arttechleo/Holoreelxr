@@ -113,7 +113,7 @@ export class XRMultiplayerPanel {
     });
     
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.renderOrder = 9999; // Same as ReactionHud
+    this.panel.renderOrder = 10000; // CRITICAL FIX: Lower than keypad (keypad is 20000)
     this.anchor.add(this.panel);
     scene.add(this.anchor);
     
@@ -233,7 +233,11 @@ export class XRMultiplayerPanel {
           this.mode = 'idle';
           this.joinInputCode = '';
           this.render();
+        } else if (this.mode === 'waiting') {
+          // CRITICAL FIX: Close button in waiting mode - hide panel
+          this.hide();
         } else {
+          // Default: hide panel
           this.hide();
         }
         break;
@@ -374,8 +378,16 @@ export class XRMultiplayerPanel {
     if (connected) {
       this.mode = 'waiting';
       this.render();
-      setTimeout(() => this.hide(), 3000);
+      // CRITICAL FIX: Don't auto-hide - stay visible until user explicitly closes
+      // User must press X/Close button to dismiss
     }
+  }
+  
+  /**
+   * Get keypad instance (for external access)
+   */
+  getKeypad(): VRKeypad | null {
+    return this.keypad;
   }
   
   /**
@@ -394,13 +406,6 @@ export class XRMultiplayerPanel {
     if (this.keypad?.isVisible()) {
       this.keypad.update(this.getCamera());
     }
-  }
-  
-  /**
-   * Get keypad for interaction handling
-   */
-  getKeypad(): VRKeypad | null {
-    return this.keypad;
   }
   
   /**
@@ -546,6 +551,26 @@ export class XRMultiplayerPanel {
       ctx.fillText('BACK', w / 2, closeY + 56);
       
     } else if (this.mode === 'waiting') {
+      // CRITICAL FIX: Add explicit close button to waiting mode
+      ctx.fillStyle = '#00ff00';
+      ctx.font = 'bold 48px Arial';
+      ctx.fillText('CONNECTED', w / 2, 120);
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '28px Arial';
+      ctx.fillText('Multiplayer session active', w / 2, 200);
+      
+      // Close button - explicit control
+      const closeY = 650;
+      const closeH = 80;
+      this.buttonRegions.close = { x: 312, y: closeY, w: 400, h: closeH };
+      ctx.fillStyle = this.hoveredButton === 'close' ? '#ff4444' : '#444444';
+      ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 38px Arial';
+      ctx.fillText('CLOSE', w / 2, closeY + 56);
+      
+    } else if (this.mode === 'waiting_old') {
       ctx.fillStyle = '#00ff00';
       ctx.font = 'bold 48px Arial';
       ctx.fillText('CONNECTING...', w / 2, 200);
