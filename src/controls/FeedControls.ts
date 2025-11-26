@@ -102,6 +102,10 @@ export class FeedControls {
   private uiHoverKind: string | null = null;
   private uiHoverBeganAt = 0;
   private uiLastY: number | null = null;
+  
+  // Multiplayer panel dwell state
+  private mpHoverButton: 'host' | 'join' | 'close' | null = null;
+  private mpHoverBeganAt = 0;
 
   private hudMgr: ReactionHudManager;
   private selectBoundForSession: XRSession | null = null;
@@ -676,9 +680,9 @@ export class FeedControls {
     xr.addEventListener?.('sessionstart', ensure);
   }
 
-  // ---------- hand gesture-based UI interaction (pointing + pinch) ----------
+  // ---------- hand gesture-based UI interaction (pointing + dwell) ----------
   private updateUiRayAndDwell(now: number) {
-    // Use hand gestures: point with index finger, pinch to click
+    // Use hand gestures: point with index finger, dwell to click (like ReactionHud)
     // Try right hand first, then left hand
     const rightTip = this.hands.indexTip('right');
     const leftTip = this.hands.indexTip('left');
@@ -688,26 +692,22 @@ export class FeedControls {
     if (!tip) {
       this.uiHoverKind = null;
       this.uiLastY = null;
+      this.mpHoverButton = null;
       return;
     }
     
-    // Get hand direction from index finger pointing direction (hand gesture pointing)
-    // Use wrist position to calculate natural pointing direction
+    // Get hand direction from index finger pointing direction
     const wrist = this.hands.wrist?.(pointingSide);
     
     let handDir: THREE.Vector3;
     if (wrist) {
-      // Pointing direction: from wrist through index finger tip (natural pointing gesture)
       handDir = tip.clone().sub(wrist).normalize();
     } else {
-      // Fallback: use direction from camera to index finger (works but less accurate)
       const camPos = new THREE.Vector3();
       this.app.camera.getWorldPosition(camPos);
       handDir = tip.clone().sub(camPos).normalize();
     }
     
-    // Create ray from index finger tip in pointing direction
-    // Use a longer ray to ensure it reaches the panel
     const ray = new THREE.Ray(tip, handDir);
     
     // Debug raycast (throttled)
@@ -774,7 +774,7 @@ export class FeedControls {
       }
     }
     
-    // Check multiplayer panel (using ReactionHud-style raycast)
+    // Check multiplayer panel FIRST (higher priority than ReactionHud)
     if (multiplayerPanel?.isVisible()) {
       const mpHit = multiplayerPanel.raycastHit(ray);
       
@@ -787,24 +787,31 @@ export class FeedControls {
           multiplayerPanel.showRayLine(tip, mpHit.point, this.app.scene);
         }
         
-        // Check for pinch on pointing hand
-        const pointingHandPinch = pointingSide === 'right' 
-          ? this.hands.state.right.pinch 
-          : this.hands.state.left.pinch;
-        
-        if (pointingHandPinch) {
-          // IMMEDIATE CLICK
-          multiplayerPanel.handleClick(mpHit.button);
-          return; // Block other UI interactions
+        // Use DWELL system (same as ReactionHud)
+        if (mpHit.button !== this.mpHoverButton) {
+          this.mpHoverButton = mpHit.button;
+          this.mpHoverBeganAt = now;
+          return;
         }
+        
+        // Check if dwelled long enough
+        if (now - this.mpHoverBeganAt >= this.DWELL_MS) {
+          this.mpHoverBeganAt = now + 10000; // Prevent repeat
+          multiplayerPanel.handleClick(mpHit.button);
+          return; // Block other UI
+        }
+        
+        return; // Hovering - block other UI
       } else {
-        // Not pointing at button - clear hover and hide ray line
+        // Not pointing at button
         multiplayerPanel.setButtonHover(null);
         multiplayerPanel.hideRayLine(this.app.scene);
+        this.mpHoverButton = null;
       }
     } else if (multiplayerPanel) {
-      // Panel not visible - hide ray line
+      // Panel not visible
       multiplayerPanel.hideRayLine(this.app.scene);
+      this.mpHoverButton = null;
     }
 
     const hit = this.hudMgr.raycastHit(ray);
