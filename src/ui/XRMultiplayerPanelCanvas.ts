@@ -4,10 +4,15 @@
  */
 
 import * as THREE from 'three';
-import { MultiplayerManager } from '../multiplayer/MultiplayerManager';
+import { MultiplayerManager, VoiceState } from '../multiplayer/MultiplayerManager';
 import { VRKeypad } from './VRKeypad';
 
-type ButtonType = 'host' | 'join' | 'close';
+type ButtonType = 'host' | 'join' | 'close' | 'voice' | 'mute';
+
+type VoiceControlHooks = {
+  onStart: () => Promise<void>;
+  onToggleMute: () => Promise<void> | void;
+};
 
 export type MultiplayerHit = 
   | { button: ButtonType; point?: THREE.Vector3 }
@@ -52,12 +57,23 @@ export class XRMultiplayerPanel {
   private hoveredButton: ButtonType | null = null;
   private isCreatingSession = false; // Prevent multiple simultaneous session creations
   private joinInputCode = ''; // Code entered for joining
+  private voiceControls?: VoiceControlHooks;
+  private voiceState: VoiceState = {
+    enabled: false,
+    muted: false,
+    remoteReady: false,
+    remoteActive: false,
+    remoteMuted: false,
+  };
+  private voiceBusy = false;
   
   // Button regions for raycasting (in canvas coordinates)
   private buttonRegions = {
     host: { x: 0, y: 0, w: 0, h: 0 },
     join: { x: 0, y: 0, w: 0, h: 0 },
     close: { x: 0, y: 0, w: 0, h: 0 },
+    voice: { x: 0, y: 0, w: 0, h: 0 },
+    mute: { x: 0, y: 0, w: 0, h: 0 },
   };
   
   constructor(
@@ -260,6 +276,25 @@ export class XRMultiplayerPanel {
           this.hide();
         }
         break;
+      case 'voice':
+        if (!this.voiceControls || this.voiceBusy) break;
+        this.voiceBusy = true;
+        try {
+          await this.voiceControls.onStart();
+        } catch (error) {
+          console.error('[XRMultiplayerPanel] Voice start error:', error);
+        } finally {
+          this.voiceBusy = false;
+        }
+        break;
+      case 'mute':
+        if (!this.voiceControls || !this.voiceState.enabled) break;
+        try {
+          await this.voiceControls.onToggleMute();
+        } catch (error) {
+          console.error('[XRMultiplayerPanel] Voice mute toggle error:', error);
+        }
+        break;
       }
     } catch (error) {
       // CRITICAL FIX: Don't crash on button click errors
@@ -420,6 +455,16 @@ export class XRMultiplayerPanel {
       // Don't crash on connection change errors
     }
   }
+
+  setVoiceControls(controls: VoiceControlHooks): void {
+    this.voiceControls = controls;
+    this.render();
+  }
+
+  updateVoiceState(state: VoiceState): void {
+    this.voiceState = state;
+    this.render();
+  }
   
   /**
    * Get keypad instance (for external access)
@@ -484,6 +529,28 @@ export class XRMultiplayerPanel {
       this.rayLine = null;
     }
   }
+
+  private getVoiceStatusText(): string {
+    if (!this.voiceControls) {
+      return 'Voice chat unavailable';
+    }
+    if (!this.voiceState.enabled) {
+      return 'Voice off — tap VOICE ON to enable';
+    }
+    if (!this.voiceState.remoteReady) {
+      return 'Waiting for partner to enable voice...';
+    }
+    if (!this.voiceState.remoteActive) {
+      return 'Voice ready — establishing audio link...';
+    }
+    if (this.voiceState.muted) {
+      return 'You are muted';
+    }
+    if (this.voiceState.remoteMuted) {
+      return 'Partner is muted';
+    }
+    return 'Voice live — speak freely';
+  }
   
   // ============== RENDERING ==============
   
@@ -498,6 +565,9 @@ export class XRMultiplayerPanel {
     // Background - solid black with border
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, w, h);
+    (Object.keys(this.buttonRegions) as Array<keyof typeof this.buttonRegions>).forEach((key) => {
+      this.buttonRegions[key] = { x: 0, y: 0, w: 0, h: 0 };
+    });
     
     // Border
     ctx.strokeStyle = this.hoveredButton ? '#00aaff' : '#444444';
@@ -610,6 +680,26 @@ export class XRMultiplayerPanel {
       ctx.fillStyle = '#ffffff';
       ctx.font = '28px Arial';
       ctx.fillText('Multiplayer session active', w / 2, 200);
+
+      if (this.voiceControls) {
+        ctx.fillStyle = '#aaaaaa';
+        ctx.font = '24px Arial';
+        ctx.fillText(this.getVoiceStatusText(), w / 2, 260);
+
+        const voiceY = 320;
+        const voiceH = 90;
+        this.buttonRegions.voice = { x: 112, y: voiceY, w: 800, h: voiceH };
+        const voiceLabel = this.voiceState.enabled ? 'VOICE READY' : 'VOICE ON';
+        this.drawButton(ctx, voiceLabel, voiceY, voiceH, '#888888', this.hoveredButton === 'voice');
+
+        if (this.voiceState.enabled) {
+          const muteY = voiceY + 130;
+          const muteH = 90;
+          this.buttonRegions.mute = { x: 112, y: muteY, w: 800, h: muteH };
+          const muteLabel = this.voiceState.muted ? 'UNMUTE' : 'MUTE';
+          this.drawButton(ctx, muteLabel, muteY, muteH, '#444444', this.hoveredButton === 'mute');
+        }
+      }
       
       // Close button - explicit control
       const closeY = 650;

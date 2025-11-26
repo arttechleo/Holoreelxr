@@ -627,6 +627,46 @@ export class FeedStore {
     }
   }
 
+  getStateSnapshot() {
+    const pos = this.getObjectWorldPos();
+    return {
+      index: this.index,
+      itemId: this.items[this.index]?.id ?? null,
+      position: pos ? { x: pos.x, y: pos.y, z: pos.z } : null,
+      scale: this.scale,
+      rotationY: this.rotationY,
+      timestamp: performance.now(),
+    };
+  }
+
+  async applyRemoteState(state: {
+    index: number;
+    position: { x: number; y: number; z: number } | null;
+    scale: number;
+    rotationY: number;
+  }): Promise<void> {
+    try {
+      const clampedIndex = Math.max(0, Math.min(state.index ?? this.index, this.items.length - 1));
+      if (this.items.length > 0 && Number.isFinite(clampedIndex) && clampedIndex !== this.index) {
+        this.index = clampedIndex;
+        await this.showCurrent();
+      }
+
+      if (state.position) {
+        this.setPosition(new THREE.Vector3(state.position.x, state.position.y, state.position.z));
+      }
+
+      if (Number.isFinite(state.scale) || Number.isFinite(state.rotationY)) {
+        this.setTransform(
+          Number.isFinite(state.scale) ? state.scale : this.scale,
+          Number.isFinite(state.rotationY) ? state.rotationY : this.rotationY
+        );
+      }
+    } catch (error) {
+      logError(error, 'FeedStore.applyRemoteState');
+    }
+  }
+
   getObject(): THREE.Object3D | undefined {
     try {
       const found = this.parent.children.find(

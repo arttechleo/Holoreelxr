@@ -58,6 +58,10 @@ const xrMultiplayerPanel = new XRMultiplayerPanel(
   () => app.camera // Camera for keypad positioning
 );
 
+const FEED_SYNC_INTERVAL_MS = 250;
+let lastFeedSyncAt = 0;
+let pendingFeedSync = Promise.resolve();
+
 // Expose multiplayer panel globally for easy access from connect.html or console
 (window as any).multiplayerPanel = xrMultiplayerPanel;
 (window as any).multiplayer = multiplayer;
@@ -97,12 +101,29 @@ multiplayer.onConnectionChange((connected: boolean) => {
   if (connected) {
     hud.toast('🎉 Multiplayer connected!');
     remoteHands.setVisible(true);
+    if (multiplayer.isHostRole()) {
+      multiplayer.broadcastFeedState(store.getStateSnapshot());
+    }
   } else {
     hud.toast('❌ Multiplayer disconnected');
     remoteHands.setVisible(false);
   }
   xrMultiplayerPanel.onConnectionChange(connected);
 });
+
+multiplayer.onRemoteFeed((state) => {
+  if (multiplayer.isHostRole()) return;
+  pendingFeedSync = pendingFeedSync.then(() => store.applyRemoteState(state));
+});
+
+xrMultiplayerPanel.setVoiceControls({
+  onStart: () => multiplayer.enableVoice(),
+  onToggleMute: () => multiplayer.setVoiceMuted(!multiplayer.getVoiceState().muted),
+});
+multiplayer.onVoiceStateChange((state) => {
+  xrMultiplayerPanel.updateVoiceState(state);
+});
+xrMultiplayerPanel.updateVoiceState(multiplayer.getVoiceState());
 onboarding.setOnComplete(() => {
   // Tutorial will handle hiding itself and navigating to first non-tutorial item
   console.log('[Main] Tutorial completed callback called');
@@ -223,21 +244,47 @@ async function loadMainFeed() {
     if (multiplayer.isConnected()) {
       const leftPinchMid = hands.pinchMid('left');
       const rightPinchMid = hands.pinchMid('right');
+      const jointSnapshot = hands.getJointSnapshot();
+      const wristLeft = hands.getJointQuaternion('left', 'wrist');
+      const wristRight = hands.getJointQuaternion('right', 'wrist');
+      const now = performance.now();
       
       const handState: HandState = {
         left: {
-          position: leftPinchMid ? { x: leftPinchMid.x, y: leftPinchMid.y, z: leftPinchMid.z } : null,
-          rotation: null,
-          pinching: hands.state.left.pinch
+          position: leftPinchMid
+            ? { x: leftPinchMid.x, y: leftPinchMid.y, z: leftPinchMid.z }
+            : jointSnapshot.left['wrist'] ?? null,
+          rotation: wristLeft
+            ? { x: wristLeft.x, y: wristLeft.y, z: wristLeft.z, w: wristLeft.w }
+            : null,
+          pinching: hands.state.left.pinch,
+          open: hands.state.left.open,
+          joints: jointSnapshot.left,
         },
         right: {
-          position: rightPinchMid ? { x: rightPinchMid.x, y: rightPinchMid.y, z: rightPinchMid.z } : null,
-          rotation: null,
-          pinching: hands.state.right.pinch
-        }
+          position: rightPinchMid
+            ? { x: rightPinchMid.x, y: rightPinchMid.y, z: rightPinchMid.z }
+            : jointSnapshot.right['wrist'] ?? null,
+          rotation: wristRight
+            ? { x: wristRight.x, y: wristRight.y, z: wristRight.z, w: wristRight.w }
+            : null,
+          pinching: hands.state.right.pinch,
+          open: hands.state.right.open,
+          joints: jointSnapshot.right,
+        },
+        gestures: {
+          heart: hands.state.heart,
+          stopPalm: hands.state.stopPalm,
+        },
+        timestamp: now,
       };
       
       multiplayer.broadcastHands(handState);
+      
+      if (multiplayer.isHostRole() && now - lastFeedSyncAt > FEED_SYNC_INTERVAL_MS) {
+        lastFeedSyncAt = now;
+        multiplayer.broadcastFeedState(store.getStateSnapshot());
+      }
     }
     
     // Update 3D panels to face camera
