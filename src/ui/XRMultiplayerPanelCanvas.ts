@@ -33,7 +33,8 @@ export class XRMultiplayerPanel {
   private readonly CANVAS_H = 768;
   
   // Position offset (to the RIGHT of model, matching ReactionHud offset)
-  private readonly OFFSET = new THREE.Vector3(0.50, 0.05, 0); // RIGHT side (positive X) - moved 15cm further right
+  // RIGHT side (positive X) - 50cm right, 5cm up
+  private readonly OFFSET = new THREE.Vector3(0.50, 0.05, 0);
   
   // Hit detection thickness (like ReactionHud)
   private readonly HIT_THICKNESS = 0.08;
@@ -75,7 +76,10 @@ export class XRMultiplayerPanel {
       // CRITICAL FIX: Sync keypad input with panel state and update display
       this.joinInputCode = text;
       this.render(); // Update panel display to show typed text
-      console.log('[XRMultiplayerPanel] Input updated:', text);
+      // Debug logging only in development
+      if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
+        console.log('[XRMultiplayerPanel] Input updated:', text);
+      }
     });
     this.keypad.onConnectClick(() => {
       // Connect button pressed on keypad
@@ -87,7 +91,10 @@ export class XRMultiplayerPanel {
       this.mode = 'idle';
       this.joinInputCode = '';
       this.render();
-      console.log('[XRMultiplayerPanel] Keypad cancelled');
+      // Debug logging only in development
+      if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
+        console.log('[XRMultiplayerPanel] Keypad cancelled');
+      }
     });
     
     // Create canvas
@@ -209,7 +216,10 @@ export class XRMultiplayerPanel {
    * CRITICAL FIX: Enhanced error handling
    */
   async handleClick(button: ButtonType): Promise<void> {
-    console.log('[XRMultiplayerPanel] 🖱️ Button clicked:', button);
+    // Debug logging only in development
+    if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
+      console.log('[XRMultiplayerPanel] 🖱️ Button clicked:', button);
+    }
     
     try {
       switch (button) {
