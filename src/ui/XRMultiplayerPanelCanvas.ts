@@ -41,7 +41,8 @@ export class XRMultiplayerPanel {
   private getObjectWorldPos: () => THREE.Vector3 | null;
   
   // State
-  private currentCode = '';
+  private currentCode = ''; // 6-char display code
+  private fullOffer = ''; // Full SDP for connection
   private mode: 'idle' | 'hosting' | 'waiting' = 'idle';
   private hoveredButton: ButtonType | null = null;
   
@@ -192,20 +193,17 @@ export class XRMultiplayerPanel {
     this.render();
     
     try {
-      const offer = await this.multiplayer.createSession();
+      // Create session with timeout to prevent freeze
+      const sessionPromise = this.multiplayer.createSession();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Session creation timeout')), 10000)
+      );
       
-      // Generate 6-character code from offer hash
-      const hash = await this.hashString(offer);
-      this.currentCode = hash.substring(0, 6).toUpperCase();
+      const offer = await Promise.race([sessionPromise, timeoutPromise]) as string;
+      this.fullOffer = offer;
       
-      // Copy full offer to clipboard (for actual connection)
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(offer).then(() => {
-          console.log('[XRMultiplayerPanel] Offer copied to clipboard');
-        }).catch(err => {
-          console.error('[XRMultiplayerPanel] Failed to copy:', err);
-        });
-      }
+      // Generate 6-character code synchronously (no async hash)
+      this.currentCode = this.generateCode(offer);
       
       this.render();
       console.log('[XRMultiplayerPanel] HOST CODE:', this.currentCode);
@@ -213,39 +211,39 @@ export class XRMultiplayerPanel {
     } catch (error) {
       console.error('[XRMultiplayerPanel] Host error:', error);
       this.mode = 'idle';
+      this.currentCode = '';
+      this.fullOffer = '';
       this.render();
     }
   }
   
-  private async hashString(str: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(str);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  // Synchronous code generation (no async, no crypto - fast and safe)
+  private generateCode(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    // Convert to 6-char alphanumeric code
+    const code = Math.abs(hash).toString(36).toUpperCase().padStart(6, '0').substring(0, 6);
+    return code;
   }
   
   private async handleJoin(): Promise<void> {
     this.mode = 'waiting';
     this.render();
     
-    // Get full offer from clipboard (not just code)
+    // For now, join requires manual code entry - show instructions
+    // In future: can add input field or QR code scanning
     try {
-      if (navigator.clipboard) {
-        const offer = await navigator.clipboard.readText();
-        if (offer && offer.length > 20) {
-          // Generate display code from offer
-          const hash = await this.hashString(offer);
-          this.currentCode = hash.substring(0, 6).toUpperCase();
-          
-          await this.multiplayer.joinSession(offer);
-          console.log('[XRMultiplayerPanel] Joined session with code:', this.currentCode);
-        } else {
-          console.error('[XRMultiplayerPanel] No valid offer in clipboard');
-          this.mode = 'idle';
-        }
-      }
-      this.render();
+      // Wait a moment then show that user needs to enter code
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // For MVP: Show that code entry is needed
+      // The full offer should be entered via some method (not clipboard)
+      console.log('[XRMultiplayerPanel] Join requires code entry');
+      
     } catch (error) {
       console.error('[XRMultiplayerPanel] Join error:', error);
       this.mode = 'idle';
@@ -364,9 +362,9 @@ export class XRMultiplayerPanel {
       const displayCode = this.currentCode.substring(0, 6).toUpperCase();
       ctx.fillText(displayCode, w / 2, 250);
       
-      ctx.fillStyle = '#ffff00';
-      ctx.font = '24px Arial';
-      ctx.fillText('(Copied to clipboard)', w / 2, yPos + 20);
+      ctx.fillStyle = '#aaaaaa';
+      ctx.font = '20px Arial';
+      ctx.fillText('Share this code with friend', w / 2, yPos + 20);
       
       // Close button
       const closeY = 650;
@@ -381,19 +379,27 @@ export class XRMultiplayerPanel {
     } else if (this.mode === 'waiting') {
       ctx.fillStyle = '#00ff00';
       ctx.font = 'bold 48px Arial';
-      ctx.fillText('JOINING SESSION...', w / 2, 120);
+      ctx.fillText('ENTER CODE', w / 2, 120);
       
-      // Display only first 6 characters of code
-      if (this.currentCode) {
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 80px monospace';
-        const displayCode = this.currentCode.substring(0, 6).toUpperCase();
-        ctx.fillText(displayCode, w / 2, 250);
-      }
-      
-      ctx.fillStyle = '#ffff00';
+      // Display code entry instructions
+      ctx.fillStyle = '#ffffff';
       ctx.font = '32px Arial';
-      ctx.fillText('Waiting for connection...', w / 2, 600);
+      ctx.fillText('Code entry coming soon', w / 2, 250);
+      
+      ctx.fillStyle = '#aaaaaa';
+      ctx.font = '24px Arial';
+      ctx.fillText('For now, use HOST mode', w / 2, 320);
+      ctx.fillText('and share the code shown', w / 2, 360);
+      
+      // Close button to go back
+      const closeY = 650;
+      const closeH = 80;
+      this.buttonRegions.close = { x: 312, y: closeY, w: 400, h: closeH };
+      ctx.fillStyle = this.hoveredButton === 'close' ? '#ff4444' : '#444444';
+      ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 38px Arial';
+      ctx.fillText('BACK', w / 2, closeY + 56);
     }
     
     // Update texture

@@ -72,46 +72,57 @@ export class MultiplayerManager {
    * CRITICAL FIX: Cleanup old connection if exists
    */
   async createSession(): Promise<string> {
-    console.log('[Multiplayer] 🏠 Creating session as HOST');
+    console.log('[Multiplayer] Creating session as HOST');
     
-    // CRITICAL: If already connected, disconnect first
-    if (this.peerConnection || this.dataChannel) {
-      console.warn('[Multiplayer] ⚠️ Existing connection found, cleaning up...');
+    try {
+      // CRITICAL: If already connected, disconnect first
+      if (this.peerConnection || this.dataChannel) {
+        console.warn('[Multiplayer] Existing connection found, cleaning up...');
+        this.disconnect();
+        // Wait a bit for cleanup to complete
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      this.isHost = true;
+      
+      // Create peer connection with Google's public STUN server
+      this.peerConnection = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      });
+      
+      // Create data channel for game data
+      this.dataChannel = this.peerConnection.createDataChannel('holoreelxr', {
+        ordered: false,
+        maxRetransmits: 0
+      });
+      
+      this.setupDataChannel(this.dataChannel);
+      this.setupPeerConnection(this.peerConnection);
+      
+      // Create offer with error handling
+      const offer = await this.peerConnection.createOffer();
+      await this.peerConnection.setLocalDescription(offer);
+      
+      // Wait for ICE gathering (with timeout)
+      await this.waitForICEGathering(this.peerConnection);
+      
+      if (!this.peerConnection.localDescription) {
+        throw new Error('Failed to create local description');
+      }
+      
+      const offerSDP = JSON.stringify(this.peerConnection.localDescription);
+      console.log('[Multiplayer] Session created');
+      
+      return offerSDP;
+    } catch (error) {
+      console.error('[Multiplayer] Create session error:', error);
+      // Cleanup on error
       this.disconnect();
-      // Wait a bit for cleanup to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      throw error;
     }
-    
-    this.isHost = true;
-    
-    // Create peer connection with Google's public STUN server
-    this.peerConnection = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    });
-    
-    // Create data channel for game data
-    this.dataChannel = this.peerConnection.createDataChannel('holoreelxr', {
-      ordered: false, // Faster, don't wait for lost packets
-      maxRetransmits: 0
-    });
-    
-    this.setupDataChannel(this.dataChannel);
-    this.setupPeerConnection(this.peerConnection);
-    
-    // Create offer
-    const offer = await this.peerConnection.createOffer();
-    await this.peerConnection.setLocalDescription(offer);
-    
-    // Wait for ICE gathering to complete
-    await this.waitForICEGathering(this.peerConnection);
-    
-    const offerSDP = JSON.stringify(this.peerConnection.localDescription);
-    console.log('[Multiplayer] ✅ Session created. Share this offer with guest.');
-    
-    return offerSDP;
   }
   
   /**
@@ -197,21 +208,32 @@ export class MultiplayerManager {
   }
   
   /**
-   * Wait for ICE gathering to complete
+   * Wait for ICE gathering to complete (with timeout to prevent freeze)
    */
   private waitForICEGathering(pc: RTCPeerConnection): Promise<void> {
     return new Promise((resolve) => {
+      // If already complete, resolve immediately
       if (pc.iceGatheringState === 'complete') {
         resolve();
-      } else {
-        const checkState = () => {
-          if (pc.iceGatheringState === 'complete') {
-            pc.removeEventListener('icegatheringstatechange', checkState);
-            resolve();
-          }
-        };
-        pc.addEventListener('icegatheringstatechange', checkState);
+        return;
       }
+      
+      // Set timeout to prevent infinite wait (5 seconds max)
+      const timeout = setTimeout(() => {
+        pc.removeEventListener('icegatheringstatechange', checkState);
+        console.warn('[Multiplayer] ICE gathering timeout - proceeding anyway');
+        resolve(); // Resolve anyway to prevent freeze
+      }, 5000);
+      
+      const checkState = () => {
+        if (pc.iceGatheringState === 'complete') {
+          clearTimeout(timeout);
+          pc.removeEventListener('icegatheringstatechange', checkState);
+          resolve();
+        }
+      };
+      
+      pc.addEventListener('icegatheringstatechange', checkState);
     });
   }
   
