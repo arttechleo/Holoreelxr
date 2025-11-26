@@ -51,7 +51,11 @@ const onboarding = new OnboardingTutorial(app.scene, hands, store);
 // EXPERIMENTAL: Multiplayer system (real-time hand tracking & gesture sync)
 const multiplayer = new MultiplayerManager();
 const remoteHands = new RemoteHands(app.scene);
-const xrMultiplayerPanel = new XRMultiplayerPanel(app.scene, multiplayer);
+const xrMultiplayerPanel = new XRMultiplayerPanel(
+  app.scene, 
+  multiplayer,
+  () => store.getObjectWorldPos() // Like ReactionHud - callback to get object position
+);
 
 // Setup multiplayer callbacks
 multiplayer.onRemoteHands((hands: HandState) => {
@@ -115,10 +119,10 @@ onboarding.setOnComplete(() => {
     logError(err, 'Show current after tutorial');
   });
   
-  // Show multiplayer panel above 3D model after tutorial
+  // Show multiplayer panel to right of 3D model after tutorial
   if (!multiplayer.isConnected()) {
     setTimeout(() => {
-      xrMultiplayerPanel.show(app.camera);
+      xrMultiplayerPanel.show();
       console.log('[Main] Multiplayer panel shown after tutorial');
     }, 1000); // Small delay to let model load
   }
@@ -198,7 +202,7 @@ async function loadMainFeed() {
       lastStopPalmToggle = now;
       // Toggle panel visibility
       if (!xrMultiplayerPanel.isVisible()) {
-        xrMultiplayerPanel.show(app.camera);
+        xrMultiplayerPanel.show();
         hud.toast('🎮 Multiplayer panel opened!');
       } else {
         xrMultiplayerPanel.hide();
@@ -231,20 +235,9 @@ async function loadMainFeed() {
     xrAuthPanel.update(app.camera);
     xrMusicPanel.update(app.camera);
     
-    // FLOATING UI: Update multiplayer panel with grab support
-    // Panel is positioned CLOSER - 0.3m RIGHT of object (independent of scale/height)
-    const modelInfo = store.getCurrentModelInfo();
-    const mpGrabHand = xrMultiplayerPanel.isCurrentlyGrabbed() 
-      ? (xrMultiplayerPanel.isGrabbedByHand('left') ? 'left' : 'right')
-      : null;
-    const mpHandPos = mpGrabHand ? hands.pinchMid(mpGrabHand) : undefined;
-    
-    if (modelInfo) {
-      // Pass only model position (not height) - panel positioning is independent of scale
-      xrMultiplayerPanel.update(app.camera, modelInfo.position, undefined, mpHandPos || undefined);
-    } else {
-      xrMultiplayerPanel.update(app.camera, undefined, undefined, mpHandPos || undefined);
-    }
+    // Update multiplayer panel (like ReactionHud - positions itself relative to object)
+    const dt = 0.016; // ~60fps
+    xrMultiplayerPanel.tick(dt);
     
     // Update tutorial panel position to the right of the 3D model
     // CRITICAL: Only update if tutorial is actually active

@@ -774,114 +774,29 @@ export class FeedControls {
       }
     }
     
+    // Check multiplayer panel (using ReactionHud-style raycast)
     if (multiplayerPanel?.isVisible()) {
-      let mpHit = multiplayerPanel.raycast(ray);
-      
-      // FALLBACK: If raycast misses, try proximity-based detection
-      if (!mpHit) {
-        const handPos = this.hands.pinchMid(pointingSide);
-        if (handPos) {
-          const proximityHit = multiplayerPanel.checkProximity?.(handPos);
-          if (proximityHit) {
-            // Convert proximity hit to raycast-like format
-            mpHit = {
-              button: proximityHit.button,
-              panel: !proximityHit.button,
-              distance: proximityHit.distance,
-              point: handPos
-            };
-            console.log('[FeedControls] ✅ Proximity fallback activated:', proximityHit.button ? `button: ${proximityHit.button}` : 'panel');
-          }
-        }
-      }
-      
-      // Debug raycast (throttled)
-      if (Math.random() < 0.05) { // 5% of calls
-        console.log('[FeedControls] Multiplayer panel interaction:', {
-          visible: multiplayerPanel.isVisible(),
-          hit: !!mpHit,
-          hitType: mpHit?.button ? 'button' : mpHit?.panel ? 'panel' : 'none',
-          method: mpHit ? (mpHit.distance < 0.6 ? 'proximity' : 'raycast') : 'none'
-        });
-      }
-      
-      // Set panel hover state for visual feedback
-      multiplayerPanel.setPanelHover?.(!!mpHit);
-      
-      // Handle ONGOING GRAB (highest priority)
-      if (multiplayerPanel.isCurrentlyGrabbed()) {
-        const grabHand = multiplayerPanel.isGrabbedByHand('left') ? 'left' : 'right';
-        const isPinching = this.hands.state[grabHand].pinch;
-        
-        if (!isPinching) {
-          // Released pinch - stop grabbing
-          multiplayerPanel.stopGrab();
-          console.log('[FeedControls] 📍 Placed multiplayer panel');
-        }
-        return; // Block other interactions while grabbing
-      }
-      
-      // Handle GRAB PENDING (checking if user is moving hand)
-      if (multiplayerPanel.isGrabPending()) {
-        // Get the hand that started the pending grab (check which hand is actually pinching)
-        const pendingHand = this.hands.state.left.pinch ? 'left' : 'right';
-        const handPos = this.hands.pinchMid(pendingHand);
-        const isPinching = this.hands.state[pendingHand].pinch;
-        
-        if (handPos) {
-          const result = multiplayerPanel.updateGrabPending(handPos, isPinching);
-          
-          if (result === 'click') {
-            // User wants to CLICK button (minimal movement)
-            const button = multiplayerPanel.getPendingButton();
-            if (button) {
-              multiplayerPanel.handleClick(button);
-              console.log('[FeedControls] 🖱️ Button clicked after pending');
-            }
-          } else if (result === 'grab') {
-            // Grab activated - will be handled in next frame
-            console.log('[FeedControls] 🖐️ Grab activated from pending');
-          }
-          // 'pending' or 'cancel' - just continue waiting
-        }
-        return; // Block other interactions while pending
-      }
-      
-      // SIMPLIFIED INTERACTION: Immediate response on pinch
-      const pointingHandPinch = pointingSide === 'right' 
-        ? this.hands.state.right.pinch 
-        : this.hands.state.left.pinch;
-      
-      const handPos = this.hands.pinchMid(pointingSide);
+      const mpHit = multiplayerPanel.raycastHit(ray);
       
       if (mpHit?.button) {
-        // Pointing at a BUTTON - immediate click on pinch (no pending)
+        // Pointing at a button - set hover
         multiplayerPanel.setButtonHover(mpHit.button);
         
-        if (pointingHandPinch && handPos && !multiplayerPanel.isGrabPending() && !multiplayerPanel.isCurrentlyGrabbed()) {
-          // IMMEDIATE CLICK - no pending system complicating things
-          console.log('[FeedControls] 🖱️ Immediate button click:', mpHit.button);
-          multiplayerPanel.handleClick(mpHit.button);
-          return;
-        }
-      } else if (mpHit?.panel && mpHit.point) {
-        // Pointing at PANEL (not button) - allow grabbing
-        multiplayerPanel.setButtonHover(null);
+        // Check for pinch on pointing hand
+        const pointingHandPinch = pointingSide === 'right' 
+          ? this.hands.state.right.pinch 
+          : this.hands.state.left.pinch;
         
-        if (pointingHandPinch && handPos && !multiplayerPanel.isGrabPending() && !multiplayerPanel.isCurrentlyGrabbed()) {
-          // Start grab immediately (no pending)
-          console.log('[FeedControls] 🖐️ Start grab');
-          multiplayerPanel.startGrabPending(pointingSide, handPos); // Use pending for grab only
-          return;
+        if (pointingHandPinch) {
+          // IMMEDIATE CLICK (like ReactionHud uses dwell/click)
+          multiplayerPanel.handleClick(mpHit.button);
+          console.log('[FeedControls] 🖱️ Multiplayer button clicked:', mpHit.button);
+          return; // Block other UI interactions
         }
       } else {
-        // Not pointing at panel - clear all hover states
+        // Not pointing at button - clear hover
         multiplayerPanel.setButtonHover(null);
-        multiplayerPanel.setPanelHover?.(false);
       }
-    } else if (multiplayerPanel) {
-      // Panel not visible - ensure hover state is cleared
-      multiplayerPanel.setPanelHover?.(false);
     }
 
     const hit = this.hudMgr.raycastHit(ray);
