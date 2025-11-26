@@ -64,12 +64,29 @@ export class HandEngine {
   }
 
   update(info: XRFrameInfo){
-    const now = performance.now();
-    const session = (this.renderer.xr as any).getSession?.() as XRSession | undefined;
-    if (!session || !info.frame || !info.refSpace) return;
-    const getJointPose: ((s: XRJointSpace, rs: XRReferenceSpace) => XRJointPose | null) | undefined =
-      (info.frame as any).getJointPose?.bind(info.frame);
-    if (!getJointPose) return;
+    // CRITICAL FIX: Enhanced null safety and error handling
+    try {
+      const now = performance.now();
+      const session = (this.renderer.xr as any).getSession?.() as XRSession | undefined;
+      if (!session || !info?.frame || !info?.refSpace) {
+        // CRITICAL FIX: Reset gesture states when session/info is invalid
+        this.state.left.pinch = false;
+        this.state.right.pinch = false;
+        this.state.heart = false;
+        this.state.stopPalm = false;
+        return;
+      }
+      
+      const getJointPose: ((s: XRJointSpace, rs: XRReferenceSpace) => XRJointPose | null) | undefined =
+        (info.frame as any).getJointPose?.bind(info.frame);
+      if (!getJointPose) {
+        // CRITICAL FIX: Reset gesture states when joint pose unavailable
+        this.state.left.pinch = false;
+        this.state.right.pinch = false;
+        this.state.heart = false;
+        this.state.stopPalm = false;
+        return;
+      }
 
     const inputSources = Array.from(session.inputSources || []).filter((s:any)=> !!s.hand);
     if (!inputSources.length) {
@@ -113,8 +130,21 @@ export class HandEngine {
       this.state.right.pinch = false;
       this.lastPos.right = {};
     }
-    const J = (side:Side, name:XRHandJointName) => this.lastPos[side]?.[name] ?? null;
-    const dist = (a:THREE.Vector3|null, b:THREE.Vector3|null) => (a&&b)? a.distanceTo(b) : 1e9;
+    const J = (side:Side, name:XRHandJointName) => {
+      // CRITICAL FIX: Enhanced null safety
+      if (!this.lastPos[side]) return null;
+      return this.lastPos[side][name] ?? null;
+    };
+    const dist = (a:THREE.Vector3|null, b:THREE.Vector3|null) => {
+      // CRITICAL FIX: Validate vectors before distance calculation
+      if (!a || !b) return 1e9;
+      try {
+        return a.distanceTo(b);
+      } catch (error) {
+        console.error('[HandEngine] Distance calculation error:', error);
+        return 1e9;
+      }
+    };
 
     // pinch - only detect if hand is in frame
     if (leftHandInFrame) {
@@ -254,6 +284,14 @@ export class HandEngine {
     // Only detect on RIGHT hand to prevent accidental triggers
     this.state.stopPalm = stopPalm('right');
     this.updateFlag('stopPalm', this.state.stopPalm);
+    } catch (error) {
+      // CRITICAL FIX: Don't crash on hand tracking errors - reset states safely
+      console.error('[HandEngine] Error in update:', error);
+      this.state.left.pinch = false;
+      this.state.right.pinch = false;
+      this.state.heart = false;
+      this.state.stopPalm = false;
+    }
   }
 
   // helpers

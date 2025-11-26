@@ -154,9 +154,10 @@ export class XRMultiplayerPanel {
    * Raycast in world space against the panel (matching ReactionHud pattern EXACTLY)
    */
   raycastHit(ray: THREE.Ray, thickness = 10): MultiplayerHit {
-    if (!this.visible) return null;
+    if (!this.visible || !ray || !this.anchor) return null;
     
-    // Build plane for panel (like ReactionHud)
+    try {
+      // Build plane for panel (like ReactionHud)
     const normal = new THREE.Vector3(0, 0, 1);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, this.anchor.position);
     const hitPoint = new THREE.Vector3();
@@ -186,6 +187,11 @@ export class XRMultiplayerPanel {
     }
     
     return null; // Hit panel but no button
+    } catch (error) {
+      // CRITICAL FIX: Don't crash on raycast errors
+      console.error('[XRMultiplayerPanel] Error in raycastHit:', error);
+      return null;
+    }
   }
   
   /**
@@ -200,11 +206,13 @@ export class XRMultiplayerPanel {
   
   /**
    * Handle button click
+   * CRITICAL FIX: Enhanced error handling
    */
   async handleClick(button: ButtonType): Promise<void> {
     console.log('[XRMultiplayerPanel] 🖱️ Button clicked:', button);
     
-    switch (button) {
+    try {
+      switch (button) {
       case 'host':
         await this.handleHost();
         // Copy Peer ID to console for easy sharing
@@ -242,6 +250,13 @@ export class XRMultiplayerPanel {
           this.hide();
         }
         break;
+      }
+    } catch (error) {
+      // CRITICAL FIX: Don't crash on button click errors
+      console.error('[XRMultiplayerPanel] Error in handleClick:', error);
+      // Reset to safe state
+      this.mode = 'idle';
+      this.render();
     }
   }
   
@@ -376,11 +391,23 @@ export class XRMultiplayerPanel {
   }
   
   onConnectionChange(connected: boolean): void {
-    if (connected) {
-      this.mode = 'waiting';
-      this.render();
-      // CRITICAL FIX: Don't auto-hide - stay visible until user explicitly closes
-      // User must press X/Close button to dismiss
+    // CRITICAL FIX: Handle connection state changes safely
+    try {
+      if (connected) {
+        this.mode = 'waiting';
+        this.render();
+        // CRITICAL FIX: Don't auto-hide - stay visible until user explicitly closes
+        // User must press X/Close button to dismiss
+        console.log('[XRMultiplayerPanel] ✅ Connection established');
+      } else {
+        // CRITICAL FIX: Handle disconnection gracefully
+        console.log('[XRMultiplayerPanel] ⚠️ Connection lost');
+        // Don't change mode immediately - let user see the disconnection
+        // They can close manually or retry
+      }
+    } catch (error) {
+      console.error('[XRMultiplayerPanel] Error in onConnectionChange:', error);
+      // Don't crash on connection change errors
     }
   }
   
@@ -393,19 +420,32 @@ export class XRMultiplayerPanel {
   
   /**
    * Update panel position (like ReactionHud.tick) - call every frame
+   * CRITICAL FIX: Enhanced error handling and null safety
    */
   tick(dt: number): void {
     if (!this.visible) return;
     
-    // Position anchor relative to object (like ReactionHud)
-    const center = this.getObjectWorldPos();
-    if (center) {
-      this.anchor.position.copy(center).add(this.OFFSET);
-    }
-    
-    // Update keypad position to face camera
-    if (this.keypad?.isVisible()) {
-      this.keypad.update(this.getCamera());
+    try {
+      // Position anchor relative to object (like ReactionHud)
+      const center = this.getObjectWorldPos();
+      if (center && this.anchor) {
+        this.anchor.position.copy(center).add(this.OFFSET);
+      }
+      
+      // Update keypad position to face camera
+      if (this.keypad?.isVisible()) {
+        try {
+          const camera = this.getCamera();
+          if (camera) {
+            this.keypad.update(camera);
+          }
+        } catch (error) {
+          console.error('[XRMultiplayerPanel] Error updating keypad:', error);
+        }
+      }
+    } catch (error) {
+      // CRITICAL FIX: Don't crash on tick errors
+      console.error('[XRMultiplayerPanel] Error in tick:', error);
     }
   }
   
