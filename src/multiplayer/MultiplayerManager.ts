@@ -209,6 +209,7 @@ export class MultiplayerManager {
   
   /**
    * Wait for ICE gathering to complete (with timeout to prevent freeze)
+   * CRITICAL FIX: Handle race condition where state changes before listener is added
    */
   private waitForICEGathering(pc: RTCPeerConnection): Promise<void> {
     return new Promise((resolve) => {
@@ -218,22 +219,37 @@ export class MultiplayerManager {
         return;
       }
       
+      let resolved = false; // Prevent multiple resolves
+      
       // Set timeout to prevent infinite wait (5 seconds max)
       const timeout = setTimeout(() => {
-        pc.removeEventListener('icegatheringstatechange', checkState);
-        console.warn('[Multiplayer] ICE gathering timeout - proceeding anyway');
-        resolve(); // Resolve anyway to prevent freeze
+        if (!resolved) {
+          resolved = true;
+          pc.removeEventListener('icegatheringstatechange', checkState);
+          console.warn('[Multiplayer] ICE gathering timeout - proceeding anyway');
+          resolve(); // Resolve anyway to prevent freeze
+        }
       }, 5000);
       
       const checkState = () => {
-        if (pc.iceGatheringState === 'complete') {
+        // CRITICAL FIX: Check state immediately in case it changed before listener was added
+        if (pc.iceGatheringState === 'complete' && !resolved) {
+          resolved = true;
           clearTimeout(timeout);
           pc.removeEventListener('icegatheringstatechange', checkState);
           resolve();
         }
       };
       
+      // CRITICAL FIX: Check state again after adding listener to handle race condition
       pc.addEventListener('icegatheringstatechange', checkState);
+      if (pc.iceGatheringState === 'complete' && !resolved) {
+        // State changed between initial check and listener setup
+        resolved = true;
+        clearTimeout(timeout);
+        pc.removeEventListener('icegatheringstatechange', checkState);
+        resolve();
+      }
     });
   }
   

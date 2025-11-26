@@ -45,6 +45,7 @@ export class XRMultiplayerPanel {
   private fullOffer = ''; // Full SDP for connection
   private mode: 'idle' | 'hosting' | 'waiting' = 'idle';
   private hoveredButton: ButtonType | null = null;
+  private isCreatingSession = false; // Prevent multiple simultaneous session creations
   
   // Button regions for raycasting (in canvas coordinates)
   private buttonRegions = {
@@ -189,10 +190,21 @@ export class XRMultiplayerPanel {
   }
   
   private async handleHost(): Promise<void> {
+    // CRITICAL FIX: Prevent multiple simultaneous session creations
+    if (this.isCreatingSession) {
+      console.warn('[XRMultiplayerPanel] Session creation already in progress, ignoring duplicate request');
+      return;
+    }
+    
+    this.isCreatingSession = true;
     this.mode = 'hosting';
-    this.render();
+    this.render(); // Immediate UI feedback - don't wait for async operations
     
     try {
+      // CRITICAL FIX: Use setTimeout to yield to event loop before starting heavy async work
+      // This prevents blocking the UI thread
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
       // Create session with timeout to prevent freeze
       const sessionPromise = this.multiplayer.createSession();
       const timeoutPromise = new Promise((_, reject) => 
@@ -214,6 +226,9 @@ export class XRMultiplayerPanel {
       this.currentCode = '';
       this.fullOffer = '';
       this.render();
+    } finally {
+      // CRITICAL FIX: Always reset flag, even on error
+      this.isCreatingSession = false;
     }
   }
   

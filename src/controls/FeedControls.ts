@@ -798,7 +798,12 @@ export class FeedControls {
         if (now - this.mpHoverBeganAt >= this.DWELL_MS) {
           this.mpHoverBeganAt = now + 10000; // Prevent repeat
           multiplayerPanel.hideRayLine(this.app.scene); // Hide ray before click
-          multiplayerPanel.handleClick(mpHit.button);
+          // CRITICAL FIX: Fire-and-forget with error handling to prevent freeze
+          // Don't await - let it run in background so UI stays responsive
+          multiplayerPanel.handleClick(mpHit.button).catch((error) => {
+            console.error('[FeedControls] Multiplayer panel click error:', error);
+            // Error is logged but doesn't block UI
+          });
           return; // Block other UI
         }
         
