@@ -193,19 +193,22 @@ export class XRMultiplayerPanel {
     
     try {
       const offer = await this.multiplayer.createSession();
-      this.currentCode = offer;
       
-      // Copy to clipboard
+      // Generate 6-character code from offer hash
+      const hash = await this.hashString(offer);
+      this.currentCode = hash.substring(0, 6).toUpperCase();
+      
+      // Copy full offer to clipboard (for actual connection)
       if (navigator.clipboard) {
         navigator.clipboard.writeText(offer).then(() => {
-          console.log('[XRMultiplayerPanel] Code copied to clipboard');
+          console.log('[XRMultiplayerPanel] Offer copied to clipboard');
         }).catch(err => {
           console.error('[XRMultiplayerPanel] Failed to copy:', err);
         });
       }
       
       this.render();
-      console.log('[XRMultiplayerPanel] HOST CODE:', offer);
+      console.log('[XRMultiplayerPanel] HOST CODE:', this.currentCode);
       
     } catch (error) {
       console.error('[XRMultiplayerPanel] Host error:', error);
@@ -214,20 +217,31 @@ export class XRMultiplayerPanel {
     }
   }
   
+  private async hashString(str: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(str);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  
   private async handleJoin(): Promise<void> {
     this.mode = 'waiting';
     this.render();
     
-    // Get code from clipboard
+    // Get full offer from clipboard (not just code)
     try {
       if (navigator.clipboard) {
-        const code = await navigator.clipboard.readText();
-        if (code && code.length > 20) {
-          this.currentCode = code;
-          await this.multiplayer.joinSession(code);
-          console.log('[XRMultiplayerPanel] Joined session with code:', code);
+        const offer = await navigator.clipboard.readText();
+        if (offer && offer.length > 20) {
+          // Generate display code from offer
+          const hash = await this.hashString(offer);
+          this.currentCode = hash.substring(0, 6).toUpperCase();
+          
+          await this.multiplayer.joinSession(offer);
+          console.log('[XRMultiplayerPanel] Joined session with code:', this.currentCode);
         } else {
-          console.error('[XRMultiplayerPanel] No valid code in clipboard');
+          console.error('[XRMultiplayerPanel] No valid offer in clipboard');
           this.mode = 'idle';
         }
       }
@@ -264,11 +278,8 @@ export class XRMultiplayerPanel {
    * Show visual raycast line from hand to panel
    */
   showRayLine(handPos: THREE.Vector3, hitPoint: THREE.Vector3, scene: THREE.Scene): void {
-    // Remove old line
-    if (this.rayLine) {
-      scene.remove(this.rayLine);
-      this.rayLine.geometry.dispose();
-    }
+    // Remove old line first
+    this.hideRayLine(scene);
     
     // Create new line from hand to hit point
     const points = [handPos, hitPoint];
@@ -347,19 +358,11 @@ export class XRMultiplayerPanel {
       ctx.font = 'bold 48px Arial';
       ctx.fillText('SESSION CODE:', w / 2, 120);
       
-      // Display code in chunks for readability
+      // Display only first 6 characters of code
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 40px monospace';
-      const codeLength = this.currentCode.length;
-      const chunkSize = 8;
-      let yPos = 200;
-      
-      for (let i = 0; i < codeLength; i += chunkSize) {
-        const chunk = this.currentCode.substring(i, i + chunkSize);
-        ctx.fillText(chunk, w / 2, yPos);
-        yPos += 60;
-        if (yPos > 550) break; // Don't overflow
-      }
+      ctx.font = 'bold 80px monospace';
+      const displayCode = this.currentCode.substring(0, 6).toUpperCase();
+      ctx.fillText(displayCode, w / 2, 250);
       
       ctx.fillStyle = '#ffff00';
       ctx.font = '24px Arial';
@@ -380,20 +383,12 @@ export class XRMultiplayerPanel {
       ctx.font = 'bold 48px Arial';
       ctx.fillText('JOINING SESSION...', w / 2, 120);
       
-      // Display code if available
+      // Display only first 6 characters of code
       if (this.currentCode) {
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 40px monospace';
-        const codeLength = this.currentCode.length;
-        const chunkSize = 8;
-        let yPos = 200;
-        
-        for (let i = 0; i < codeLength; i += chunkSize) {
-          const chunk = this.currentCode.substring(i, i + chunkSize);
-          ctx.fillText(chunk, w / 2, yPos);
-          yPos += 60;
-          if (yPos > 550) break;
-        }
+        ctx.font = 'bold 80px monospace';
+        const displayCode = this.currentCode.substring(0, 6).toUpperCase();
+        ctx.fillText(displayCode, w / 2, 250);
       }
       
       ctx.fillStyle = '#ffff00';
