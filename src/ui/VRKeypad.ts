@@ -43,6 +43,7 @@ export class VRKeypad {
   private readonly TOUCH_THRESHOLD = 0.03; // 3cm proximity for touch detection
   private touchedKey: KeypadKey | null = null;
   private touchStartTime: number | null = null;
+  private touchConsumed: boolean = false; // Track if touch has been consumed (prevents repeat fires)
   
   // State
   private inputText = '';
@@ -107,7 +108,8 @@ export class VRKeypad {
     this.group.lookAt(lookAt);
     this.inputText = '';
     this.hoveredKey = null;
-    this.render();
+    this.resetTouchState(); // CRITICAL FIX: Reset touch state when showing
+    this.render(); // CRITICAL FIX: Render to set up key regions
     console.log('[VRKeypad] Keypad shown');
   }
   
@@ -293,8 +295,10 @@ export class VRKeypad {
     }
     
     this.lastKeyPressTime = now;
+    // CRITICAL FIX: Call input change callback to update panel display
     this.onInputChange?.(this.inputText);
-    this.render();
+    this.render(); // Update keypad display
+    console.log('[VRKeypad] Key pressed:', key, 'Input text:', this.inputText);
   }
   
   /**
@@ -328,8 +332,7 @@ export class VRKeypad {
     
     // Must be close to keypad plane (within touch threshold)
     if (distToPlane > this.TOUCH_THRESHOLD) {
-      this.touchedKey = null;
-      this.touchStartTime = null;
+      this.resetTouchState();
       return null;
     }
     
@@ -339,8 +342,7 @@ export class VRKeypad {
     
     // Check if within panel bounds
     if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) {
-      this.touchedKey = null;
-      this.touchStartTime = null;
+      this.resetTouchState();
       return null;
     }
     
@@ -361,25 +363,26 @@ export class VRKeypad {
           py >= expandedY && py <= expandedY + expandedH) {
         // Key is being touched
         if (this.touchedKey !== region.key) {
-          // New key touched - start touch timer
+          // New key touched - start touch timer and reset consumed flag
           this.touchedKey = region.key;
           this.touchStartTime = performance.now();
+          this.touchConsumed = false;
         }
         return region.key;
       }
     }
     
-    // Not touching any key
-    this.touchedKey = null;
-    this.touchStartTime = null;
+    // Not touching any key - reset touch state
+    this.resetTouchState();
     return null;
   }
   
   /**
    * Check if touch has been held long enough to trigger press
+   * CRITICAL FIX: Only fires once per touch (prevents repeat fires)
    */
   checkTouchPress(): KeypadKey | null {
-    if (!this.touchedKey || !this.touchStartTime) return null;
+    if (!this.touchedKey || !this.touchStartTime || this.touchConsumed) return null;
     
     const now = performance.now();
     const touchDuration = now - this.touchStartTime;
@@ -387,13 +390,22 @@ export class VRKeypad {
     // Must hold touch for minimum duration (prevents accidental presses)
     if (touchDuration >= this.KEY_PRESS_MIN_DURATION_MS) {
       const key = this.touchedKey;
-      // Reset touch state
-      this.touchedKey = null;
-      this.touchStartTime = null;
+      // Mark as consumed (prevents repeat fires)
+      this.touchConsumed = true;
+      // Don't reset touch state yet - wait until finger leaves key
       return key;
     }
     
     return null;
+  }
+  
+  /**
+   * Reset touch state when finger leaves key
+   */
+  resetTouchState(): void {
+    this.touchedKey = null;
+    this.touchStartTime = null;
+    this.touchConsumed = false;
   }
   
   /**

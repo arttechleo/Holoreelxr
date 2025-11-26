@@ -72,9 +72,10 @@ export class XRMultiplayerPanel {
     // Create VR keypad
     this.keypad = new VRKeypad(scene);
     this.keypad.onInput((text) => {
-      // Sync keypad input with panel state
+      // CRITICAL FIX: Sync keypad input with panel state and update display
       this.joinInputCode = text;
-      this.render(); // Update panel display
+      this.render(); // Update panel display to show typed text
+      console.log('[XRMultiplayerPanel] Input updated:', text);
     });
     this.keypad.onConnectClick(() => {
       // Connect button pressed on keypad
