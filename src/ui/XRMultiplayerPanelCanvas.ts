@@ -32,7 +32,7 @@ export class XRMultiplayerPanel {
   private readonly CANVAS_H = 768;
   
   // Position offset (to the RIGHT of model, matching ReactionHud offset)
-  private readonly OFFSET = new THREE.Vector3(0.35, 0.05, 0); // RIGHT side (positive X)
+  private readonly OFFSET = new THREE.Vector3(0.50, 0.05, 0); // RIGHT side (positive X) - moved 15cm further right
   
   // Hit detection thickness (like ReactionHud)
   private readonly HIT_THICKNESS = 0.08;
@@ -179,8 +179,7 @@ export class XRMultiplayerPanel {
         await this.handleHost();
         break;
       case 'join':
-        this.mode = 'waiting';
-        this.render();
+        await this.handleJoin();
         break;
       case 'close':
         this.hide();
@@ -199,17 +198,42 @@ export class XRMultiplayerPanel {
       // Copy to clipboard
       if (navigator.clipboard) {
         navigator.clipboard.writeText(offer).then(() => {
-          console.log('[XRMultiplayerPanel] ✅ Code copied to clipboard');
+          console.log('[XRMultiplayerPanel] Code copied to clipboard');
         }).catch(err => {
-          console.error('[XRMultiplayerPanel] ❌ Failed to copy:', err);
+          console.error('[XRMultiplayerPanel] Failed to copy:', err);
         });
       }
       
       this.render();
-      console.log('[XRMultiplayerPanel] 🎮 HOST CODE:', offer);
+      console.log('[XRMultiplayerPanel] HOST CODE:', offer);
       
     } catch (error) {
-      console.error('[XRMultiplayerPanel] ❌ Host error:', error);
+      console.error('[XRMultiplayerPanel] Host error:', error);
+      this.mode = 'idle';
+      this.render();
+    }
+  }
+  
+  private async handleJoin(): Promise<void> {
+    this.mode = 'waiting';
+    this.render();
+    
+    // Get code from clipboard
+    try {
+      if (navigator.clipboard) {
+        const code = await navigator.clipboard.readText();
+        if (code && code.length > 20) {
+          this.currentCode = code;
+          await this.multiplayer.joinSession(code);
+          console.log('[XRMultiplayerPanel] Joined session with code:', code);
+        } else {
+          console.error('[XRMultiplayerPanel] No valid code in clipboard');
+          this.mode = 'idle';
+        }
+      }
+      this.render();
+    } catch (error) {
+      console.error('[XRMultiplayerPanel] Join error:', error);
       this.mode = 'idle';
       this.render();
     }
@@ -352,9 +376,29 @@ export class XRMultiplayerPanel {
       ctx.fillText('CLOSE', w / 2, closeY + 56);
       
     } else if (this.mode === 'waiting') {
-      ctx.fillStyle = '#ffff00';
+      ctx.fillStyle = '#00ff00';
       ctx.font = 'bold 48px Arial';
-      ctx.fillText('Waiting for connection...', w / 2, 300);
+      ctx.fillText('JOINING SESSION...', w / 2, 120);
+      
+      // Display code if available
+      if (this.currentCode) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 40px monospace';
+        const codeLength = this.currentCode.length;
+        const chunkSize = 8;
+        let yPos = 200;
+        
+        for (let i = 0; i < codeLength; i += chunkSize) {
+          const chunk = this.currentCode.substring(i, i + chunkSize);
+          ctx.fillText(chunk, w / 2, yPos);
+          yPos += 60;
+          if (yPos > 550) break;
+        }
+      }
+      
+      ctx.fillStyle = '#ffff00';
+      ctx.font = '32px Arial';
+      ctx.fillText('Waiting for connection...', w / 2, 600);
     }
     
     // Update texture
