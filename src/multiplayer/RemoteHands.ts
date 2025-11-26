@@ -5,194 +5,197 @@
 
 import * as THREE from 'three';
 import { HandState } from './MultiplayerManager';
+import { HAND_BONE_CONNECTIONS, HAND_JOINT_NAMES } from '../gestures/HandEngine';
+
+interface HandRenderGroup {
+  root: THREE.Group;
+  joints: THREE.Points;
+  bones: THREE.LineSegments;
+  pinchIndicator: THREE.Mesh;
+  jointPositions: Float32Array;
+  bonePositions: Float32Array;
+  jointGeometry: THREE.BufferGeometry;
+  boneGeometry: THREE.BufferGeometry;
+}
 
 export class RemoteHands {
   private scene: THREE.Scene;
-  private leftHandMesh: THREE.Mesh | null = null;
-  private rightHandMesh: THREE.Mesh | null = null;
-  private leftPinchIndicator: THREE.Mesh | null = null;
-  private rightPinchIndicator: THREE.Mesh | null = null;
   private group = new THREE.Group();
-  
-  // Ghost-like appearance for remote hands
-  private readonly HAND_COLOR = 0x4ECDC4; // Cyan
-  private readonly PINCH_COLOR = 0xFFD93D; // Yellow
-  
+  private readonly HAND_COLOR = 0x4ecdc4;
+  private readonly PINCH_COLOR = 0xffd93d;
+
+  private readonly leftHand: HandRenderGroup;
+  private readonly rightHand: HandRenderGroup;
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.group.name = 'RemoteHandsGroup';
     this.scene.add(this.group);
-    
-    this.createHandMeshes();
+
+    this.leftHand = this.createHandGroup('left');
+    this.rightHand = this.createHandGroup('right');
+
     console.log('[RemoteHands] 👻 Remote hands visualization created');
   }
-  
-  /**
-   * Create visual meshes for hands
-   */
-  private createHandMeshes(): void {
-    // Left hand
-    const leftGeom = new THREE.SphereGeometry(0.03, 16, 16);
-    const leftMat = new THREE.MeshBasicMaterial({
+
+  private createHandGroup(side: 'left' | 'right'): HandRenderGroup {
+    const root = new THREE.Group();
+    root.visible = false;
+    root.name = `${side}-remote-hand`;
+    this.group.add(root);
+
+    const jointPositions = new Float32Array(HAND_JOINT_NAMES.length * 3);
+    const jointGeometry = new THREE.BufferGeometry();
+    jointGeometry.setAttribute('position', new THREE.BufferAttribute(jointPositions, 3));
+    const jointMaterial = new THREE.PointsMaterial({
+      color: this.HAND_COLOR,
+      size: 0.01,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+    });
+    const joints = new THREE.Points(jointGeometry, jointMaterial);
+    root.add(joints);
+
+    const bonePositions = new Float32Array(HAND_BONE_CONNECTIONS.length * 6);
+    const boneGeometry = new THREE.BufferGeometry();
+    boneGeometry.setAttribute('position', new THREE.BufferAttribute(bonePositions, 3));
+    const boneMaterial = new THREE.LineBasicMaterial({
       color: this.HAND_COLOR,
       transparent: true,
       opacity: 0.6,
-      depthWrite: false
+      depthWrite: false,
     });
-    this.leftHandMesh = new THREE.Mesh(leftGeom, leftMat);
-    this.leftHandMesh.visible = false;
-    this.group.add(this.leftHandMesh);
-    
-    // Left pinch indicator
-    const leftPinchGeom = new THREE.RingGeometry(0.02, 0.04, 16);
-    const leftPinchMat = new THREE.MeshBasicMaterial({
-      color: this.PINCH_COLOR,
-      transparent: true,
-      opacity: 0.8,
-      side: THREE.DoubleSide
-    });
-    this.leftPinchIndicator = new THREE.Mesh(leftPinchGeom, leftPinchMat);
-    this.leftPinchIndicator.visible = false;
-    this.group.add(this.leftPinchIndicator);
-    
-    // Right hand
-    const rightGeom = new THREE.SphereGeometry(0.03, 16, 16);
-    const rightMat = new THREE.MeshBasicMaterial({
-      color: this.HAND_COLOR,
-      transparent: true,
-      opacity: 0.6,
-      depthWrite: false
-    });
-    this.rightHandMesh = new THREE.Mesh(rightGeom, rightMat);
-    this.rightHandMesh.visible = false;
-    this.group.add(this.rightHandMesh);
-    
-    // Right pinch indicator
-    const rightPinchGeom = new THREE.RingGeometry(0.02, 0.04, 16);
-    const rightPinchMat = new THREE.MeshBasicMaterial({
-      color: this.PINCH_COLOR,
-      transparent: true,
-      opacity: 0.8,
-      side: THREE.DoubleSide
-    });
-    this.rightPinchIndicator = new THREE.Mesh(rightPinchGeom, rightPinchMat);
-    this.rightPinchIndicator.visible = false;
-    this.group.add(this.rightPinchIndicator);
+    const bones = new THREE.LineSegments(boneGeometry, boneMaterial);
+    root.add(bones);
+
+    const pinchIndicator = new THREE.Mesh(
+      new THREE.RingGeometry(0.015, 0.03, 24),
+      new THREE.MeshBasicMaterial({
+        color: this.PINCH_COLOR,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    pinchIndicator.visible = false;
+    pinchIndicator.renderOrder = 9999;
+    root.add(pinchIndicator);
+
+    return {
+      root,
+      joints,
+      bones,
+      pinchIndicator,
+      jointPositions,
+      bonePositions,
+      jointGeometry,
+      boneGeometry,
+    };
   }
-  
-  /**
-   * Update remote hand positions
-   * CRITICAL FIX: Validate incoming data to prevent null reference errors
-   */
+
   update(hands: HandState | null | undefined): void {
-    // CRITICAL: Validate hands data
-    if (!hands || typeof hands !== 'object') {
-      return;
-    }
-    
-    // Update left hand
-    if (hands.left && hands.left.position && this.leftHandMesh) {
-      this.leftHandMesh.position.set(
-        hands.left.position.x,
-        hands.left.position.y,
-        hands.left.position.z
-      );
-      
-      if (hands.left.rotation) {
-        this.leftHandMesh.quaternion.set(
-          hands.left.rotation.x,
-          hands.left.rotation.y,
-          hands.left.rotation.z,
-          hands.left.rotation.w
-        );
-      }
-      
-      this.leftHandMesh.visible = true;
-      
-      // Show pinch indicator
-      if (this.leftPinchIndicator) {
-        this.leftPinchIndicator.position.copy(this.leftHandMesh.position);
-        this.leftPinchIndicator.visible = hands.left.pinching;
-        
-        // Face camera
-        if (hands.left.pinching) {
-          this.leftPinchIndicator.lookAt(0, hands.left.position.y, 0);
-        }
-      }
-    } else if (this.leftHandMesh) {
-      this.leftHandMesh.visible = false;
-      if (this.leftPinchIndicator) {
-        this.leftPinchIndicator.visible = false;
-      }
-    }
-    
-    // Update right hand
-    if (hands.right && hands.right.position && this.rightHandMesh) {
-      this.rightHandMesh.position.set(
-        hands.right.position.x,
-        hands.right.position.y,
-        hands.right.position.z
-      );
-      
-      if (hands.right.rotation) {
-        this.rightHandMesh.quaternion.set(
-          hands.right.rotation.x,
-          hands.right.rotation.y,
-          hands.right.rotation.z,
-          hands.right.rotation.w
-        );
-      }
-      
-      this.rightHandMesh.visible = true;
-      
-      // Show pinch indicator
-      if (this.rightPinchIndicator) {
-        this.rightPinchIndicator.position.copy(this.rightHandMesh.position);
-        this.rightPinchIndicator.visible = hands.right.pinching;
-        
-        // Face camera
-        if (hands.right.pinching) {
-          this.rightPinchIndicator.lookAt(0, hands.right.position.y, 0);
-        }
-      }
-    } else if (this.rightHandMesh) {
-      this.rightHandMesh.visible = false;
-      if (this.rightPinchIndicator) {
-        this.rightPinchIndicator.visible = false;
-      }
+    if (!hands) return;
+    const leftVisible = this.updateHand(hands.left, this.leftHand);
+    const rightVisible = this.updateHand(hands.right, this.rightHand);
+    const anyVisible = leftVisible || rightVisible;
+    this.group.visible = anyVisible;
+
+    if (hands.gestures?.heart) {
+      (this.leftHand.bones.material as THREE.LineBasicMaterial).color.set(0xff73ff);
+      (this.rightHand.bones.material as THREE.LineBasicMaterial).color.set(0xff73ff);
+    } else {
+      (this.leftHand.bones.material as THREE.LineBasicMaterial).color.set(this.HAND_COLOR);
+      (this.rightHand.bones.material as THREE.LineBasicMaterial).color.set(this.HAND_COLOR);
     }
   }
-  
-  /**
-   * Show/hide remote hands
-   */
+
+  private updateHand(data: HandState['left'], renderGroup: HandRenderGroup): boolean {
+    if (!data || !data.joints) {
+      renderGroup.root.visible = false;
+      return false;
+    }
+
+    let hasSample = false;
+    HAND_JOINT_NAMES.forEach((name, idx) => {
+      const sample = data.joints?.[name];
+      const offset = idx * 3;
+      if (sample) {
+        renderGroup.jointPositions[offset] = sample.x;
+        renderGroup.jointPositions[offset + 1] = sample.y;
+        renderGroup.jointPositions[offset + 2] = sample.z;
+        hasSample = true;
+      } else {
+        renderGroup.jointPositions[offset] =
+          renderGroup.jointPositions[offset + 1] =
+          renderGroup.jointPositions[offset + 2] =
+            0;
+      }
+    });
+
+    if (!hasSample) {
+      renderGroup.root.visible = false;
+      return false;
+    }
+
+    renderGroup.jointGeometry.attributes.position.needsUpdate = true;
+
+    HAND_BONE_CONNECTIONS.forEach(([from, to], boneIndex) => {
+      const fromSample = data.joints?.[from];
+      const toSample = data.joints?.[to];
+      const offset = boneIndex * 6;
+      if (fromSample && toSample) {
+        renderGroup.bonePositions[offset] = fromSample.x;
+        renderGroup.bonePositions[offset + 1] = fromSample.y;
+        renderGroup.bonePositions[offset + 2] = fromSample.z;
+        renderGroup.bonePositions[offset + 3] = toSample.x;
+        renderGroup.bonePositions[offset + 4] = toSample.y;
+        renderGroup.bonePositions[offset + 5] = toSample.z;
+      } else {
+        renderGroup.bonePositions.fill(0, offset, offset + 6);
+      }
+    });
+
+    renderGroup.boneGeometry.attributes.position.needsUpdate = true;
+    renderGroup.root.visible = true;
+
+    // Update pinch indicator with pinch mid (position) if available
+    if (data.position && data.pinching) {
+      renderGroup.pinchIndicator.visible = true;
+      renderGroup.pinchIndicator.position.set(
+        data.position.x,
+        data.position.y,
+        data.position.z
+      );
+    } else {
+      renderGroup.pinchIndicator.visible = false;
+    }
+
+    const jointMaterial = renderGroup.joints.material as THREE.PointsMaterial;
+    jointMaterial.opacity = data.open ? 1.0 : 0.75;
+
+    const boneMaterial = renderGroup.bones.material as THREE.LineBasicMaterial;
+    boneMaterial.opacity = data.pinching ? 1.0 : 0.6;
+
+    return true;
+  }
+
   setVisible(visible: boolean): void {
     this.group.visible = visible;
   }
-  
-  /**
-   * Cleanup
-   */
+
   dispose(): void {
-    if (this.leftHandMesh) {
-      this.leftHandMesh.geometry.dispose();
-      (this.leftHandMesh.material as THREE.Material).dispose();
-    }
-    if (this.rightHandMesh) {
-      this.rightHandMesh.geometry.dispose();
-      (this.rightHandMesh.material as THREE.Material).dispose();
-    }
-    if (this.leftPinchIndicator) {
-      this.leftPinchIndicator.geometry.dispose();
-      (this.leftPinchIndicator.material as THREE.Material).dispose();
-    }
-    if (this.rightPinchIndicator) {
-      this.rightPinchIndicator.geometry.dispose();
-      (this.rightPinchIndicator.material as THREE.Material).dispose();
-    }
-    
+    [this.leftHand, this.rightHand].forEach((hand) => {
+      hand.jointGeometry.dispose();
+      (hand.joints.material as THREE.Material).dispose();
+      hand.boneGeometry.dispose();
+      (hand.bones.material as THREE.Material).dispose();
+      hand.pinchIndicator.geometry.dispose();
+      (hand.pinchIndicator.material as THREE.Material).dispose();
+    });
     this.scene.remove(this.group);
-    console.log('[RemoteHands] Disposed');
   }
 }
 

@@ -6,7 +6,7 @@ import { GESTURE } from '../config/constants';
 type Side = 'left'|'right';
 type Listener = (detail?: any) => void;
 
-const XR_HAND_JOINTS = [
+export const HAND_JOINT_NAMES = [
   'wrist',
   'thumb-metacarpal','thumb-phalanx-proximal','thumb-phalanx-distal','thumb-tip',
   'index-finger-metacarpal','index-finger-phalanx-proximal','index-finger-phalanx-intermediate','index-finger-phalanx-distal','index-finger-tip',
@@ -14,7 +14,44 @@ const XR_HAND_JOINTS = [
   'ring-finger-metacarpal','ring-finger-phalanx-proximal','ring-finger-phalanx-intermediate','ring-finger-phalanx-distal','ring-finger-tip',
   'pinky-finger-metacarpal','pinky-finger-phalanx-proximal','pinky-finger-phalanx-intermediate','pinky-finger-phalanx-distal','pinky-finger-tip'
 ] as const;
-type XRHandJointName = typeof XR_HAND_JOINTS[number];
+export type HandJointName = typeof HAND_JOINT_NAMES[number];
+
+export const HAND_BONE_CONNECTIONS: ReadonlyArray<[HandJointName, HandJointName]> = [
+  ['wrist', 'thumb-metacarpal'],
+  ['thumb-metacarpal', 'thumb-phalanx-proximal'],
+  ['thumb-phalanx-proximal', 'thumb-phalanx-distal'],
+  ['thumb-phalanx-distal', 'thumb-tip'],
+
+  ['wrist', 'index-finger-metacarpal'],
+  ['index-finger-metacarpal', 'index-finger-phalanx-proximal'],
+  ['index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate'],
+  ['index-finger-phalanx-intermediate', 'index-finger-phalanx-distal'],
+  ['index-finger-phalanx-distal', 'index-finger-tip'],
+
+  ['wrist', 'middle-finger-metacarpal'],
+  ['middle-finger-metacarpal', 'middle-finger-phalanx-proximal'],
+  ['middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate'],
+  ['middle-finger-phalanx-intermediate', 'middle-finger-phalanx-distal'],
+  ['middle-finger-phalanx-distal', 'middle-finger-tip'],
+
+  ['wrist', 'ring-finger-metacarpal'],
+  ['ring-finger-metacarpal', 'ring-finger-phalanx-proximal'],
+  ['ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate'],
+  ['ring-finger-phalanx-intermediate', 'ring-finger-phalanx-distal'],
+  ['ring-finger-phalanx-distal', 'ring-finger-tip'],
+
+  ['wrist', 'pinky-finger-metacarpal'],
+  ['pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal'],
+  ['pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate'],
+  ['pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal'],
+  ['pinky-finger-phalanx-distal', 'pinky-finger-tip'],
+] as const;
+
+export type HandJointPayload = Partial<Record<HandJointName, { x: number; y: number; z: number }>>;
+export interface HandJointSnapshot {
+  left: HandJointPayload;
+  right: HandJointPayload;
+}
 
 export class HandEngine {
   constructor(public renderer: THREE.WebGLRenderer) {}
@@ -25,13 +62,14 @@ export class HandEngine {
   private lastMap = new Map<string,{val:boolean; changeAt:number}>();
 
   public state = {
-    left:  { pinch:false },
-    right: { pinch:false },
+    left:  { pinch:false, open:false },
+    right: { pinch:false, open:false },
     heart:false,
     stopPalm:false  // CRITICAL: Added for multiplayer panel trigger
   };
 
-  private lastPos: Record<'left'|'right', Partial<Record<XRHandJointName, THREE.Vector3>>> = { left:{}, right:{} };
+  private lastPos: Record<'left'|'right', Partial<Record<HandJointName, THREE.Vector3>>> = { left:{}, right:{} };
+  private lastRot: Record<'left'|'right', Partial<Record<HandJointName, THREE.Quaternion>>> = { left:{}, right:{} };
 
   private listeners: Record<string, Listener[]> = {};
   private heartGraceUntil = 0;
@@ -44,6 +82,27 @@ export class HandEngine {
     if (idx >= 0) arr.splice(idx, 1);
   }
   private emit(ev: string, detail?: any){ (this.listeners[ev]||[]).forEach(f=>f(detail)); }
+
+  getJointSnapshot(): HandJointSnapshot {
+    const left: HandJointPayload = {};
+    const right: HandJointPayload = {};
+    for (const name of HAND_JOINT_NAMES) {
+      const lp = this.lastPos.left[name];
+      if (lp) {
+        left[name] = { x: lp.x, y: lp.y, z: lp.z };
+      }
+      const rp = this.lastPos.right[name];
+      if (rp) {
+        right[name] = { x: rp.x, y: rp.y, z: rp.z };
+      }
+    }
+    return { left, right };
+  }
+
+  getJointQuaternion(side: Side, name: HandJointName): THREE.Quaternion | null {
+    const rot = this.lastRot[side][name];
+    return rot ? rot.clone() : null;
+  }
 
   private smooth(key:string, v:boolean){
     const buf=this.history[key]??(this.history[key]=[]);
@@ -107,13 +166,17 @@ export class HandEngine {
       const hand = src.hand as XRHand;
       let handHasValidJoints = false;
       
-      for (const name of XR_HAND_JOINTS) {
+      for (const name of HAND_JOINT_NAMES) {
         const js = (hand as any).get?.(name as string) as XRJointSpace | undefined;
         if (!js) continue;
         const jp = getJointPose(js, info.refSpace);
         if (!jp || !jp.transform) continue;
         const { x, y, z } = jp.transform.position;
         (this.lastPos[side][name] ??= new THREE.Vector3()).set(x, y, z);
+        if (jp.transform.orientation) {
+          const { x: qx, y: qy, z: qz, w: qw } = jp.transform.orientation;
+          (this.lastRot[side][name] ??= new THREE.Quaternion()).set(qx, qy, qz, qw);
+        }
         handHasValidJoints = true;
       }
       
@@ -125,12 +188,14 @@ export class HandEngine {
     if (!leftHandInFrame) {
       this.state.left.pinch = false;
       this.lastPos.left = {};
+      this.lastRot.left = {};
     }
     if (!rightHandInFrame) {
       this.state.right.pinch = false;
       this.lastPos.right = {};
+      this.lastRot.right = {};
     }
-    const J = (side:Side, name:XRHandJointName) => {
+    const J = (side:Side, name:HandJointName) => {
       // CRITICAL FIX: Enhanced null safety
       if (!this.lastPos[side]) return null;
       return this.lastPos[side][name] ?? null;
@@ -209,6 +274,27 @@ export class HandEngine {
       }
     }
 
+    // OPEN PALM detection (used for gesture sync + stop palm)
+    const openPalm = (side: Side) => {
+      const inFrame = side === 'left' ? leftHandInFrame : rightHandInFrame;
+      if (!inFrame) return false;
+      const W = J(side, 'wrist');
+      if (!W) return false;
+      const fingerTips: HandJointName[] = [
+        'index-finger-tip',
+        'middle-finger-tip',
+        'ring-finger-tip',
+        'pinky-finger-tip',
+        'thumb-tip',
+      ];
+      return fingerTips.every((name) => {
+        const tip = J(side, name);
+        return tip ? tip.distanceTo(W) > GESTURE.FINGER_EXTENDED_THRESHOLD * 0.85 : false;
+      });
+    };
+    this.state.left.open = openPalm('left');
+    this.state.right.open = openPalm('right');
+
     // thumbs up (like) - only detect if hand is in frame AND not pinching
     const thumbUp = (side:Side) => {
       const inFrame = side === 'left' ? leftHandInFrame : rightHandInFrame;
@@ -228,7 +314,7 @@ export class HandEngine {
       // All other fingers must be curled (close to wrist)
       const curled = ['index-finger-tip','middle-finger-tip','ring-finger-tip','pinky-finger-tip']
         .every(n => { 
-          const P = J(side, n as XRHandJointName);
+        const P = J(side, n as HandJointName);
           return P && P.distanceTo(W) < GESTURE.FINGER_CURLED_THRESHOLD;
         });
       
@@ -259,26 +345,13 @@ export class HandEngine {
     // Used to trigger multiplayer panel
     // CRITICAL: Only detect on right hand to prevent accidental triggers
     const stopPalm = (side: Side) => {
-      const inFrame = side === 'right' ? rightHandInFrame : leftHandInFrame;
-      if (!inFrame) return false;
+      if (side !== 'right') return false;
+      if (!rightHandInFrame) return false;
       
       // Don't detect if pinching (user is interacting)
-      const isPinching = side === 'right' ? this.state.right.pinch : this.state.left.pinch;
-      if (isPinching) return false;
+      if (this.state.right.pinch) return false;
       
-      const W = J(side, 'wrist');
-      const IT = J(side, 'index-finger-tip'), MT = J(side, 'middle-finger-tip');
-      const RT = J(side, 'ring-finger-tip'),  PT = J(side, 'pinky-finger-tip');
-      const TT = J(side, 'thumb-tip');
-      
-      if (!(W && IT && MT && RT && PT && TT)) return false;
-      
-      // All fingers must be extended (away from wrist)
-      const allExtended = [IT, MT, RT, PT, TT].every(
-        p => p.distanceTo(W) > GESTURE.FINGER_EXTENDED_THRESHOLD * 0.9  // Slightly relaxed
-      );
-      
-      return allExtended;
+      return openPalm('right');
     };
     
     // Only detect on RIGHT hand to prevent accidental triggers

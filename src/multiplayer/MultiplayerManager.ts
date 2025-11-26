@@ -6,19 +6,28 @@
  */
 
 import { logError } from '../utils/errors';
-import Peer, { DataConnection } from 'peerjs';
+import Peer, { DataConnection, MediaConnection } from 'peerjs';
+import type { HandJointPayload } from '../gestures/HandEngine';
+
+type Vec3 = { x: number; y: number; z: number };
+type QuaternionLike = { x: number; y: number; z: number; w: number };
+
+export interface HandPoseState {
+  position: Vec3 | null;
+  rotation: QuaternionLike | null;
+  pinching: boolean;
+  open: boolean;
+  joints?: HandJointPayload;
+}
 
 export interface HandState {
-  left: {
-    position: { x: number; y: number; z: number } | null;
-    rotation: { x: number; y: number; z: number; w: number } | null;
-    pinching: boolean;
+  left: HandPoseState;
+  right: HandPoseState;
+  gestures: {
+    heart: boolean;
+    stopPalm: boolean;
   };
-  right: {
-    position: { x: number; y: number; z: number } | null;
-    rotation: { x: number; y: number; z: number; w: number } | null;
-    pinching: boolean;
-  };
+  timestamp: number;
 }
 
 export interface GestureEvent {
@@ -36,10 +45,31 @@ export interface TransformEvent {
   timestamp: number;
 }
 
+export interface FeedSyncState {
+  index: number;
+  itemId: string | null;
+  position: Vec3 | null;
+  scale: number;
+  rotationY: number;
+  timestamp: number;
+}
+
+export interface VoiceState {
+  enabled: boolean;
+  muted: boolean;
+  remoteReady: boolean;
+  remoteActive: boolean;
+  remoteMuted: boolean;
+  error?: string;
+}
+
 type MessageType = 
   | { type: 'hands'; data: HandState }
   | { type: 'gesture'; data: GestureEvent }
   | { type: 'transform'; data: TransformEvent }
+  | { type: 'feed'; data: FeedSyncState }
+  | { type: 'voice-ready'; ready: boolean }
+  | { type: 'voice-state'; data: { muted: boolean } }
   | { type: 'ping'; timestamp: number };
 
 export class MultiplayerManager {
@@ -48,12 +78,16 @@ export class MultiplayerManager {
   private isHost = false;
   private connected = false;
   private myPeerId: string | null = null;
+  private role: 'host' | 'guest' | null = null;
+  private remotePeerId: string | null = null;
   
   // Callbacks
   private onRemoteHandsCallback?: (hands: HandState) => void;
   private onRemoteGestureCallback?: (gesture: GestureEvent) => void;
   private onRemoteTransformCallback?: (transform: TransformEvent) => void;
   private onConnectionChangeCallback?: (connected: boolean) => void;
+  private onRemoteFeedCallback?: (state: FeedSyncState) => void;
+  private onVoiceStateChangeCallback?: (state: VoiceState) => void;
   
   // Throttling for hand updates (send max 20 times per second)
   private lastHandUpdateTime = 0;
@@ -64,6 +98,20 @@ export class MultiplayerManager {
   private lastPingTime = 0;
   private pingIntervalId: number | null = null;
   private pendingPings = new Map<number, number>(); // Track ping timestamps for RTT calculation
+  
+  // Voice chat
+  private mediaConnection: MediaConnection | null = null;
+  private localAudioStream: MediaStream | null = null;
+  private remoteAudioEl: HTMLAudioElement | null = null;
+  private localVoiceReady = false;
+  private remoteVoiceReady = false;
+  private voiceState: VoiceState = {
+    enabled: false,
+    muted: false,
+    remoteReady: false,
+    remoteActive: false,
+    remoteMuted: false,
+  };
   
   constructor() {
     // Logging controlled by PRODUCTION_CONFIG
@@ -98,6 +146,7 @@ export class MultiplayerManager {
       }
       
       this.isHost = true;
+      this.role = 'host';
       
       // Create Peer instance (PeerJS handles all signaling automatically)
       return new Promise((resolve, reject) => {
@@ -131,6 +180,10 @@ export class MultiplayerManager {
           reject(error);
         });
         
+        this.peer.on('call', (call) => {
+          this.handleIncomingCall(call);
+        });
+        
         // Host waits for incoming connection from guest
         this.peer.on('connection', (conn) => {
           console.log('[Multiplayer] 📡 Incoming connection from guest');
@@ -160,6 +213,7 @@ export class MultiplayerManager {
       }
       
       this.isHost = false;
+      this.role = 'guest';
       
       // Create Peer instance for guest
       return new Promise((resolve, reject) => {
@@ -222,6 +276,10 @@ export class MultiplayerManager {
           console.error('[Multiplayer] Peer error:', error);
           reject(error);
         });
+        
+        this.peer.on('call', (call) => {
+          this.handleIncomingCall(call);
+        });
       });
     } catch (error) {
       console.error('[Multiplayer] Join session error:', error);
@@ -240,6 +298,7 @@ export class MultiplayerManager {
     }
     
     this.dataConnection = conn;
+    this.remotePeerId = conn.peer;
     
     conn.on('open', () => {
       console.log('[Multiplayer] 📡 Data channel OPEN - ready to sync!');
@@ -254,6 +313,8 @@ export class MultiplayerManager {
       console.log('[Multiplayer] 📡 Data channel closed');
       this.connected = false;
       this.stopPingLoop();
+      this.cleanupMediaConnection();
+      this.remotePeerId = null;
       this.onConnectionChangeCallback?.(false);
     });
     
@@ -295,6 +356,25 @@ export class MultiplayerManager {
         case 'transform':
           if (message.data && message.data.type && message.data.modelId) {
             this.onRemoteTransformCallback?.(message.data);
+          }
+          break;
+        case 'feed':
+          if (message.data) {
+            this.onRemoteFeedCallback?.(message.data);
+          }
+          break;
+        case 'voice-ready':
+          this.remoteVoiceReady = message.ready;
+          this.voiceState.remoteReady = message.ready;
+          this.notifyVoiceState();
+          if (this.isHostRole() && message.ready && this.localVoiceReady) {
+            this.startVoiceCall();
+          }
+          break;
+        case 'voice-state':
+          if (message.data) {
+            this.voiceState.remoteMuted = !!message.data.muted;
+            this.notifyVoiceState();
           }
           break;
         case 'ping':
@@ -373,6 +453,62 @@ export class MultiplayerManager {
     this.sendMessage({ type: 'transform', data: transform });
     console.log('[Multiplayer] 📤 Sent transform:', transform.type);
   }
+
+  broadcastFeedState(state: FeedSyncState): void {
+    this.sendMessage({ type: 'feed', data: state });
+  }
+
+  async enableVoice(): Promise<void> {
+    if (this.localVoiceReady && this.localAudioStream) {
+      this.voiceState.enabled = true;
+      this.notifyVoiceState();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+      this.localAudioStream = stream;
+      this.localVoiceReady = true;
+      this.voiceState.enabled = true;
+      this.applyMuteState();
+      this.voiceState.error = undefined;
+      this.notifyVoiceState();
+      this.sendMessage({ type: 'voice-ready', ready: true });
+      if (this.isHostRole() && this.remoteVoiceReady) {
+        this.startVoiceCall();
+      }
+    } catch (error) {
+      logError(error, 'Multiplayer enableVoice');
+      this.voiceState.error = (error as Error)?.message || 'Microphone access denied';
+      this.voiceState.enabled = false;
+      this.notifyVoiceState();
+      throw error;
+    }
+  }
+
+  setVoiceMuted(muted: boolean): void {
+    if (this.voiceState.muted === muted) return;
+    this.voiceState.muted = muted;
+    this.applyMuteState();
+    this.notifyVoiceState();
+    this.sendMessage({ type: 'voice-state', data: { muted } });
+  }
+
+  getVoiceState(): VoiceState {
+    return { ...this.voiceState };
+  }
+
+  isHostRole(): boolean {
+    return this.role === 'host';
+  }
+
+  isGuestRole(): boolean {
+    return this.role === 'guest';
+  }
   
   /**
    * Start ping loop to measure latency
@@ -429,6 +565,14 @@ export class MultiplayerManager {
   onConnectionChange(callback: (connected: boolean) => void): void {
     this.onConnectionChangeCallback = callback;
   }
+
+  onRemoteFeed(callback: (state: FeedSyncState) => void): void {
+    this.onRemoteFeedCallback = callback;
+  }
+
+  onVoiceStateChange(callback: (state: VoiceState) => void): void {
+    this.onVoiceStateChangeCallback = callback;
+  }
   
   /**
    * Get connection status
@@ -451,6 +595,7 @@ export class MultiplayerManager {
     console.log('[Multiplayer] 🛑 Disconnecting and cleaning up...');
     
     this.stopPingLoop();
+    this.cleanupMediaConnection(true);
     
     if (this.dataConnection) {
       if (this.dataConnection.open) {
@@ -467,6 +612,8 @@ export class MultiplayerManager {
     this.connected = false;
     this.isHost = false;
     this.myPeerId = null;
+    this.role = null;
+    this.remotePeerId = null;
     this.latency = 0;
     this.lastPingTime = 0;
     this.lastHandUpdateTime = 0;
@@ -475,5 +622,110 @@ export class MultiplayerManager {
     this.onConnectionChangeCallback?.(false);
     
     console.log('[Multiplayer] ✅ Cleanup complete');
+  }
+
+  private notifyVoiceState(): void {
+    this.onVoiceStateChangeCallback?.({ ...this.voiceState });
+  }
+
+  private applyMuteState(): void {
+    if (!this.localAudioStream) return;
+    this.localAudioStream.getAudioTracks().forEach((track) => {
+      track.enabled = !this.voiceState.muted;
+    });
+  }
+
+  private startVoiceCall(): void {
+    if (!this.peer || !this.localAudioStream || !this.remotePeerId) return;
+    if (!this.isHostRole()) return;
+    if (this.mediaConnection && this.mediaConnection.open) return;
+    const call = this.peer.call(this.remotePeerId, this.localAudioStream);
+    if (!call) return;
+    this.mediaConnection = call;
+    this.setupMediaConnection(call);
+  }
+
+  private handleIncomingCall(call: MediaConnection): void {
+    if (this.mediaConnection) {
+      this.mediaConnection.close();
+    }
+    this.mediaConnection = call;
+    const stream = this.localVoiceReady && this.localAudioStream ? this.localAudioStream : undefined;
+    try {
+      call.answer(stream);
+    } catch (error) {
+      logError(error, 'Multiplayer answer voice call');
+    }
+    this.setupMediaConnection(call);
+  }
+
+  private setupMediaConnection(call: MediaConnection): void {
+    call.on('stream', (remoteStream) => {
+      this.attachRemoteAudio(remoteStream);
+      this.voiceState.remoteActive = true;
+      this.notifyVoiceState();
+    });
+    call.on('close', () => {
+      this.voiceState.remoteActive = false;
+      this.mediaConnection = null;
+      this.cleanupRemoteAudio();
+      this.notifyVoiceState();
+    });
+    call.on('error', (error) => {
+      logError(error, 'Multiplayer voice call');
+      this.voiceState.remoteActive = false;
+      this.mediaConnection = null;
+      this.cleanupRemoteAudio();
+      this.notifyVoiceState();
+    });
+  }
+
+  private attachRemoteAudio(stream: MediaStream): void {
+    if (!this.remoteAudioEl) {
+      this.remoteAudioEl = document.createElement('audio');
+      this.remoteAudioEl.autoplay = true;
+      this.remoteAudioEl.playsInline = true;
+      this.remoteAudioEl.style.display = 'none';
+      document.body.appendChild(this.remoteAudioEl);
+    }
+    this.remoteAudioEl.srcObject = stream;
+  }
+
+  private cleanupRemoteAudio(): void {
+    if (this.remoteAudioEl) {
+      this.remoteAudioEl.srcObject = null;
+    }
+  }
+
+  private cleanupMediaConnection(stopLocalStream = false): void {
+    if (this.mediaConnection) {
+      try {
+        this.mediaConnection.close();
+      } catch (error) {
+        logError(error, 'Multiplayer cleanup voice call');
+      }
+      this.mediaConnection = null;
+    }
+    if (stopLocalStream && this.localAudioStream) {
+      this.localAudioStream.getTracks().forEach((track) => track.stop());
+      this.localAudioStream = null;
+      this.localVoiceReady = false;
+      this.voiceState.enabled = false;
+    }
+    if (stopLocalStream && this.remoteAudioEl) {
+      this.remoteAudioEl.srcObject = null;
+      this.remoteAudioEl.remove();
+      this.remoteAudioEl = null;
+    } else {
+      this.cleanupRemoteAudio();
+    }
+    if (stopLocalStream) {
+      this.voiceState.muted = false;
+    }
+    this.remoteVoiceReady = false;
+    this.voiceState.remoteReady = false;
+    this.voiceState.remoteActive = false;
+    this.voiceState.remoteMuted = false;
+    this.notifyVoiceState();
   }
 }
