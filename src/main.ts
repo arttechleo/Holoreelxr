@@ -54,7 +54,8 @@ const remoteHands = new RemoteHands(app.scene);
 const xrMultiplayerPanel = new XRMultiplayerPanel(
   app.scene, 
   multiplayer,
-  () => store.getObjectWorldPos() // Like ReactionHud - callback to get object position
+  () => store.getObjectWorldPos(), // Like ReactionHud - callback to get object position
+  () => app.camera // Camera for keypad positioning
 );
 
 // Expose multiplayer panel globally for easy access from connect.html or console

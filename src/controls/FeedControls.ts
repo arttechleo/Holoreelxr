@@ -580,6 +580,41 @@ export class FeedControls {
   // CRITICAL FIX: Immediate pinch-to-click for multiplayer panel (dual-path: event + frame loop)
   private tryClickMultiplayerPanel(side: 'left' | 'right'): boolean {
     const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+    
+    // Check keypad first (highest priority when visible)
+    const keypad = multiplayerPanel?.getKeypad?.();
+    if (keypad?.isVisible()) {
+      const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
+      if (!from) return false;
+      
+      const tip = this.hands.indexTip(side);
+      const wrist = this.hands.wrist?.(side);
+      
+      let handDir: THREE.Vector3;
+      if (tip && wrist) {
+        handDir = tip.clone().sub(wrist).normalize();
+      } else if (tip) {
+        const camPos = new THREE.Vector3();
+        this.app.camera.getWorldPosition(camPos);
+        handDir = tip.clone().sub(camPos).normalize();
+      } else {
+        const camPos = new THREE.Vector3();
+        this.app.camera.getWorldPosition(camPos);
+        handDir = from.clone().sub(camPos).normalize();
+      }
+      
+      const ray = new THREE.Ray(from, handDir);
+      const keypadHit = keypad.raycastHit(ray);
+      
+      if (keypadHit) {
+        // Keypad key pressed
+        keypad.handleKeyPress(keypadHit);
+        this.setRayVisible(side, false);
+        this.scrollDisarmedThisPinch = true;
+        return true; // Handled
+      }
+    }
+    
     if (!multiplayerPanel?.isVisible()) return false;
     
     const now = performance.now();
@@ -802,7 +837,6 @@ export class FeedControls {
     // Check XR panels with hand gesture ray
     const authPanel = (this as any).authPanel as XRAuthPanel | undefined;
     const musicPanel = (this as any).musicPanel as XRMusicPanel | undefined;
-    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
     
     if (authPanel?.isVisible()) {
       const authHit = authPanel.raycast(ray);
@@ -828,7 +862,35 @@ export class FeedControls {
       }
     }
     
-    // Check multiplayer panel FIRST (higher priority than ReactionHud)
+    // Check VR keypad FIRST (highest priority when visible)
+    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+    const keypad = multiplayerPanel?.getKeypad?.();
+    if (keypad?.isVisible()) {
+      const keypadHit = keypad.raycastHit(ray);
+      
+      if (keypadHit) {
+        // Set hover for visual feedback
+        keypad.setHoveredKey(keypadHit);
+        
+        // Check if pointing hand is pinching
+        const pointingHandPinch = pointingSide === 'right' 
+          ? this.hands.state.right.pinch 
+          : this.hands.state.left.pinch;
+        
+        if (pointingHandPinch) {
+          // Pinch detected - press key
+          keypad.handleKeyPress(keypadHit);
+          return; // Block other UI
+        }
+        
+        return; // Hovering - block other UI
+      } else {
+        // Not pointing at keypad
+        keypad.setHoveredKey(null);
+      }
+    }
+    
+    // Check multiplayer panel (lower priority than keypad)
     // CRITICAL FIX: Use immediate pinch-to-click (consistent with auth/music panels)
     // This is more reliable than dwell system and provides better UX
     if (multiplayerPanel?.isVisible()) {
