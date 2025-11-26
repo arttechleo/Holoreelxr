@@ -41,11 +41,11 @@ export class XRMultiplayerPanel {
   private getObjectWorldPos: () => THREE.Vector3 | null;
   
   // State
-  private currentCode = ''; // 6-char display code
-  private fullOffer = ''; // Full SDP for connection
-  private mode: 'idle' | 'hosting' | 'waiting' = 'idle';
+  private currentCode = ''; // Peer ID for connection
+  private mode: 'idle' | 'hosting' | 'waiting' | 'joining' = 'idle';
   private hoveredButton: ButtonType | null = null;
   private isCreatingSession = false; // Prevent multiple simultaneous session creations
+  private joinInputCode = ''; // Code entered for joining
   
   // Button regions for raycasting (in canvas coordinates)
   private buttonRegions = {
@@ -179,12 +179,35 @@ export class XRMultiplayerPanel {
     switch (button) {
       case 'host':
         await this.handleHost();
+        // Copy Peer ID to console for easy sharing
+        if (this.currentCode) {
+          console.log('[XRMultiplayerPanel] 📋 HOST PEER ID (copy this):', this.currentCode);
+          // Try to copy to clipboard if available
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(this.currentCode).catch(() => {
+              // Ignore clipboard errors
+            });
+          }
+        }
         break;
       case 'join':
-        await this.handleJoin();
+        if (this.mode === 'joining' && this.joinInputCode) {
+          // In joining mode with code, execute join
+          await this.executeJoin();
+        } else {
+          // Switch to joining mode
+          await this.handleJoin();
+        }
         break;
       case 'close':
-        this.hide();
+        if (this.mode === 'joining') {
+          // Go back to idle
+          this.mode = 'idle';
+          this.joinInputCode = '';
+          this.render();
+        } else {
+          this.hide();
+        }
         break;
     }
   }
@@ -208,23 +231,19 @@ export class XRMultiplayerPanel {
       // Create session with timeout to prevent freeze
       const sessionPromise = this.multiplayer.createSession();
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Session creation timeout')), 10000)
+        setTimeout(() => reject(new Error('Session creation timeout')), 15000)
       );
       
-      const offer = await Promise.race([sessionPromise, timeoutPromise]) as string;
-      this.fullOffer = offer;
-      
-      // Generate 6-character code synchronously (no async hash)
-      this.currentCode = this.generateCode(offer);
+      const peerId = await Promise.race([sessionPromise, timeoutPromise]) as string;
+      this.currentCode = peerId; // Use Peer ID directly
       
       this.render();
-      console.log('[XRMultiplayerPanel] HOST CODE:', this.currentCode);
+      console.log('[XRMultiplayerPanel] ✅ HOST PEER ID:', this.currentCode);
       
     } catch (error) {
       console.error('[XRMultiplayerPanel] Host error:', error);
       this.mode = 'idle';
       this.currentCode = '';
-      this.fullOffer = '';
       this.render();
     } finally {
       // CRITICAL FIX: Always reset flag, even on error
@@ -232,37 +251,69 @@ export class XRMultiplayerPanel {
     }
   }
   
-  // Synchronous code generation (no async, no crypto - fast and safe)
-  private generateCode(str: string): string {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    // Convert to 6-char alphanumeric code
-    const code = Math.abs(hash).toString(36).toUpperCase().padStart(6, '0').substring(0, 6);
-    return code;
+  private async handleJoin(): Promise<void> {
+    // Switch to joining mode - will show input UI
+    this.mode = 'joining';
+    this.joinInputCode = '';
+    this.render();
+    console.log('[XRMultiplayerPanel] Join mode - waiting for code input');
   }
   
-  private async handleJoin(): Promise<void> {
+  /**
+   * Set join code (called from UI, connect.html, or browser console)
+   * Expose globally for easy access: window.setMultiplayerJoinCode('peer-id')
+   */
+  setJoinCode(code: string): void {
+    this.joinInputCode = code.trim();
+    this.render();
+    console.log('[XRMultiplayerPanel] Join code set:', this.joinInputCode);
+  }
+  
+  /**
+   * Get current host code (for sharing)
+   */
+  getHostCode(): string {
+    return this.currentCode;
+  }
+  
+  /**
+   * Execute join with current code
+   */
+  async executeJoin(): Promise<void> {
+    if (!this.joinInputCode) {
+      console.warn('[XRMultiplayerPanel] No join code provided');
+      return;
+    }
+    
+    if (this.isCreatingSession) {
+      console.warn('[XRMultiplayerPanel] Join already in progress');
+      return;
+    }
+    
+    this.isCreatingSession = true;
     this.mode = 'waiting';
     this.render();
     
-    // For now, join requires manual code entry - show instructions
-    // In future: can add input field or QR code scanning
     try {
-      // Wait a moment then show that user needs to enter code
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 0));
       
-      // For MVP: Show that code entry is needed
-      // The full offer should be entered via some method (not clipboard)
-      console.log('[XRMultiplayerPanel] Join requires code entry');
+      const joinPromise = this.multiplayer.joinSession(this.joinInputCode);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Join timeout')), 15000)
+      );
+      
+      await Promise.race([joinPromise, timeoutPromise]);
+      
+      console.log('[XRMultiplayerPanel] ✅ Successfully joined session!');
+      // Connection change callback will update UI
       
     } catch (error) {
       console.error('[XRMultiplayerPanel] Join error:', error);
       this.mode = 'idle';
+      this.joinInputCode = '';
       this.render();
+    } finally {
+      this.isCreatingSession = false;
     }
   }
   
@@ -369,17 +420,22 @@ export class XRMultiplayerPanel {
     } else if (this.mode === 'hosting') {
       ctx.fillStyle = '#00ff00';
       ctx.font = 'bold 48px Arial';
-      ctx.fillText('SESSION CODE:', w / 2, 120);
+      ctx.fillText('YOUR PEER ID:', w / 2, 120);
       
-      // Display only first 6 characters of code
+      // Display full Peer ID (shorter, cleaner than SDP)
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 80px monospace';
-      const displayCode = this.currentCode.substring(0, 6).toUpperCase();
-      ctx.fillText(displayCode, w / 2, 250);
+      ctx.font = 'bold 60px monospace';
+      ctx.fillText(this.currentCode, w / 2, 220);
       
       ctx.fillStyle = '#aaaaaa';
+      ctx.font = '24px Arial';
+      ctx.fillText('Share this ID with friend', w / 2, 280);
+      ctx.fillText('They can join using JOIN button', w / 2, 320);
+      
+      // Copy to clipboard hint
+      ctx.fillStyle = '#888888';
       ctx.font = '20px Arial';
-      ctx.fillText('Share this code with friend', w / 2, yPos + 20);
+      ctx.fillText('(Code copied to console - check browser)', w / 2, 380);
       
       // Close button
       const closeY = 650;
@@ -391,20 +447,33 @@ export class XRMultiplayerPanel {
       ctx.font = 'bold 38px Arial';
       ctx.fillText('CLOSE', w / 2, closeY + 56);
       
-    } else if (this.mode === 'waiting') {
+    } else if (this.mode === 'joining') {
       ctx.fillStyle = '#00ff00';
       ctx.font = 'bold 48px Arial';
-      ctx.fillText('ENTER CODE', w / 2, 120);
+      ctx.fillText('ENTER PEER ID', w / 2, 120);
       
-      // Display code entry instructions
+      // Instructions
       ctx.fillStyle = '#ffffff';
-      ctx.font = '32px Arial';
-      ctx.fillText('Code entry coming soon', w / 2, 250);
+      ctx.font = '28px Arial';
+      ctx.fillText('Use connect.html page', w / 2, 200);
+      ctx.fillText('or set code programmatically', w / 2, 240);
       
-      ctx.fillStyle = '#aaaaaa';
-      ctx.font = '24px Arial';
-      ctx.fillText('For now, use HOST mode', w / 2, 320);
-      ctx.fillText('and share the code shown', w / 2, 360);
+      // Show current input if any
+      if (this.joinInputCode) {
+        ctx.fillStyle = '#00ff00';
+        ctx.font = 'bold 40px monospace';
+        ctx.fillText(this.joinInputCode, w / 2, 320);
+        
+        // Connect button
+        const connectY = 420;
+        const connectH = 100;
+        this.buttonRegions.join = { x: 212, y: connectY, w: 600, h: connectH };
+        ctx.fillStyle = this.hoveredButton === 'join' ? '#4caf50' : '#2e7d32';
+        ctx.fillRect(this.buttonRegions.join.x, connectY, this.buttonRegions.join.w, connectH);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 48px Arial';
+        ctx.fillText('CONNECT', w / 2, connectY + 60);
+      }
       
       // Close button to go back
       const closeY = 650;
@@ -415,6 +484,16 @@ export class XRMultiplayerPanel {
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 38px Arial';
       ctx.fillText('BACK', w / 2, closeY + 56);
+      
+    } else if (this.mode === 'waiting') {
+      ctx.fillStyle = '#00ff00';
+      ctx.font = 'bold 48px Arial';
+      ctx.fillText('CONNECTING...', w / 2, 200);
+      
+      ctx.fillStyle = '#aaaaaa';
+      ctx.font = '24px Arial';
+      ctx.fillText('Establishing connection', w / 2, 280);
+      ctx.fillText('Please wait...', w / 2, 320);
     }
     
     // Update texture

@@ -2,10 +2,11 @@
  * MultiplayerManager - Real-time multiplayer for HoloreelXR
  * Enables two users to share hand gestures, emoji reactions, and 3D model transforms
  * 
- * Uses WebRTC for peer-to-peer real-time communication
+ * Uses PeerJS for automatic WebRTC signaling (simplifies connection setup)
  */
 
 import { logError } from '../utils/errors';
+import Peer, { DataConnection } from 'peerjs';
 
 export interface HandState {
   left: {
@@ -42,10 +43,11 @@ type MessageType =
   | { type: 'ping'; timestamp: number };
 
 export class MultiplayerManager {
-  private peerConnection: RTCPeerConnection | null = null;
-  private dataChannel: RTCDataChannel | null = null;
+  private peer: Peer | null = null;
+  private dataConnection: DataConnection | null = null;
   private isHost = false;
   private connected = false;
+  private myPeerId: string | null = null;
   
   // Callbacks
   private onRemoteHandsCallback?: (hands: HandState) => void;
@@ -60,66 +62,73 @@ export class MultiplayerManager {
   // Connection stats
   private latency = 0;
   private lastPingTime = 0;
-  private pingIntervalId: number | null = null; // CRITICAL: Store interval ID for cleanup
+  private pingIntervalId: number | null = null;
   
   constructor() {
-    console.log('[Multiplayer] 🎮 Initializing MultiplayerManager');
+    console.log('[Multiplayer] 🎮 Initializing MultiplayerManager with PeerJS');
+  }
+  
+  /**
+   * Get my Peer ID (for sharing with others to connect)
+   */
+  getMyPeerId(): string | null {
+    return this.myPeerId;
   }
   
   /**
    * Create a new multiplayer session as HOST
-   * Returns an offer SDP that should be sent to the guest
-   * CRITICAL FIX: Cleanup old connection if exists
+   * Returns a Peer ID that guest can use to connect
    */
   async createSession(): Promise<string> {
     console.log('[Multiplayer] Creating session as HOST');
     
     try {
-      // CRITICAL: If already connected, disconnect first
-      if (this.peerConnection || this.dataChannel) {
+      // Cleanup old connection if exists
+      if (this.peer || this.dataConnection) {
         console.warn('[Multiplayer] Existing connection found, cleaning up...');
         this.disconnect();
-        // Wait a bit for cleanup to complete
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
       this.isHost = true;
       
-      // Create peer connection with Google's public STUN server
-      this.peerConnection = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' }
-        ]
+      // Create Peer instance (PeerJS handles all signaling automatically)
+      return new Promise((resolve, reject) => {
+        // Generate random peer ID for host
+        const peerId = 'host-' + Math.random().toString(36).substring(2, 9);
+        
+        this.peer = new Peer(peerId, {
+          host: '0.peerjs.com',
+          port: 443,
+          path: '/',
+          secure: true,
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+          }
+        });
+        
+        this.peer.on('open', (id) => {
+          console.log('[Multiplayer] ✅ Host Peer ID:', id);
+          this.myPeerId = id;
+          resolve(id);
+        });
+        
+        this.peer.on('error', (error) => {
+          console.error('[Multiplayer] Peer error:', error);
+          reject(error);
+        });
+        
+        // Host waits for incoming connection from guest
+        this.peer.on('connection', (conn) => {
+          console.log('[Multiplayer] 📡 Incoming connection from guest');
+          this.setupDataConnection(conn);
+        });
       });
-      
-      // Create data channel for game data
-      this.dataChannel = this.peerConnection.createDataChannel('holoreelxr', {
-        ordered: false,
-        maxRetransmits: 0
-      });
-      
-      this.setupDataChannel(this.dataChannel);
-      this.setupPeerConnection(this.peerConnection);
-      
-      // Create offer with error handling
-      const offer = await this.peerConnection.createOffer();
-      await this.peerConnection.setLocalDescription(offer);
-      
-      // Wait for ICE gathering (with timeout)
-      await this.waitForICEGathering(this.peerConnection);
-      
-      if (!this.peerConnection.localDescription) {
-        throw new Error('Failed to create local description');
-      }
-      
-      const offerSDP = JSON.stringify(this.peerConnection.localDescription);
-      console.log('[Multiplayer] Session created');
-      
-      return offerSDP;
     } catch (error) {
       console.error('[Multiplayer] Create session error:', error);
-      // Cleanup on error
       this.disconnect();
       throw error;
     }
@@ -127,170 +136,82 @@ export class MultiplayerManager {
   
   /**
    * Join an existing session as GUEST
-   * Takes the host's offer and returns an answer
-   * CRITICAL FIX: Cleanup old connection if exists
+   * Takes the host's Peer ID and connects
    */
-  async joinSession(offerSDP: string): Promise<string> {
-    console.log('[Multiplayer] 🎮 Joining session as GUEST');
+  async joinSession(hostPeerId: string): Promise<void> {
+    console.log('[Multiplayer] 🎮 Joining session as GUEST, host ID:', hostPeerId);
     
-    // CRITICAL: If already connected, disconnect first
-    if (this.peerConnection || this.dataChannel) {
-      console.warn('[Multiplayer] ⚠️ Existing connection found, cleaning up...');
+    try {
+      // Cleanup old connection if exists
+      if (this.peer || this.dataConnection) {
+        console.warn('[Multiplayer] ⚠️ Existing connection found, cleaning up...');
+        this.disconnect();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      this.isHost = false;
+      
+      // Create Peer instance for guest
+      return new Promise((resolve, reject) => {
+        // Guest gets random ID
+        const guestId = 'guest-' + Math.random().toString(36).substring(2, 9);
+        
+        this.peer = new Peer(guestId, {
+          host: '0.peerjs.com',
+          port: 443,
+          path: '/',
+          secure: true,
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+          }
+        });
+        
+        this.peer.on('open', (id) => {
+          console.log('[Multiplayer] ✅ Guest Peer ID:', id);
+          this.myPeerId = id;
+          
+          // Connect to host
+          const conn = this.peer!.connect(hostPeerId, {
+            reliable: false,
+            serialization: 'json'
+          });
+          
+          this.setupDataConnection(conn);
+          
+          // Resolve when connection opens
+          conn.on('open', () => {
+            console.log('[Multiplayer] ✅ Connected to host!');
+            resolve();
+          });
+        });
+        
+        this.peer.on('error', (error) => {
+          console.error('[Multiplayer] Peer error:', error);
+          reject(error);
+        });
+      });
+    } catch (error) {
+      console.error('[Multiplayer] Join session error:', error);
       this.disconnect();
-      // Wait a bit for cleanup to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      throw error;
     }
-    
-    this.isHost = false;
-    
-    // Create peer connection
-    this.peerConnection = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    });
-    
-    this.setupPeerConnection(this.peerConnection);
-    
-    // Set remote description (host's offer)
-    // CRITICAL: Validate and parse offer
-    let offer: RTCSessionDescriptionInit;
-    try {
-      offer = JSON.parse(offerSDP);
-      if (!offer || !offer.type || !offer.sdp) {
-        throw new Error('Invalid offer structure');
-      }
-    } catch (error) {
-      throw new Error(`Failed to parse offer: ${error}`);
-    }
-    await this.peerConnection.setRemoteDescription(offer);
-    
-    // Create answer
-    const answer = await this.peerConnection.createAnswer();
-    await this.peerConnection.setLocalDescription(answer);
-    
-    // Wait for ICE gathering
-    await this.waitForICEGathering(this.peerConnection);
-    
-    const answerSDP = JSON.stringify(this.peerConnection.localDescription);
-    console.log('[Multiplayer] ✅ Answer created. Send this back to host.');
-    
-    return answerSDP;
   }
   
   /**
-   * HOST: Receive answer from guest to complete connection
-   * CRITICAL FIX: Validate answer before processing
+   * Setup data connection for game data
    */
-  async receiveAnswer(answerSDP: string): Promise<void> {
-    if (!this.peerConnection || !this.isHost) {
-      throw new Error('Must be host to receive answer');
+  private setupDataConnection(conn: DataConnection): void {
+    // Close old connection if exists
+    if (this.dataConnection) {
+      this.dataConnection.close();
     }
     
-    // CRITICAL: Validate and parse answer
-    if (!answerSDP || typeof answerSDP !== 'string') {
-      throw new Error('Invalid answer SDP');
-    }
+    this.dataConnection = conn;
     
-    let answer: RTCSessionDescriptionInit;
-    try {
-      answer = JSON.parse(answerSDP);
-      if (!answer || !answer.type || !answer.sdp) {
-        throw new Error('Invalid answer structure');
-      }
-    } catch (error) {
-      throw new Error(`Failed to parse answer: ${error}`);
-    }
-    
-    await this.peerConnection.setRemoteDescription(answer);
-    console.log('[Multiplayer] ✅ Answer received. Connection should establish soon.');
-  }
-  
-  /**
-   * Wait for ICE gathering to complete (with timeout to prevent freeze)
-   * CRITICAL FIX: Handle race condition where state changes before listener is added
-   */
-  private waitForICEGathering(pc: RTCPeerConnection): Promise<void> {
-    return new Promise((resolve) => {
-      // If already complete, resolve immediately
-      if (pc.iceGatheringState === 'complete') {
-        resolve();
-        return;
-      }
-      
-      let resolved = false; // Prevent multiple resolves
-      
-      // Set timeout to prevent infinite wait (5 seconds max)
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          pc.removeEventListener('icegatheringstatechange', checkState);
-          console.warn('[Multiplayer] ICE gathering timeout - proceeding anyway');
-          resolve(); // Resolve anyway to prevent freeze
-        }
-      }, 5000);
-      
-      const checkState = () => {
-        // CRITICAL FIX: Check state immediately in case it changed before listener was added
-        if (pc.iceGatheringState === 'complete' && !resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          pc.removeEventListener('icegatheringstatechange', checkState);
-          resolve();
-        }
-      };
-      
-      // CRITICAL FIX: Check state again after adding listener to handle race condition
-      pc.addEventListener('icegatheringstatechange', checkState);
-      if (pc.iceGatheringState === 'complete' && !resolved) {
-        // State changed between initial check and listener setup
-        resolved = true;
-        clearTimeout(timeout);
-        pc.removeEventListener('icegatheringstatechange', checkState);
-        resolve();
-      }
-    });
-  }
-  
-  /**
-   * Setup peer connection event handlers
-   */
-  private setupPeerConnection(pc: RTCPeerConnection): void {
-    pc.addEventListener('connectionstatechange', () => {
-      console.log('[Multiplayer] Connection state:', pc.connectionState);
-      
-      if (pc.connectionState === 'connected') {
-        this.connected = true;
-        this.onConnectionChangeCallback?.(true);
-        console.log('[Multiplayer] 🎉 CONNECTED! Real-time multiplayer active!');
-      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        this.connected = false;
-        this.onConnectionChangeCallback?.(false);
-        console.log('[Multiplayer] ❌ Disconnected');
-      }
-    });
-    
-    pc.addEventListener('icecandidate', (event) => {
-      if (event.candidate) {
-        console.log('[Multiplayer] ICE candidate:', event.candidate.candidate);
-      }
-    });
-    
-    // Guest receives data channel from host
-    pc.addEventListener('datachannel', (event) => {
-      console.log('[Multiplayer] Data channel received');
-      this.dataChannel = event.channel;
-      this.setupDataChannel(this.dataChannel);
-    });
-  }
-  
-  /**
-   * Setup data channel for game data
-   * CRITICAL FIX: Handle disconnection and cleanup properly
-   */
-  private setupDataChannel(dc: RTCDataChannel): void {
-    dc.addEventListener('open', () => {
+    conn.on('open', () => {
       console.log('[Multiplayer] 📡 Data channel OPEN - ready to sync!');
       this.connected = true;
       this.onConnectionChangeCallback?.(true);
@@ -299,70 +220,54 @@ export class MultiplayerManager {
       this.startPingLoop();
     });
     
-    dc.addEventListener('close', () => {
+    conn.on('close', () => {
       console.log('[Multiplayer] 📡 Data channel closed');
       this.connected = false;
-      
-      // CRITICAL: Stop ping loop to prevent memory leak
       this.stopPingLoop();
-      
       this.onConnectionChangeCallback?.(false);
     });
     
-    dc.addEventListener('message', (event) => {
-      this.handleMessage(event.data);
+    conn.on('data', (data: any) => {
+      this.handleMessage(data);
     });
     
-    dc.addEventListener('error', (error) => {
-      console.error('[Multiplayer] Data channel error:', error);
-      logError(error, 'Multiplayer data channel');
-      
-      // CRITICAL: On error, cleanup and disconnect
+    conn.on('error', (error) => {
+      console.error('[Multiplayer] Data connection error:', error);
+      logError(error, 'Multiplayer data connection');
       this.disconnect();
     });
   }
   
   /**
    * Handle incoming message
-   * CRITICAL: Validate all incoming data to prevent crashes from malformed messages
    */
-  private handleMessage(data: string): void {
+  private handleMessage(data: any): void {
     try {
-      // CRITICAL: Validate JSON format
-      if (!data || typeof data !== 'string') {
-        console.warn('[Multiplayer] ⚠️ Invalid message data type');
+      // PeerJS sends JSON automatically, but validate
+      if (!data || typeof data !== 'object' || !data.type) {
+        console.warn('[Multiplayer] ⚠️ Invalid message structure:', data);
         return;
       }
       
-      const message: MessageType = JSON.parse(data);
-      
-      // CRITICAL: Validate message structure
-      if (!message || typeof message !== 'object' || !message.type) {
-        console.warn('[Multiplayer] ⚠️ Invalid message structure:', message);
-        return;
-      }
+      const message: MessageType = data;
       
       switch (message.type) {
         case 'hands':
-          // CRITICAL: Validate hand data before passing to callback
           if (message.data && typeof message.data === 'object') {
             this.onRemoteHandsCallback?.(message.data);
           }
           break;
         case 'gesture':
-          // CRITICAL: Validate gesture data
           if (message.data && message.data.type && message.data.timestamp) {
             this.onRemoteGestureCallback?.(message.data);
           }
           break;
         case 'transform':
-          // CRITICAL: Validate transform data
           if (message.data && message.data.type && message.data.modelId) {
             this.onRemoteTransformCallback?.(message.data);
           }
           break;
         case 'ping':
-          // Respond with pong
           if (typeof message.timestamp === 'number') {
             this.sendMessage({ type: 'ping', timestamp: message.timestamp });
           }
@@ -372,7 +277,6 @@ export class MultiplayerManager {
       }
     } catch (error) {
       logError(error, 'Multiplayer message handling');
-      // CRITICAL: Don't disconnect on single message error - might be transient
     }
   }
   
@@ -380,14 +284,14 @@ export class MultiplayerManager {
    * Send message to peer
    */
   private sendMessage(message: MessageType): void {
-    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+    if (!this.dataConnection || !this.dataConnection.open) {
       return;
     }
     
     try {
-      this.dataChannel.send(JSON.stringify(message));
+      this.dataConnection.send(message);
     } catch (error) {
-      // Silently fail if buffer is full
+      // Silently fail if connection is closed
     }
   }
   
@@ -422,31 +326,27 @@ export class MultiplayerManager {
   
   /**
    * Start ping loop to measure latency
-   * CRITICAL FIX: Store interval ID so we can clear it on disconnect
    */
   private startPingLoop(): void {
-    // Clear any existing ping loop first
     if (this.pingIntervalId !== null) {
       clearInterval(this.pingIntervalId);
     }
     
     this.pingIntervalId = window.setInterval(() => {
-      if (this.connected && this.dataChannel?.readyState === 'open') {
+      if (this.connected && this.dataConnection?.open) {
         const now = performance.now();
         this.sendMessage({ type: 'ping', timestamp: now });
         
-        // Calculate latency if we got a response
         if (this.lastPingTime > 0) {
           this.latency = now - this.lastPingTime;
         }
         this.lastPingTime = now;
       }
-    }, 1000); // Ping every second
+    }, 1000);
   }
   
   /**
    * Stop ping loop
-   * CRITICAL: Must be called on disconnect to prevent memory leak
    */
   private stopPingLoop(): void {
     if (this.pingIntervalId !== null) {
@@ -491,53 +391,33 @@ export class MultiplayerManager {
   
   /**
    * Disconnect and cleanup
-   * CRITICAL FIX: Properly cleanup all resources to prevent memory leaks
    */
   disconnect(): void {
     console.log('[Multiplayer] 🛑 Disconnecting and cleaning up...');
     
-    // Stop ping loop to prevent memory leak
     this.stopPingLoop();
     
-    // Close data channel
-    if (this.dataChannel) {
-      // Remove event listeners before closing
-      this.dataChannel.onopen = null;
-      this.dataChannel.onclose = null;
-      this.dataChannel.onmessage = null;
-      this.dataChannel.onerror = null;
-      
-      if (this.dataChannel.readyState === 'open') {
-        this.dataChannel.close();
+    if (this.dataConnection) {
+      if (this.dataConnection.open) {
+        this.dataConnection.close();
       }
-      this.dataChannel = null;
+      this.dataConnection = null;
     }
     
-    // Close peer connection
-    if (this.peerConnection) {
-      // Remove event listeners before closing
-      this.peerConnection.onconnectionstatechange = null;
-      this.peerConnection.onicecandidate = null;
-      this.peerConnection.ondatachannel = null;
-      this.peerConnection.onicegatheringstatechange = null;
-      
-      if (this.peerConnection.connectionState !== 'closed') {
-        this.peerConnection.close();
-      }
-      this.peerConnection = null;
+    if (this.peer) {
+      this.peer.destroy();
+      this.peer = null;
     }
     
-    // Reset state
     this.connected = false;
     this.isHost = false;
+    this.myPeerId = null;
     this.latency = 0;
     this.lastPingTime = 0;
     this.lastHandUpdateTime = 0;
     
-    // Notify disconnection
     this.onConnectionChangeCallback?.(false);
     
     console.log('[Multiplayer] ✅ Cleanup complete');
   }
 }
-
