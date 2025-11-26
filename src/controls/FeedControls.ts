@@ -107,6 +107,11 @@ export class FeedControls {
   private mpHoverButton: 'host' | 'join' | 'close' | null = null;
   private mpLastClickTime = 0; // Debounce rapid clicks
   private readonly MP_CLICK_DEBOUNCE_MS = 500; // Minimum 500ms between clicks
+  
+  // Context-aware raycasting priority system
+  private uiActive = false; // Track if any UI is currently active/interacting
+  private uiActiveUntil = 0; // Timestamp until which UI remains prioritized
+  private readonly UI_PRIORITY_DURATION_MS = 2000; // UI stays prioritized for 2 seconds after interaction
 
   private hudMgr: ReactionHudManager;
   private selectBoundForSession: XRSession | null = null;
@@ -607,8 +612,12 @@ export class FeedControls {
       const keypadHit = keypad.raycastHit(ray);
       
       if (keypadHit) {
-        // Keypad key pressed
-        keypad.handleKeyPress(keypadHit);
+        // CRITICAL FIX: Start key press (actual press handled on pinch end with duration check)
+        keypad.startKeyPress(keypadHit);
+        // Mark UI as active
+        const now = performance.now();
+        this.uiActive = true;
+        this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
         this.setRayVisible(side, false);
         this.scrollDisarmedThisPinch = true;
         return true; // Handled
@@ -799,6 +808,15 @@ export class FeedControls {
     
     const ray = new THREE.Ray(tip, handDir);
     
+    // CRITICAL FIX: Context-aware priority system
+    // Check if UI is active (keypad, panels) - if so, prioritize UI over 3D objects
+    const uiIsActive = this.uiActive || now < this.uiActiveUntil;
+    
+    // Check distance to object to determine if we should prioritize UI
+    const pinch = this.hands.pinchMid(pointingSide);
+    const d = pinch ? this.distanceToObjectSurface(pinch) : null;
+    const farFromObject = d == null || d > 0.3;
+    
     // Debug raycast (throttled)
     if (Math.random() < 0.05) { // 5% of calls
       console.log(`[FeedControls] Raycast: origin=(${tip.x.toFixed(2)}, ${tip.y.toFixed(2)}, ${tip.z.toFixed(2)}), dir=(${handDir.x.toFixed(2)}, ${handDir.y.toFixed(2)}, ${handDir.z.toFixed(2)})`);
@@ -878,8 +896,11 @@ export class FeedControls {
           : this.hands.state.left.pinch;
         
         if (pointingHandPinch) {
-          // Pinch detected - press key
-          keypad.handleKeyPress(keypadHit);
+          // CRITICAL FIX: Start key press (actual press handled on pinch end with duration check)
+          keypad.startKeyPress(keypadHit);
+          // Mark UI as active
+          this.uiActive = true;
+          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
           return; // Block other UI
         }
         
@@ -891,9 +912,9 @@ export class FeedControls {
     }
     
     // Check multiplayer panel (lower priority than keypad)
-    // CRITICAL FIX: Use immediate pinch-to-click (consistent with auth/music panels)
-    // This is more reliable than dwell system and provides better UX
-    if (multiplayerPanel?.isVisible()) {
+    // CRITICAL FIX: Context-aware - only check if UI is active OR far from object
+    // This prevents 3D model interference when interacting with UI
+    if (multiplayerPanel?.isVisible() && (uiIsActive || farFromObject)) {
       const mpHit = multiplayerPanel.raycastHit(ray);
       
       if (mpHit?.button) {
@@ -917,6 +938,10 @@ export class FeedControls {
             // Too soon since last click - ignore
             return;
           }
+          
+          // Mark UI as active (prevents 3D model interference)
+          this.uiActive = true;
+          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
           
           // Pinch detected while pointing at button - immediate click
           this.mpLastClickTime = now; // Update debounce timer
@@ -1177,10 +1202,10 @@ export class FeedControls {
 
   // ---------- pinch lifecycle / feed scroll ----------
   private onPinchStart(side: 'left' | 'right') {
-    const now = performance.now();
+    const pinchNow = performance.now();
     
     // ANTI-SPAM: Rate limit rapid pinch starts to prevent crashes
-    if (now - this.lastPinchStartTime < this.PINCH_RATE_LIMIT_MS) {
+    if (pinchNow - this.lastPinchStartTime < this.PINCH_RATE_LIMIT_MS) {
       this.pinchStartCount++;
       if (this.pinchStartCount > this.MAX_PINCH_BURST) {
         console.warn(`[FeedControls] ⚠️ Pinch rate limit exceeded - ignoring rapid pinch`);
@@ -1189,7 +1214,7 @@ export class FeedControls {
     } else {
       this.pinchStartCount = 0; // Reset counter after cooldown
     }
-    this.lastPinchStartTime = now;
+    this.lastPinchStartTime = pinchNow;
     
     // CRITICAL: After tutorial completion, FeedControls is the ONLY handler
     // Only block if tutorial is actively handling grab/scroll steps
@@ -1214,20 +1239,37 @@ export class FeedControls {
       }
     }
     
-    // PRIORITY 1: Try clicking UI panels (multiplayer, auth, music, HUD)
-    // But don't block grab - check if we're close to object first
+    // PRIORITY 1: Context-aware UI interaction
+    // Check if UI is active (keypad, panels) - if so, prioritize UI over 3D objects
+    const uiNow = performance.now();
+    const uiIsActive = this.uiActive || uiNow < this.uiActiveUntil;
+    
+    // Always check UI first if UI is active OR if we're far from object
     const pinch = this.hands.pinchMid(side);
     const d = pinch ? this.distanceToObjectSurface(pinch) : null;
+    const farFromObject = d == null || d > 0.3;
     
-    // Only try UI clicks if we're far from object (to avoid blocking grab)
-    if (d == null || d > 0.3) {
-      // CRITICAL FIX: Check multiplayer panel FIRST (highest priority)
-      // This ensures immediate response to pinch gesture
-      if (this.tryClickMultiplayerPanel(side)) return;
+    // CRITICAL FIX: Context-aware priority
+    // If UI is active OR far from object, check UI first (prevents 3D model interference)
+    if (uiIsActive || farFromObject) {
+      // CRITICAL FIX: Check multiplayer panel/keypad FIRST (highest priority)
+      // This ensures immediate response to pinch gesture and prevents 3D model interference
+      if (this.tryClickMultiplayerPanel(side)) {
+        this.uiActive = true;
+        this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
+        return;
+      }
       
       // Then check other UI panels
-      if (this.tryClickHud(side)) return;
+      if (this.tryClickHud(side)) {
+        this.uiActive = true;
+        this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
+        return;
+      }
     }
+    
+    // If UI was checked and nothing hit, but we're close to object, allow 3D interaction
+    // (This handles the case where user is near object but wants to interact with it)
 
     // PRIORITY 2: Normal interactions (scroll, grab, etc)
     this.setRayVisible(side, true);
@@ -1284,6 +1326,45 @@ export class FeedControls {
   }
 
   private onPinchEnd(side: 'left' | 'right') {
+    // CRITICAL FIX: Handle keypad key press on pinch end (with duration check)
+    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+    const keypad = multiplayerPanel?.getKeypad?.();
+    if (keypad?.isVisible()) {
+      // Get the key that was being pressed
+      const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
+      if (from) {
+        const tip = this.hands.indexTip(side);
+        const wrist = this.hands.wrist?.(side);
+        
+        let handDir: THREE.Vector3;
+        if (tip && wrist) {
+          handDir = tip.clone().sub(wrist).normalize();
+        } else if (tip) {
+          const camPos = new THREE.Vector3();
+          this.app.camera.getWorldPosition(camPos);
+          handDir = tip.clone().sub(camPos).normalize();
+        } else {
+          const camPos = new THREE.Vector3();
+          this.app.camera.getWorldPosition(camPos);
+          handDir = from.clone().sub(camPos).normalize();
+        }
+        
+        const ray = new THREE.Ray(from, handDir);
+        const keypadHit = keypad.raycastHit(ray);
+        
+        if (keypadHit) {
+          // Check if this was a valid press (held long enough)
+          if (keypad.endKeyPress(keypadHit)) {
+            // Valid press - handle it
+            keypad.handleKeyPress(keypadHit);
+            this.setRayVisible(side, false);
+            this.scrollDisarmedThisPinch = true;
+            return; // Handled
+          }
+        }
+      }
+    }
+    
     // Always hide ray
     this.setRayVisible(side, false);
     
