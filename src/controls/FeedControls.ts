@@ -103,9 +103,10 @@ export class FeedControls {
   private uiHoverBeganAt = 0;
   private uiLastY: number | null = null;
   
-  // Multiplayer panel dwell state
+  // Multiplayer panel interaction state
   private mpHoverButton: 'host' | 'join' | 'close' | null = null;
-  private mpHoverBeganAt = 0;
+  private mpLastClickTime = 0; // Debounce rapid clicks
+  private readonly MP_CLICK_DEBOUNCE_MS = 500; // Minimum 500ms between clicks
 
   private hudMgr: ReactionHudManager;
   private selectBoundForSession: XRSession | null = null;
@@ -575,6 +576,59 @@ export class FeedControls {
   // NOTE: External composer removed - was freezing XR session
   // Now using built-in ReactionHud compose mode (stays in VR)
 
+  // ---------- Try to click multiplayer panel directly from pinch start ----------
+  // CRITICAL FIX: Immediate pinch-to-click for multiplayer panel (dual-path: event + frame loop)
+  private tryClickMultiplayerPanel(side: 'left' | 'right'): boolean {
+    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+    if (!multiplayerPanel?.isVisible()) return false;
+    
+    const now = performance.now();
+    // Debounce rapid clicks
+    if (now - this.mpLastClickTime < this.MP_CLICK_DEBOUNCE_MS) {
+      return false;
+    }
+    
+    // Get hand position and direction for raycast
+    const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
+    if (!from) return false;
+    
+    // Get pointing direction (index finger direction)
+    const tip = this.hands.indexTip(side);
+    const wrist = this.hands.wrist?.(side);
+    
+    let handDir: THREE.Vector3;
+    if (tip && wrist) {
+      handDir = tip.clone().sub(wrist).normalize();
+    } else if (tip) {
+      const camPos = new THREE.Vector3();
+      this.app.camera.getWorldPosition(camPos);
+      handDir = tip.clone().sub(camPos).normalize();
+    } else {
+      // Fallback: use pinch position to camera
+      const camPos = new THREE.Vector3();
+      this.app.camera.getWorldPosition(camPos);
+      handDir = from.clone().sub(camPos).normalize();
+    }
+    
+    const ray = new THREE.Ray(from, handDir);
+    const mpHit = multiplayerPanel.raycastHit(ray);
+    
+    if (mpHit?.button) {
+      // Hit detected - immediate click
+      this.mpLastClickTime = now;
+      multiplayerPanel.hideRayLine(this.app.scene);
+      multiplayerPanel.handleClick(mpHit.button).catch((error) => {
+        console.error('[FeedControls] Multiplayer panel click error:', error);
+      });
+      // Hide helper ray - user clicked UI, not content
+      this.setRayVisible(side, false);
+      this.scrollDisarmedThisPinch = true;
+      return true; // Handled
+    }
+    
+    return false; // Not handled
+  }
+
   // ---------- Try to click HUD directly from pinch start ----------
   private tryClickHud(side: 'left' | 'right'): boolean {
     const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
@@ -775,11 +829,13 @@ export class FeedControls {
     }
     
     // Check multiplayer panel FIRST (higher priority than ReactionHud)
+    // CRITICAL FIX: Use immediate pinch-to-click (consistent with auth/music panels)
+    // This is more reliable than dwell system and provides better UX
     if (multiplayerPanel?.isVisible()) {
       const mpHit = multiplayerPanel.raycastHit(ray);
       
       if (mpHit?.button) {
-        // Pointing at a button - set hover and show ray line
+        // Pointing at a button - set hover and show ray line for visual feedback
         multiplayerPanel.setButtonHover(mpHit.button);
         
         // Show visual ray line from hand to panel
@@ -787,19 +843,23 @@ export class FeedControls {
           multiplayerPanel.showRayLine(tip, mpHit.point, this.app.scene);
         }
         
-        // Use DWELL system (same as ReactionHud)
-        if (mpHit.button !== this.mpHoverButton) {
-          this.mpHoverButton = mpHit.button;
-          this.mpHoverBeganAt = now;
-          return;
-        }
+        // CRITICAL FIX: Immediate pinch-to-click (same as auth/music panels)
+        // Check if pointing hand is pinching
+        const pointingHandPinch = pointingSide === 'right' 
+          ? this.hands.state.right.pinch 
+          : this.hands.state.left.pinch;
         
-        // Check if dwelled long enough
-        if (now - this.mpHoverBeganAt >= this.DWELL_MS) {
-          this.mpHoverBeganAt = now + 10000; // Prevent repeat
+        if (pointingHandPinch) {
+          // CRITICAL FIX: Debounce rapid clicks to prevent duplicate actions
+          if (now - this.mpLastClickTime < this.MP_CLICK_DEBOUNCE_MS) {
+            // Too soon since last click - ignore
+            return;
+          }
+          
+          // Pinch detected while pointing at button - immediate click
+          this.mpLastClickTime = now; // Update debounce timer
           multiplayerPanel.hideRayLine(this.app.scene); // Hide ray before click
-          // CRITICAL FIX: Fire-and-forget with error handling to prevent freeze
-          // Don't await - let it run in background so UI stays responsive
+          // Fire-and-forget with error handling to prevent freeze
           multiplayerPanel.handleClick(mpHit.button).catch((error) => {
             console.error('[FeedControls] Multiplayer panel click error:', error);
             // Error is logged but doesn't block UI
@@ -807,11 +867,13 @@ export class FeedControls {
           return; // Block other UI
         }
         
-        return; // Hovering - block other UI
+        // Just hovering - show visual feedback but don't click yet
+        return; // Block other UI
       } else {
         // Not pointing at button
         multiplayerPanel.setButtonHover(null);
         multiplayerPanel.hideRayLine(this.app.scene);
+        // Clear hover state
         this.mpHoverButton = null;
       }
     } else if (multiplayerPanel) {
@@ -1090,13 +1152,18 @@ export class FeedControls {
       }
     }
     
-    // PRIORITY 1: Try clicking the MR HUD
+    // PRIORITY 1: Try clicking UI panels (multiplayer, auth, music, HUD)
     // But don't block grab - check if we're close to object first
     const pinch = this.hands.pinchMid(side);
     const d = pinch ? this.distanceToObjectSurface(pinch) : null;
     
-    // Only try HUD click if we're far from object (to avoid blocking grab)
+    // Only try UI clicks if we're far from object (to avoid blocking grab)
     if (d == null || d > 0.3) {
+      // CRITICAL FIX: Check multiplayer panel FIRST (highest priority)
+      // This ensures immediate response to pinch gesture
+      if (this.tryClickMultiplayerPanel(side)) return;
+      
+      // Then check other UI panels
       if (this.tryClickHud(side)) return;
     }
 
