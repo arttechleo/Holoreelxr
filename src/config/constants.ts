@@ -165,6 +165,21 @@ export const MULTIPLAYER = {
   
   /** Click debounce time (ms) - prevents rapid-fire clicks */
   CLICK_DEBOUNCE_MS: 500,
+  
+  /** Touch threshold for button interaction (m) - increased for more comfortable hand tracking */
+  BUTTON_TOUCH_THRESHOLD: 0.05,
+  
+  /** Raycast hit thickness multiplier - increased for easier interaction */
+  RAYCAST_THICKNESS_MULTIPLIER: 1.5,
+  
+  /** Hover glow fill time (ms) - time to fill border glow from 0% to 100% */
+  HOVER_GLOW_FILL_TIME_MS: 800,
+  
+  /** Minimum hover time before button can be clicked (ms) - prevents accidental clicks */
+  MIN_HOVER_TIME_MS: 100,
+  
+  /** Panel dimming opacity when keypad is active (0.0 to 1.0) */
+  PANEL_DIMMED_OPACITY: 0.4,
 } as const;
 
 // ========== VISUAL EFFECTS ==========
