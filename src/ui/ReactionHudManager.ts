@@ -14,10 +14,6 @@ export class ReactionHudManager {
   private iconsOffset = new THREE.Vector3(-0.25, -0.05, 0.0);
   private commentOffset = new THREE.Vector3(0.25, 0, 0.0);
   
-  // Get group references for dynamic positioning
-  private reactIcons: THREE.Group;
-  private commentHud: THREE.Group;
-
   private counts = new Map<string, Counts>();
   private comments = new Map<string, Comment[]>();
   private currentKey: string | null = null;
@@ -31,10 +27,6 @@ export class ReactionHudManager {
     this.cam = camera;
     this.getObjPosition = getObjectWorldPos;
     this.hud = new ReactionHud(scene, camera, getObjectWorldPos);
-    
-    // Get HUD group references (using any to access private members)
-    this.reactIcons = (this.hud as any).reactIcons;
-    this.commentHud = (this.hud as any).commentHud;
 
   }
 
@@ -119,45 +111,11 @@ export class ReactionHudManager {
   }
   
   tick(dt: number) { 
-    // Only update dynamic positioning if not in camera overlay mode
-    if (!(this.hud as any).cameraOverlayMode) {
-      this.updateDynamicPositioning();
-    }
+    // ReactionHud handles its own positioning and look-at behavior
     this.hud.tick(dt); 
-  }
-  
-  private updateDynamicPositioning() {
-    // Dynamic HUD positioning based on gaze and object orientation
-    const objPos = this.getObjPosition();
-    if (!objPos) return;
-    
-    const camPos = new THREE.Vector3();
-    const camDir = new THREE.Vector3();
-    this.cam.getWorldPosition(camPos);
-    this.cam.getWorldDirection(camDir);
-
-    // Calculate optimal HUD position based on object rotation and gaze
-    const toObj = objPos.clone().sub(camPos).normalize();
-    const viewAlignment = camDir.dot(toObj); // How aligned is camera with object?
-
-    // Dynamic offset based on view alignment - HUDs move further when looking away
-    const dynamicScale = 1.0 + (0.3 * (1.0 - viewAlignment));
-    const scaledIconsOffset = this.iconsOffset.clone().multiplyScalar(dynamicScale);
-    const scaledCommentOffset = this.commentOffset.clone().multiplyScalar(dynamicScale);
-
-    // Update positions with smoother following
-    if (this.reactIcons) {
-      const targetPos = objPos.clone().add(scaledIconsOffset);
-      this.reactIcons.position.lerp(targetPos, 0.15); // Responsive but smooth
-      this.reactIcons.lookAt(camPos);
-    }
-
-    if (this.commentHud) {
-      const targetPos = objPos.clone().add(scaledCommentOffset);
-      this.commentHud.position.lerp(targetPos, 0.15);
-      this.commentHud.lookAt(camPos);
-    }
   }
 }
 
 export default ReactionHudManager;
+
+
