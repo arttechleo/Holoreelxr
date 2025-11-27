@@ -48,9 +48,11 @@ export interface TransformEvent {
 export interface FeedSyncState {
   index: number;
   itemId: string | null;
-  position: Vec3 | null;
-  scale: number;
-  rotationY: number;
+  // CRITICAL FIX: Position, scale, rotationY are now optional (not synced)
+  // Each user controls their own model transforms locally
+  position?: Vec3 | null; // Optional - not synced
+  scale?: number; // Optional - not synced
+  rotationY?: number; // Optional - not synced
   timestamp: number;
 }
 

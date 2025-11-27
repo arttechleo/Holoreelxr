@@ -632,9 +632,12 @@ export class FeedStore {
     return {
       index: this.index,
       itemId: this.items[this.index]?.id ?? null,
-      position: pos ? { x: pos.x, y: pos.y, z: pos.z } : null,
-      scale: this.scale,
-      rotationY: this.rotationY,
+      // CRITICAL FIX: Do NOT include position, scale, rotationY in snapshot
+      // Each user controls their own model transforms locally
+      // Only sync content (index/itemId), not spatial transforms
+      position: null, // Removed - each user controls own position
+      scale: 1.0, // Removed - each user controls own scale
+      rotationY: 0, // Removed - each user controls own rotation
       timestamp: performance.now(),
     };
   }
@@ -642,14 +645,14 @@ export class FeedStore {
   // CRITICAL FIX: Throttle remote state updates to prevent flickering
   private lastRemoteStateUpdate = 0;
   private readonly REMOTE_STATE_THROTTLE_MS = 100; // Max 10 updates per second
-  private pendingRemoteState: { index: number; itemId: string | null; position: { x: number; y: number; z: number } | null; scale: number; rotationY: number } | null = null;
+  private pendingRemoteState: { index: number; itemId: string | null; position?: { x: number; y: number; z: number } | null; scale?: number; rotationY?: number } | null = null;
   
   async applyRemoteState(state: {
     index: number;
     itemId: string | null;
-    position: { x: number; y: number; z: number } | null;
-    scale: number;
-    rotationY: number;
+    position?: { x: number; y: number; z: number } | null; // Optional - not synced
+    scale?: number; // Optional - not synced
+    rotationY?: number; // Optional - not synced
   }): Promise<void> {
     try {
       const now = performance.now();
@@ -699,36 +702,13 @@ export class FeedStore {
         await this.showCurrent();
       }
 
-      // CRITICAL FIX: Smooth position updates to prevent flickering
-      // Only apply if position changed significantly (more than 1cm)
-      if (state.position) {
-        const currentPos = this.getObjectWorldPos();
-        if (currentPos) {
-          const newPos = new THREE.Vector3(state.position.x, state.position.y, state.position.z);
-          const distance = currentPos.distanceTo(newPos);
-          // Only update if moved more than 1cm (prevents jitter from network noise)
-          if (distance > 0.01) {
-            this.setPosition(newPos);
-          }
-        } else {
-          // No current position, apply immediately
-          this.setPosition(new THREE.Vector3(state.position.x, state.position.y, state.position.z));
-        }
-      }
-
-      // CRITICAL FIX: Smooth transform updates to prevent flickering
-      // Only apply if transform changed significantly
-      if (Number.isFinite(state.scale) || Number.isFinite(state.rotationY)) {
-        const scaleChanged = Number.isFinite(state.scale) && Math.abs(state.scale - this.scale) > 0.01;
-        const rotationChanged = Number.isFinite(state.rotationY) && Math.abs(state.rotationY - this.rotationY) > 0.01;
-        
-        if (scaleChanged || rotationChanged) {
-          this.setTransform(
-            Number.isFinite(state.scale) ? state.scale : this.scale,
-            Number.isFinite(state.rotationY) ? state.rotationY : this.rotationY
-          );
-        }
-      }
+      // CRITICAL FIX: Each user controls their own model transforms locally
+      // Do NOT apply remote position/scale/rotation - this prevents host from controlling everyone's model
+      // Only sync content (index/itemId), not spatial transforms
+      // This eliminates flickering and gives each user independent control
+      
+      // Position, scale, and rotation are now LOCAL ONLY - not synced
+      // Each user can position/rotate/scale their own model independently
     } catch (error) {
       logError(error, 'FeedStore.applyRemoteState');
     }
