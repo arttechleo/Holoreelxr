@@ -941,7 +941,7 @@ export class XRMultiplayerPanel {
       // Instructions for keypad
       ctx.fillStyle = '#aaaaaa';
       ctx.font = '20px Arial';
-      ctx.fillText('Pinch on keypad keys to type', w / 2, 380);
+      ctx.fillText('Touch keypad keys with index finger to type', w / 2, 380);
       ctx.fillText('Press CONNECT when done', w / 2, 410);
       
       // Close button to go back with enhanced visual feedback
