@@ -1001,28 +1001,9 @@ export class FeedControls {
         handDir = from.clone().sub(camPos).normalize();
       }
       
-      // CRITICAL FIX: Touch-based interaction (check finger proximity)
-      const indexTip = this.hands.indexTip(side);
-      if (indexTip) {
-        const touchedKey = keypad.checkTouchInteraction(indexTip);
-        if (touchedKey) {
-          // Finger is touching a key - mark UI as active
-          const now = performance.now();
-          this.uiActive = true;
-          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-          
-          // Check if touch has been held long enough
-          const isPinching = this.hands.state[side].pinch || this.hands.state[side === 'left' ? 'right' : 'left'].pinch;
-          const pressedKey = keypad.checkTouchPress(isPinching);
-          if (pressedKey) {
-            keypad.handleKeyPress(pressedKey);
-          }
-          
-          this.setRayVisible(side, false);
-          this.scrollDisarmedThisPinch = true;
-          return true; // Handled - block 3D interaction
-        }
-      }
+      // CRITICAL: Keyboard interaction is handled in updateTwoHandTransform (virtual touch only)
+      // This duplicate code has been removed - keyboard uses virtual touch, not raycast
+      // All keyboard interaction happens in updateTwoHandTransform method
     }
     
     if (!multiplayerPanel?.isVisible()) return false;
@@ -1355,8 +1336,17 @@ export class FeedControls {
       }
     }
     
-    // CRITICAL FIX: Touch-based keyboard interaction (proximity/collider detection)
-    // Enhanced with error handling and null safety
+    // ========== KEYBOARD VIRTUAL TOUCH INTERACTION ==========
+    // CRITICAL ARCHITECTURE: Keyboard uses virtual touch ONLY (no raycast)
+    // 
+    // Flow:
+    // 1. Check if keyboard is visible
+    // 2. Check both hands for index finger proximity to keys (5cm threshold)
+    // 3. If finger touches key AND user pinches → trigger key press (one touch = one character)
+    // 4. Block all 3D interactions when keyboard is active
+    // 5. Debounce prevents rapid-fire typing (200ms cooldown per key)
+    //
+    // This system is completely separate from raycast-based UI interactions
     try {
       const multiplayerPanel = this.multiplayerPanel;
       if (!multiplayerPanel) return; // Early return if panel doesn't exist
@@ -1364,8 +1354,12 @@ export class FeedControls {
       const keypad = multiplayerPanel.getKeypad?.();
       if (!keypad || !keypad.isVisible()) return; // Early return if keypad not visible
       
-      // CRITICAL FIX: Use touch-based interaction instead of raycast
-      // Check both hands for finger proximity to keys
+      // CRITICAL: Keyboard is active - block ALL 3D interactions immediately
+      // This ensures no 3D model reacts while typing
+      this.uiActive = true;
+      this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+      
+      // Check both hands for finger proximity to keys (virtual touch detection)
       const leftIndexTip = this.hands.indexTip('left');
       const rightIndexTip = this.hands.indexTip('right');
       
@@ -1377,7 +1371,7 @@ export class FeedControls {
           const leftTouch = keypad.checkTouchInteraction(leftIndexTip);
           if (leftTouch) {
             touchedKey = leftTouch;
-            keypad.setHoveredKey(leftTouch);
+            keypad.setHoveredKey(leftTouch); // Visual feedback
           }
         } catch (error) {
           logError(error, 'FeedControls.keypad.leftTouch');
@@ -1390,7 +1384,7 @@ export class FeedControls {
           const rightTouch = keypad.checkTouchInteraction(rightIndexTip);
           if (rightTouch) {
             touchedKey = rightTouch;
-            keypad.setHoveredKey(rightTouch);
+            keypad.setHoveredKey(rightTouch); // Visual feedback
           }
         } catch (error) {
           logError(error, 'FeedControls.keypad.rightTouch');
@@ -1398,21 +1392,19 @@ export class FeedControls {
       }
       
       if (touchedKey) {
-        // Finger is touching a key - mark UI as active and block 3D interaction
-        this.uiActive = true;
-        this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-        
-        // ENHANCED: Use improved virtual touch system
+        // Finger is touching a key - check if user pinches to activate
+        // CRITICAL: One touch = one character (enforced by debouncing in checkTouchPress)
         const isPinching = this.hands.state[side].pinch || this.hands.state[side === 'left' ? 'right' : 'left'].pinch;
         
-        // Check if key should be pressed (handles both pinch and hold-based triggers)
+        // Check if key should be pressed (only triggers when pinching + debounce allows)
         try {
           const pressedKey = keypad.checkTouchPress(isPinching);
           if (pressedKey) {
-            // Key should be pressed - handle it
+            // Key should be pressed - handle it (one touch = one character)
             const handled = keypad.handleKeyPress(pressedKey);
             if (handled) {
               // Successfully pressed - reset touch state after brief delay to allow next press
+              // This ensures clean state for next key press
               setTimeout(() => {
                 keypad.resetTouchState();
               }, 50);
@@ -1422,7 +1414,9 @@ export class FeedControls {
           logError(error, 'FeedControls.keypad.handleKeyPress');
         }
         
-        return; // Block other UI and 3D interaction
+        // CRITICAL: Return early to block ALL other interactions (3D and UI)
+        // Keyboard has exclusive priority when active
+        return;
       } else {
         // Not touching any key - clear hover and reset touch state
         try {
