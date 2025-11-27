@@ -1377,31 +1377,43 @@ export class FeedControls {
       }
     }
     
-    // PRIORITY 1: Context-aware UI interaction
+    // PRIORITY 1: STRICT UI PRIORITY - UI always takes precedence over 3D models
     // CRITICAL FIX: Check if keyboard or multiplayer panel is active - if so, disable ALL 3D interaction
     // Enhanced with error handling and null safety
     try {
       const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
       if (multiplayerPanel) {
         const keypad = multiplayerPanel.getKeypad?.();
-        const keyboardActive = keypad?.isActive() || false;
+        const keyboardActive = keypad?.isVisible() || keypad?.isActive() || false;
         const panelActive = multiplayerPanel.isVisible?.() || false;
         
-        // CRITICAL FIX: Strict UI priority - if ANY UI is active, block 3D interaction completely
+        // CRITICAL FIX: Strict UI priority - if ANY UI is visible/active, ALWAYS check UI first
+        // This ensures UI interactions are never blocked by 3D models
         if (keyboardActive || panelActive) {
           // UI is active - check UI first and block all 3D interaction
           try {
-            if (this.tryClickMultiplayerPanel(side)) return;
+            if (this.tryClickMultiplayerPanel(side)) {
+              this.uiActive = true;
+              this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
+              return; // UI interaction handled - block 3D
+            }
           } catch (error) {
             logError(error, 'FeedControls.tryClickMultiplayerPanel');
           }
           try {
-            if (this.tryClickHud(side)) return;
+            if (this.tryClickHud(side)) {
+              this.uiActive = true;
+              this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
+              return; // UI interaction handled - block 3D
+            }
           } catch (error) {
             logError(error, 'FeedControls.tryClickHud');
           }
-          // CRITICAL: Block all 3D interaction when UI is active
-          return;
+          // CRITICAL: If UI is visible but no interaction detected, still block 3D to prevent interference
+          // User might be pointing at UI but not quite hitting it yet
+          this.uiActive = true;
+          this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
+          return; // Block 3D interaction when UI is visible
         }
       }
     } catch (error) {
@@ -1416,29 +1428,29 @@ export class FeedControls {
     // Always check UI first if UI is active OR if we're far from object
     const pinch = this.hands.pinchMid(side);
     const d = pinch ? this.distanceToObjectSurface(pinch) : null;
-    const farFromObject = d == null || d > 0.3;
+    const farFromObject = d == null || d > MULTIPLAYER.FAR_FROM_OBJECT_DISTANCE;
     
-    // CRITICAL FIX: Context-aware priority
-    // If UI is active OR far from object, check UI first (prevents 3D model interference)
+    // CRITICAL FIX: Enhanced context-aware priority
+    // If UI is active OR far from object, ALWAYS check UI first (prevents 3D model interference)
     if (uiIsActive || farFromObject) {
       // CRITICAL FIX: Check multiplayer panel/keypad FIRST (highest priority)
       // This ensures immediate response to pinch gesture and prevents 3D model interference
       if (this.tryClickMultiplayerPanel(side)) {
         this.uiActive = true;
         this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
-        return;
+        return; // UI interaction handled
       }
       
       // Then check other UI panels
       if (this.tryClickHud(side)) {
         this.uiActive = true;
         this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
-        return;
+        return; // UI interaction handled
       }
     }
     
     // If UI was checked and nothing hit, but we're close to object, allow 3D interaction
-    // (This handles the case where user is near object but wants to interact with it)
+    // (This handles the case where user is near object and wants to interact with it)
 
     // PRIORITY 2: Normal interactions (scroll, grab, etc)
     this.setRayVisible(side, true);

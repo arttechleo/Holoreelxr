@@ -72,7 +72,12 @@ let pendingFeedSync = Promise.resolve();
 
 // Setup multiplayer callbacks
 multiplayer.onRemoteHands((hands: HandState) => {
+  // ENHANCED: Always update remote hands when data is received
   remoteHands.update(hands);
+  // Ensure remote hands are visible when connected
+  if (multiplayer.isConnected()) {
+    remoteHands.setVisible(true);
+  }
 });
 
 multiplayer.onRemoteGesture((gesture: GestureEvent) => {

@@ -42,11 +42,14 @@ export class XRMultiplayerPanel {
   // RIGHT side (positive X) - 50cm right, 5cm up
   private readonly OFFSET = new THREE.Vector3(0.50, 0.05, 0);
   
-  // Hit detection thickness (like ReactionHud) - increased for easier interaction
+  // Hit detection thickness (like ReactionHud) - significantly increased for easier interaction
   private readonly HIT_THICKNESS = 0.08 * MULTIPLAYER.RAYCAST_THICKNESS_MULTIPLIER;
   
-  // Touch-based interaction threshold (increased for comfortable hand tracking)
+  // Touch-based interaction threshold (significantly increased for comfortable hand tracking)
   private readonly TOUCH_THRESHOLD = MULTIPLAYER.BUTTON_TOUCH_THRESHOLD;
+  
+  // Maximum interaction distance
+  private readonly MAX_INTERACTION_DISTANCE = MULTIPLAYER.UI_RAYCAST_MAX_DISTANCE;
   
   // Callback to get object position
   private getObjectWorldPos: () => THREE.Vector3 | null;
@@ -196,37 +199,59 @@ export class XRMultiplayerPanel {
   
   /**
    * Raycast in world space against the panel (matching ReactionHud pattern EXACTLY)
-   * Enhanced with increased interaction distance
+   * Enhanced with significantly increased interaction distance and proper plane orientation
    */
   raycastHit(ray: THREE.Ray, thickness = 10): MultiplayerHit {
     if (!this.visible || !ray || !this.anchor) return null;
     
     try {
-      // Build plane for panel (like ReactionHud)
-      const normal = new THREE.Vector3(0, 0, 1);
-      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, this.anchor.position);
+      // Get panel's world transform
+      const panelWorldMatrix = this.anchor.matrixWorld;
+      const panelWorldPos = new THREE.Vector3();
+      const panelWorldNormal = new THREE.Vector3(0, 0, 1);
+      panelWorldPos.setFromMatrixPosition(panelWorldMatrix);
+      panelWorldNormal.applyMatrix4(panelWorldMatrix).sub(panelWorldPos).normalize();
+      
+      // Build plane for panel with correct world orientation
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(panelWorldNormal, panelWorldPos);
       const hitPoint = new THREE.Vector3();
       const ok = ray.intersectPlane(plane, hitPoint);
       if (!ok) return null;
       
-      // Reject if too far from center in Z (like ReactionHud) - increased threshold
-      const effectiveThickness = this.HIT_THICKNESS * (thickness / 10) * MULTIPLAYER.RAYCAST_THICKNESS_MULTIPLIER;
-      if (Math.abs(hitPoint.z - this.anchor.position.z) > effectiveThickness) return null;
+      // Check distance from ray origin to hit point (reject if too far)
+      const rayOrigin = new THREE.Vector3();
+      ray.origin.clone(rayOrigin);
+      const distanceToHit = rayOrigin.distanceTo(hitPoint);
+      if (distanceToHit > this.MAX_INTERACTION_DISTANCE) return null;
       
-      // Convert world point to panel space (like ReactionHud)
-      const dx = hitPoint.x - this.anchor.position.x;
-      const dy = hitPoint.y - this.anchor.position.y;
-      if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) return null;
+      // Reject if too far from center in plane normal direction - significantly increased threshold
+      const effectiveThickness = this.HIT_THICKNESS * (thickness / 10);
+      const distFromPlane = Math.abs(plane.distanceToPoint(hitPoint));
+      if (distFromPlane > effectiveThickness) return null;
+      
+      // Convert world point to panel local space
+      const worldToLocal = new THREE.Matrix4();
+      worldToLocal.copy(panelWorldMatrix).invert();
+      const localPos = new THREE.Vector3();
+      localPos.copy(hitPoint);
+      localPos.applyMatrix4(worldToLocal);
+      
+      // Panel is in XY plane in local space, centered at origin
+      // Check if point is within panel bounds (with some padding for easier interaction)
+      const padding = 0.05; // 5cm padding for easier interaction
+      if (Math.abs(localPos.x) > this.PANEL_W * 0.5 + padding || 
+          Math.abs(localPos.y) > this.PANEL_H * 0.5 + padding) return null;
       
       // Convert to UV coordinates (like ReactionHud)
-      const u = (dx / this.PANEL_W) + 0.5;
-      const v = 0.5 - (dy / this.PANEL_H);
+      const u = (localPos.x / this.PANEL_W) + 0.5;
+      const v = 0.5 - (localPos.y / this.PANEL_H);
       const px = u * this.CANVAS_W;
       const py = v * this.CANVAS_H;
       
       // Check which button was hit
       for (const [name, region] of Object.entries(this.buttonRegions)) {
-        if (px >= region.x && px <= region.x + region.w &&
+        if (region.w > 0 && region.h > 0 && // Region must be valid
+            px >= region.x && px <= region.x + region.w &&
             py >= region.y && py <= region.y + region.h) {
           return { button: name as ButtonType, point: hitPoint };
         }
@@ -258,8 +283,12 @@ export class XRMultiplayerPanel {
       const toPanel = indexTip.clone().sub(panelPos);
       const distToPlane = Math.abs(toPanel.dot(panelNormal));
       
-      // Must be close to panel plane (within touch threshold)
+      // Must be close to panel plane (within touch threshold) - significantly increased
       if (distToPlane > this.TOUCH_THRESHOLD) return null;
+      
+      // Also check distance from finger to panel center (reject if too far)
+      const distToPanelCenter = indexTip.distanceTo(panelPos);
+      if (distToPanelCenter > this.MAX_INTERACTION_DISTANCE) return null;
       
       // Project finger position onto panel plane
       const planeDist = toPanel.dot(panelNormal);

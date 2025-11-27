@@ -97,11 +97,18 @@ export class RemoteHands {
   }
 
   update(hands: HandState | null | undefined): void {
-    if (!hands) return;
+    if (!hands) {
+      // ENHANCED: Keep group visible even if no hand data (might be temporary)
+      // Only hide if explicitly set via setVisible(false)
+      return;
+    }
     const leftVisible = this.updateHand(hands.left, this.leftHand);
     const rightVisible = this.updateHand(hands.right, this.rightHand);
     const anyVisible = leftVisible || rightVisible;
-    this.group.visible = anyVisible;
+    // ENHANCED: Show group if any hand is visible, but don't hide if explicitly set to visible
+    if (anyVisible) {
+      this.group.visible = true;
+    }
 
     if (hands.gestures?.heart) {
       (this.leftHand.bones.material as THREE.LineBasicMaterial).color.set(0xff73ff);
