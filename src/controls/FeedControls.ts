@@ -11,6 +11,7 @@ import { XRAuthPanel } from '../ui/XRAuthPanel';
 import { XRMusicPanel } from '../ui/XRMusicPanel';
 import { CONTROLS, TRANSFORM, REACTIONS, HUD, MULTIPLAYER } from '../config/constants';
 import { logError } from '../utils/errors';
+import { UIRaycastVisualizer } from '../interaction/UIRaycastVisualizer';
 
 export class FeedControls {
   // ----- feed scroll -----
@@ -112,6 +113,9 @@ export class FeedControls {
   private uiActive = false; // Track if any UI is currently active/interacting
   private uiActiveUntil = 0; // Timestamp until which UI remains prioritized
   private readonly UI_PRIORITY_DURATION_MS = MULTIPLAYER.UI_PRIORITY_DURATION_MS;
+  
+  // UI raycast visualizer (shows ray line when pointing at UI)
+  private uiRaycastVisualizer: UIRaycastVisualizer;
 
   private hudMgr: ReactionHudManager;
   private selectBoundForSession: XRSession | null = null;
@@ -148,6 +152,9 @@ export class FeedControls {
     this.initRay('right');
     this.setRayVisible('left', false);
     this.setRayVisible('right', false);
+    
+    // Initialize UI raycast visualizer
+    this.uiRaycastVisualizer = new UIRaycastVisualizer(this.app.scene);
     
     // Initialize scroll rubber band ray
     this.initScrollRay();
@@ -343,8 +350,11 @@ export class FeedControls {
       const dt = Math.max(0, (now - last) / 1000);
       last = now;
 
-      // dwell ray (extra help on runtimes that don’t send select)
+      // dwell ray (extra help on runtimes that don't send select)
       this.updateUiRayAndDwell(now);
+
+      // Continuous UI raycast check (for visual feedback even when not pinching)
+      this.updateUIRaycastVisualization();
 
       this.updateAutoAcquirePending();
       this.updateScroll(now);
@@ -617,11 +627,13 @@ export class FeedControls {
    * 2. Within UI, closer hits win (distance-based tie-breaking)
    * 3. Ray direction always normalized for consistent results
    * 4. Deterministic: same ray always produces same result
+   * 5. Works for both visualization (no pinch required) and interaction (pinch required)
    * 
-   * @param side - Which hand is pinching
+   * @param side - Which hand to check
+   * @param requirePinch - If true, only handle interactions when pinching. If false, check for hits for visualization.
    * @returns true if interaction was handled (UI or 3D), false if nothing hit
    */
-  private performUnifiedInteraction(side: 'left' | 'right'): { handled: boolean; target: 'ui' | '3d' | null } {
+  private performUnifiedInteraction(side: 'left' | 'right', requirePinch: boolean = true): { handled: boolean; target: 'ui' | '3d' | null } {
     const pinch = this.hands.pinchMid(side);
     const tip = this.hands.indexTip(side);
     if (!pinch || !tip) {
@@ -649,7 +661,7 @@ export class FeedControls {
     }
     
     const ray = new THREE.Ray(tip, handDir);
-    const isPinching = this.hands.state[side].pinch;
+    const isPinching = requirePinch ? this.hands.state[side].pinch : false;
     const now = performance.now();
     
     // Track UI hits with distance for priority sorting
@@ -780,21 +792,102 @@ export class FeedControls {
     }
     
     // Process UI hits: closest hit wins (deterministic priority)
-    if (uiHits.length > 0 && isPinching) {
+    if (uiHits.length > 0) {
       // Sort by distance (closest first)
       uiHits.sort((a, b) => a.distance - b.distance);
+      const closestHit = uiHits[0];
       
-      // Try handlers in order until one succeeds
-      for (const { handler } of uiHits) {
-        if (handler()) {
-          return { handled: true, target: 'ui' };
+      // Calculate hit point for visualization
+      // Extend ray to hit distance
+      const hitPoint = tip.clone().add(handDir.clone().multiplyScalar(closestHit.distance));
+      
+      // Try to get actual hit point from hit data if available
+      let actualHitPoint = hitPoint;
+      if (closestHit.hit && typeof closestHit.hit === 'object') {
+        // Check if hit has point property (HudHit, MultiplayerHit may have it)
+        if ('point' in closestHit.hit && closestHit.hit.point instanceof THREE.Vector3) {
+          actualHitPoint = closestHit.hit.point;
         }
       }
+      
+      // Show UI raycast line (even when not pinching, for visual feedback)
+      this.uiRaycastVisualizer.update(tip, {
+        point: actualHitPoint,
+        distance: closestHit.distance,
+        panelId: 'ui-panel' // Generic identifier
+      });
+      
+      // If pinching, handle the interaction
+      if (isPinching) {
+        // Try handlers in order until one succeeds
+        for (const { handler } of uiHits) {
+          if (handler()) {
+            return { handled: true, target: 'ui' };
+          }
+        }
+      }
+      
+      // UI hit but not pinching - still return handled to block 3D
+      return { handled: true, target: 'ui' };
+    } else {
+      // No UI hit - hide UI raycast line
+      this.uiRaycastVisualizer.update(tip, null);
     }
 
     // PRIORITY 2: No UI hit - allow 3D interactions (grab, scroll, etc.)
     // This is handled by the existing 3D interaction logic
     return { handled: false, target: '3d' };
+  }
+  
+  /**
+   * Continuous UI raycast visualization (called every frame)
+   * Updates visual ray line when pointing at UI panels
+   */
+  private updateUIRaycastVisualization(): void {
+    // Check both hands for UI hits (for visual feedback)
+    for (const side of ['left', 'right'] as const) {
+      const tip = this.hands.indexTip(side);
+      if (!tip) continue;
+      
+      // Create ray from index tip
+      const wrist = this.hands.wrist?.(side);
+      let handDir: THREE.Vector3;
+      if (wrist) {
+        handDir = tip.clone().sub(wrist).normalize();
+      } else {
+        const camPos = new THREE.Vector3();
+        this.app.camera.getWorldPosition(camPos);
+        handDir = tip.clone().sub(camPos).normalize();
+      }
+      
+      // Ensure direction is normalized
+      if (handDir.lengthSq() < 0.001) {
+        this.app.camera.getWorldDirection(handDir);
+      } else {
+        handDir.normalize();
+      }
+      
+      const ray = new THREE.Ray(tip, handDir);
+      
+      // Check for UI hits (don't require pinching for visual feedback)
+      const interaction = this.performUnifiedInteraction(side);
+      
+      // If UI was hit, visualizer is already updated in performUnifiedInteraction
+      // If no UI hit, visualizer is cleared there too
+      // Only need to check one hand (prefer right hand)
+      if (side === 'right') {
+        break; // Use right hand for visualization
+      }
+    }
+  }
+  
+  /**
+   * Check if UI is currently active (blocks 3D interactions)
+   * This ensures UI always has priority over 3D
+   */
+  private isUIActive(): boolean {
+    const now = performance.now();
+    return this.uiActive && now < this.uiActiveUntil;
   }
 
   // ---------- Try to click multiplayer panel directly from pinch start ----------
@@ -1627,18 +1720,22 @@ export class FeedControls {
     }
     
     // UNIFIED INTERACTION SYSTEM: Check UI first, then 3D
-    // CRITICAL FIX: Only block 3D if UI is actually hit, not just visible
+    // CRITICAL: UI ALWAYS has priority - if UI is hit, block all 3D interactions
     try {
-      const interaction = this.performUnifiedInteraction(side);
+      const interaction = this.performUnifiedInteraction(side, true); // requirePinch = true for actual interaction
       if (interaction.handled && interaction.target === 'ui') {
-        // UI interaction handled - block 3D
+        // UI interaction handled - block 3D completely
         return;
       }
-      // CRITICAL: Only block 3D if UI was actually hit, not just visible
-      // This allows grab to work when UI is visible but user is pointing at 3D object
       // No UI hit - continue to 3D interactions below
     } catch (error) {
       logError(error, 'FeedControls.unifiedInteraction');
+    }
+    
+    // Also check if UI is in active state (recently interacted with)
+    if (this.isUIActive()) {
+      // UI was recently active - block 3D to prevent interference
+      return;
     }
 
     // PRIORITY 2: Normal interactions (scroll, grab, etc)
@@ -2259,6 +2356,16 @@ export class FeedControls {
     }
   }
   private updateGrabDrag() {
+    // CRITICAL: UI has priority - block grab if UI is active
+    if (this.isUIActive()) {
+      if (this.grabbing) {
+        this.grabbing = false;
+        this.grabSide = null;
+        this.store.notify('Grab canceled (UI active)');
+      }
+      return;
+    }
+    
     // CRITICAL: After tutorial completion, FeedControls handles grab
     // Only block if tutorial is actively handling grab
     if (this.isTutorialActive()) {
