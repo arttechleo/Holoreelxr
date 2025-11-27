@@ -12,8 +12,10 @@
  * - Immediate text field updates via callback (real-time UI sync)
  *
  * VISUAL PRIORITY:
- * - Keyboard plane uses depthTest=false & very high renderOrder so 3D models never occlude it
- * - Designed to be readable regardless of scene contents
+ * - Keyboard plane uses depthTest=true & renderOrder=30000 to be above 3D models
+ * - Hands render at ~50000, so they appear in front of keyboard
+ * - 3D models are faded when keyboard is active (handled by FeedControls)
+ * - Keyboard is always readable and hands are always visible
  *
  * INTEGRATION:
  * - FeedControls calls processFingerTouches(), which handles touch detection + debouncing
@@ -93,12 +95,14 @@ export class VRKeypad {
       map: this.texture,
       transparent: true,
       opacity: 1.0,
-      depthTest: false, // Always render on top (no 3D occlusion)
-      depthWrite: false
+      depthTest: true, // Enable depth test so hands can render in front
+      depthWrite: false // Don't write depth (allows hands to render in front)
     });
     
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.renderOrder = 100000; // Extremely high to guarantee priority
+    // CRITICAL: Render order high enough to be above 3D models, but hands (renderOrder ~50000) can render in front
+    // Hands typically render at ~50000, so keyboard at 30000 ensures it's above models but hands can be in front
+    this.panel.renderOrder = 30000;
     this.group.add(this.panel);
     scene.add(this.group);
     
@@ -220,6 +224,7 @@ export class VRKeypad {
   
   /**
    * Process finger touches (centralized keyboard interaction logic)
+   * CRITICAL: One press per distinct touch - finger must leave and re-enter to trigger again
    * @param fingerTips Array of finger world positions (supports multiple hands)
    * @returns { active: boolean, pressedKey: KeypadKey | null }
    */
@@ -229,6 +234,7 @@ export class VRKeypad {
       return { active: false, pressedKey: null };
     }
     
+    // Find which key (if any) is currently being touched
     let keyTouched: KeypadKey | null = null;
     for (const tip of fingerTips) {
       if (!tip) continue;
@@ -236,23 +242,34 @@ export class VRKeypad {
       if (keyTouched) break;
     }
     
+    // CRITICAL: If finger left the key, reset activeTouchKey to allow re-entry
     if (!keyTouched) {
+      // Finger is not touching any key - clear active state to allow re-entry
+      if (this.activeTouchKey !== null) {
+        this.activeTouchKey = null; // Reset so finger can re-enter and trigger again
+      }
       this.clearTouchState();
       return { active: false, pressedKey: null };
     }
     
+    // Finger is touching a key
     this.currentTouchKey = keyTouched;
     this.setHoveredKey(keyTouched);
     
+    // CRITICAL: Only trigger if this is a NEW touch (finger entered key, or switched to different key)
+    // activeTouchKey tracks which key already fired - must be null or different key to trigger
     if (this.activeTouchKey !== keyTouched) {
+      // New key touched (or finger re-entered after leaving) - check debounce and trigger
       if (this.canPressKey(keyTouched)) {
-        this.activeTouchKey = keyTouched;
+        this.activeTouchKey = keyTouched; // Mark this key as having fired
         this.lastKeyPressTime.set(keyTouched, performance.now());
         this.handleKeyPress(keyTouched);
+        console.log('[VRKeypad] ✅ Key pressed:', keyTouched);
         return { active: true, pressedKey: keyTouched };
       }
     }
     
+    // Finger is still on the same key that already fired - no repeat (prevents spam)
     return { active: true, pressedKey: null };
   }
   
@@ -468,12 +485,12 @@ export class VRKeypad {
   
   /**
    * Reset hover + touch state when no keys are touched
+   * CRITICAL: activeTouchKey is reset in processFingerTouches when finger leaves
    */
   private clearTouchState(): void {
     this.currentTouchKey = null;
-    if (this.activeTouchKey !== null) {
-      this.activeTouchKey = null;
-    }
+    // Note: activeTouchKey is reset in processFingerTouches when keyTouched becomes null
+    // This allows finger to re-enter and trigger again
     this.setHoveredKey(null);
   }
 }
