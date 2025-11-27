@@ -80,26 +80,26 @@ export const TRANSFORM = {
   /** Deadband for scale changes to avoid jitter */
   SCALE_DEADBAND: 0.004,
   
-  /** Low-pass filter alpha for two-hand distance smoothing */
-  TWO_HAND_LPF_ALPHA: 0.28,
+  /** Low-pass filter alpha for two-hand distance smoothing - improved for stability */
+  TWO_HAND_LPF_ALPHA: 0.25, // Reduced from 0.28 for smoother, less jittery scaling
   
-  /** Rotation gain multiplier */
-  ROTATION_GAIN: 0.9,
+  /** Rotation gain multiplier - refined for more predictable control */
+  ROTATION_GAIN: 0.85, // Slightly reduced from 0.9 for more controlled rotation
   
-  /** Rotation deadzone (radians) */
-  ROTATION_DEADZONE_RAD: Math.PI / 180, // 1 degree
+  /** Rotation deadzone (radians) - increased to reduce accidental rotation */
+  ROTATION_DEADZONE_RAD: (1.5 * Math.PI) / 180, // 1.5 degrees (increased from 1°)
   
-  /** Max rotation change per update (radians) */
-  ROTATION_MAX_DELTA_RAD: (60 * Math.PI) / 180, // 60 degrees
+  /** Max rotation change per update (radians) - refined for stability */
+  ROTATION_MAX_DELTA_RAD: (45 * Math.PI) / 180, // 45 degrees (reduced from 60°)
   
-  /** Rotation smoothing time (seconds) */
-  ROTATION_SMOOTH_TIME: 0.12,
+  /** Rotation smoothing time (seconds) - increased for smoother motion */
+  ROTATION_SMOOTH_TIME: 0.15, // Increased from 0.12 for smoother rotation
   
-  /** Max rotation speed (radians/s) */
-  ROTATION_MAX_SPEED_RAD: (360 * Math.PI) / 180, // 360 deg/s
+  /** Max rotation speed (radians/s) - refined for better control */
+  ROTATION_MAX_SPEED_RAD: (300 * Math.PI) / 180, // 300 deg/s (reduced from 360°)
   
-  /** Minimum movement to consider for rotation (m) */
-  MIN_MOVEMENT_FOR_ROTATION: 0.006,
+  /** Minimum movement to consider for rotation (m) - increased to reduce jitter */
+  MIN_MOVEMENT_FOR_ROTATION: 0.008, // Increased from 0.006 for more stable rotation,
   
   /** Grab zone distance threshold (m) - within this distance, grab is prioritized over scroll */
   GRAB_ZONE_DISTANCE: 0.10,
