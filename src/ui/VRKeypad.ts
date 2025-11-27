@@ -115,14 +115,22 @@ export class VRKeypad {
     this.group.visible = true;
     this.group.position.copy(position);
     this.group.lookAt(lookAt);
-    this.inputText = '';
+    // CRITICAL FIX: Don't reset inputText when showing - preserve existing input
+    // The inputText should only be reset when explicitly clearing (clear button) or canceling
+    // this.inputText = ''; // REMOVED - preserve input when keypad is shown
     this.hoveredKey = null;
-    this.resetTouchState(); // CRITICAL FIX: Reset touch state when showing
-    this.render(); // CRITICAL FIX: Render to set up key regions
-    // Debug logging only in development
-    if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
-      console.log('[VRKeypad] Keypad shown');
+    this.resetTouchState(); // Reset touch state when showing
+    this.render(); // Render to set up key regions
+    
+    // CRITICAL: Sync keypad inputText with panel's joinInputCode if callback exists
+    // This ensures the panel knows about the current input when keypad is shown
+    if (this.onInputChange) {
+      // Notify panel of current input (ensures sync even if keypad was hidden and reshown)
+      this.onInputChange(this.inputText);
     }
+    
+    // Debug logging
+    console.log('[VRKeypad] ✅ Keypad shown, inputText:', this.inputText);
   }
   
   /**
@@ -175,9 +183,21 @@ export class VRKeypad {
   
   /**
    * Set input text (for external updates)
+   * CRITICAL: Also triggers input change callback to sync with panel
    */
   setInputText(text: string): void {
+    const oldText = this.inputText;
     this.inputText = text;
+    
+    // If text changed, notify callback to sync with panel
+    if (oldText !== text && this.onInputChange) {
+      try {
+        this.onInputChange(this.inputText);
+      } catch (error) {
+        console.error('[VRKeypad] Error in input change callback (setInputText):', error);
+      }
+    }
+    
     this.render();
   }
   
@@ -284,9 +304,18 @@ export class VRKeypad {
     if (inputChanged && this.onInputChange) {
       // Call synchronously to ensure immediate update
       try {
+        console.log('[VRKeypad] 🔔 Calling input callback - text:', this.inputText, 'key:', key);
         this.onInputChange(this.inputText);
+        console.log('[VRKeypad] ✅ Input callback completed');
       } catch (error) {
-        console.error('[VRKeypad] Error in input change callback:', error);
+        console.error('[VRKeypad] ❌ Error in input change callback:', error);
+      }
+    } else {
+      if (!inputChanged) {
+        console.log('[VRKeypad] ⚠️ Input not changed, callback not called');
+      }
+      if (!this.onInputChange) {
+        console.warn('[VRKeypad] ⚠️ No input change callback registered!');
       }
     }
     
