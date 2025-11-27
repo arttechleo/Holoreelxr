@@ -612,6 +612,12 @@ export class FeedControls {
    * Content-agnostic: works for both UI panels and 3D objects
    * Priority: UI panels always win when active/visible
    * 
+   * Design principles:
+   * 1. UI elements checked first (tutorial, multiplayer, keypad, HUD)
+   * 2. Within UI, closer hits win (distance-based tie-breaking)
+   * 3. Ray direction always normalized for consistent results
+   * 4. Deterministic: same ray always produces same result
+   * 
    * @param side - Which hand is pinching
    * @returns true if interaction was handled (UI or 3D), false if nothing hit
    */
@@ -623,6 +629,7 @@ export class FeedControls {
     }
 
     // Create ray from index tip (consistent for all interactions)
+    // CRITICAL: Always normalize ray direction for reliable raycasting
     const wrist = this.hands.wrist?.(side);
     let handDir: THREE.Vector3;
     if (wrist) {
@@ -632,86 +639,154 @@ export class FeedControls {
       this.app.camera.getWorldPosition(camPos);
       handDir = tip.clone().sub(camPos).normalize();
     }
+    
+    // Ensure direction is normalized (safety check)
+    if (handDir.lengthSq() < 0.001) {
+      // Fallback: use camera forward direction
+      this.app.camera.getWorldDirection(handDir);
+    } else {
+      handDir.normalize();
+    }
+    
     const ray = new THREE.Ray(tip, handDir);
     const isPinching = this.hands.state[side].pinch;
     const now = performance.now();
+    
+    // Track UI hits with distance for priority sorting
+    const uiHits: Array<{ hit: any; distance: number; handler: () => boolean }> = [];
 
     // PRIORITY 1: Check all UI panels first (tutorial, multiplayer, keyboard, HUD)
     // UI always takes precedence when visible/active
+    // Within UI, closer hits win (distance-based priority)
     
-    // 1. Tutorial panel
+    // 1. Tutorial panel (priority: 100)
     if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
-      const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
-      if (tutorialHit?.button && isPinching) {
-        const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialHit.button);
-        if (handled) {
-          this.uiActive = true;
-          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-          return { handled: true, target: 'ui' };
+      try {
+        const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
+        if (tutorialHit?.button && isPinching) {
+          const panelCenter = this.onboardingTutorial.group?.position;
+          const distance = panelCenter ? tip.distanceTo(panelCenter) : Infinity;
+          uiHits.push({
+            hit: tutorialHit,
+            distance,
+            handler: () => {
+              const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialHit.button);
+              if (handled) {
+                this.uiActive = true;
+                this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+              }
+              return !!handled;
+            }
+          });
         }
+      } catch (error) {
+        logError(error, 'FeedControls.tutorialRaycast');
       }
     }
 
-    // 2. Multiplayer panel & keyboard
+    // 2. Multiplayer panel & keyboard (priority: 90)
     const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
     if (multiplayerPanel) {
-      const keypad = multiplayerPanel.getKeypad?.();
-      const keyboardActive = keypad?.isVisible() || keypad?.isActive() || false;
-      const panelActive = multiplayerPanel.isVisible?.() || false;
-      
-      if (keyboardActive || panelActive) {
-        // Check keypad first (highest priority)
-        if (keyboardActive && keypad?.raycastHit) {
-          const keypadHit = keypad.raycastHit(ray);
-          if (keypadHit && isPinching) {
-            const handled = keypad.handleKeyPress?.(keypadHit);
-            if (handled) {
-              this.uiActive = true;
-              this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-              return { handled: true, target: 'ui' };
+      try {
+        const keypad = multiplayerPanel.getKeypad?.();
+        const keyboardActive = keypad?.isVisible() || keypad?.isActive() || false;
+        const panelActive = multiplayerPanel.isVisible?.() || false;
+        
+        if (keyboardActive || panelActive) {
+          // Check keypad first (highest priority within multiplayer)
+          if (keyboardActive && keypad?.raycastHit) {
+            const keypadHit = keypad.raycastHit(ray);
+            if (keypadHit && isPinching) {
+              const keypadPos = keypad.group?.position;
+              const distance = keypadPos ? tip.distanceTo(keypadPos) : Infinity;
+              uiHits.push({
+                hit: keypadHit,
+                distance,
+                handler: () => {
+                  const handled = keypad.handleKeyPress?.(keypadHit);
+                  if (handled) {
+                    this.uiActive = true;
+                    this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+                  }
+                  return !!handled;
+                }
+              });
             }
           }
+          
+          // Check multiplayer panel buttons
+          const mpHit = multiplayerPanel.raycastHit?.(ray);
+          if (mpHit?.button && isPinching && multiplayerPanel.canClickButton?.(mpHit.button)) {
+            const panelPos = multiplayerPanel.group?.position || multiplayerPanel.panel?.position;
+            const distance = panelPos ? tip.distanceTo(panelPos) : Infinity;
+            uiHits.push({
+              hit: mpHit,
+              distance,
+              handler: () => {
+                multiplayerPanel.handleClick(mpHit.button).catch(() => {});
+                this.uiActive = true;
+                this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+                return true;
+              }
+            });
+          }
         }
-        
-        // Check multiplayer panel buttons
-        const mpHit = multiplayerPanel.raycastHit?.(ray);
-        if (mpHit?.button && isPinching && multiplayerPanel.canClickButton?.(mpHit.button)) {
-          multiplayerPanel.handleClick(mpHit.button).catch(() => {});
-          this.uiActive = true;
-          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-          return { handled: true, target: 'ui' };
-        }
-        
-        // UI is visible but no hit - allow 3D interactions (user might be pointing at 3D object)
-        // Only block if user is clearly pointing at UI area
-        return { handled: false, target: null }; // Allow 3D - no UI hit
+      } catch (error) {
+        logError(error, 'FeedControls.multiplayerRaycast');
       }
     }
 
-    // 3. HUD (reaction buttons)
-    const hudHit = this.hudMgr.raycastHit(ray);
-    if (hudHit && isPinching) {
-      const key = this.currentModelKey();
-      if (hudHit.kind === 'like' && this.acceptGesture('like')) {
-        this.store.likeCurrent(pinch.clone(), side);
-        this.hudMgr.bump(key, 'like');
-        this.uiActive = true;
-        this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-        return { handled: true, target: 'ui' };
-      } else if (hudHit.kind === 'heart' && this.acceptGesture('heart')) {
-        this.store.saveCurrent(pinch.clone());
-        this.hudMgr.bump(key, 'heart');
-        this.uiActive = true;
-        this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-        return { handled: true, target: 'ui' };
-      } else if (hudHit.kind === 'repost' && this.acceptGesture('repost')) {
-        const now = performance.now();
-        if (now - this.lastRepostAt >= this.REACT_COOLDOWN_MS) {
-          this.lastRepostAt = now;
-          this.store.repostCurrent(pinch.clone(), side);
-          this.hudMgr.bump(key, 'repost');
-          this.uiActive = true;
-          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+    // 3. HUD (reaction buttons) (priority: 80)
+    try {
+      const hudHit = this.hudMgr.raycastHit(ray);
+      if (hudHit && isPinching) {
+        const hudPos = this.hudMgr.getPanelCenterWorld();
+        const distance = tip.distanceTo(hudPos);
+        const key = this.currentModelKey();
+        
+        uiHits.push({
+          hit: hudHit,
+          distance,
+          handler: () => {
+            if (hudHit.kind === 'like' && this.acceptGesture('like')) {
+              this.store.likeCurrent(pinch.clone(), side);
+              this.hudMgr.bump(key, 'like');
+              this.uiActive = true;
+              this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+              return true;
+            } else if (hudHit.kind === 'heart' && this.acceptGesture('heart')) {
+              this.store.saveCurrent(pinch.clone());
+              this.hudMgr.bump(key, 'heart');
+              this.uiActive = true;
+              this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+              return true;
+            } else if (hudHit.kind === 'repost' && this.acceptGesture('repost')) {
+              const now = performance.now();
+              if (now - this.lastRepostAt >= this.REACT_COOLDOWN_MS) {
+                this.lastRepostAt = now;
+                this.store.repostCurrent(pinch.clone(), side);
+                this.hudMgr.bump(key, 'repost');
+                this.uiActive = true;
+                this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+                return true;
+              }
+            }
+            return false;
+          }
+        });
+      }
+    } catch (error) {
+      logError(error, 'FeedControls.hudRaycast');
+    }
+    
+    // Process UI hits: closest hit wins (deterministic priority)
+    if (uiHits.length > 0 && isPinching) {
+      // Sort by distance (closest first)
+      uiHits.sort((a, b) => a.distance - b.distance);
+      
+      // Try handlers in order until one succeeds
+      for (const { handler } of uiHits) {
+        if (handler()) {
           return { handled: true, target: 'ui' };
         }
       }
@@ -2240,16 +2315,15 @@ export class FeedControls {
         return;
       }
       
-      // IMPROVED: Smooth position updates for more stable manipulation
-      // Use lerp to reduce jitter from hand tracking noise
+      // FIX: Direct position update without lerp feedback loop
+      // The lerp was creating a feedback loop: lerping from current position creates lag/stutter
+      // Instead, directly set to target position for immediate, smooth response
       const targetPos = this.grabOffset.clone().add(mid);
-      // Smooth interpolation (0.85 = 15% of new position per frame, ~60fps = smooth motion)
-      const smoothedPos = objPos.lerp(targetPos, 0.85);
-      this.store.setPosition(smoothedPos);
+      this.store.setPosition(targetPos);
       
       // Debug: log position updates (throttled for performance)
       if (Math.random() < 0.1) { // 10% of calls
-        console.log(`[Grab] Moving object: hand=${mid.toArray().map(v => v.toFixed(3)).join(',')}, offset=${this.grabOffset.toArray().map(v => v.toFixed(3)).join(',')}, newPos=${newPos.toArray().map(v => v.toFixed(3)).join(',')}, currentObjPos=${objPos.toArray().map(v => v.toFixed(3)).join(',')}`);
+        console.log(`[Grab] Moving object: hand=${mid.toArray().map(v => v.toFixed(3)).join(',')}, offset=${this.grabOffset.toArray().map(v => v.toFixed(3)).join(',')}, targetPos=${targetPos.toArray().map(v => v.toFixed(3)).join(',')}, currentObjPos=${objPos.toArray().map(v => v.toFixed(3)).join(',')}`);
       }
     } catch (error) {
       // If any error occurs, cancel grab to prevent freeze

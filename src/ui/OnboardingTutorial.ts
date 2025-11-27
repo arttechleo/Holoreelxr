@@ -129,6 +129,10 @@ export class OnboardingTutorial {
   private userHasInteracted = false; // Track if user has interacted with model
   private modelLoaded = false;
   
+  // Look-at-once-then-lock behavior
+  private hasAlignedOnce = false;
+  private lockedRotation: THREE.Euler | null = null;
+  
   // EXACT COPY OF FEEDCONTROLS GRAB SYSTEM - proven to work!
   private isGrabbing: boolean = false;
   private grabHand: 'left' | 'right' | null = null;
@@ -1811,7 +1815,7 @@ export class OnboardingTutorial {
   }
 
   // Update panel position - place BEHIND the 3D model, rotated 90° to face user
-  // CRITICAL FIX: World-locked panel (no billboarding, no camera following)
+  // Look-at-once-then-lock: Align to user once when first shown, then lock rotation
   updatePosition(objectPosition: THREE.Vector3, cameraPosition: THREE.Vector3) {
     if (!this.group.visible) return;
     
@@ -1822,14 +1826,28 @@ export class OnboardingTutorial {
     
     this.group.position.copy(panelPos);
     
-    // CRITICAL FIX: Rotate 90° on Y axis to face user (same direction as 3D model)
-    // Panel should be fully readable from user's POV
-    this.group.rotation.set(0, Math.PI / 2, 0); // 90° rotation on Y axis
+    // Look-at-once-then-lock behavior
+    if (!this.hasAlignedOnce) {
+      // First time: look at camera to align for readability
+      this.group.lookAt(cameraPosition);
+      // Lock this rotation
+      this.lockedRotation = this.group.rotation.clone();
+      this.hasAlignedOnce = true;
+    } else {
+      // After first alignment: use locked rotation (world-locked)
+      if (this.lockedRotation) {
+        this.group.rotation.copy(this.lockedRotation);
+      }
+    }
   }
 
   async show(camera: THREE.Camera) {
     // CRITICAL: Reset completion flag when starting tutorial
     this.tutorialCompleted = false;
+    
+    // Reset alignment state when showing tutorial
+    this.hasAlignedOnce = false;
+    this.lockedRotation = null;
     
     this.currentStepIndex = 0;
     this.progressPercentage = 0;
@@ -1855,8 +1873,7 @@ export class OnboardingTutorial {
     camera.getWorldDirection(dir);
     this.group.position.copy(pos.add(dir.multiplyScalar(1.5)));
     this.group.position.y += 0.3;
-    // CRITICAL FIX: Set world-locked rotation (face forward, not camera)
-    this.group.rotation.set(0, 0, 0); // Forward-facing in world space
+    // Initial rotation will be set by updatePosition with look-at-once behavior
     
     await this.showStep(0);
   }
