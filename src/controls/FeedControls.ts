@@ -12,6 +12,7 @@ import { XRMusicPanel } from '../ui/XRMusicPanel';
 import { CONTROLS, TRANSFORM, REACTIONS, HUD, MULTIPLAYER } from '../config/constants';
 import { logError } from '../utils/errors';
 import { UIRaycastVisualizer } from '../interaction/UIRaycastVisualizer';
+import { XRMultiplayerPanel } from '../ui/XRMultiplayerPanelCanvas';
 
 export class FeedControls {
   // ----- feed scroll -----
@@ -145,6 +146,9 @@ export class FeedControls {
   private lastStableKind: 'like' | 'heart' | 'repost' | null = null;
 
   private onboardingTutorial: import('../types/tutorial').OnboardingTutorial | null = null;
+  
+  // Multiplayer panel reference (set via setMultiplayerPanel method)
+  private multiplayerPanel?: XRMultiplayerPanel;
 
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
     this.app.scene.add(this.rayGroup);
@@ -441,6 +445,11 @@ export class FeedControls {
   setOnboardingTutorial(tutorial: any) {
     this.onboardingTutorial = tutorial;
   }
+  
+  // Set multiplayer panel reference for keyboard interaction
+  setMultiplayerPanel(panel: XRMultiplayerPanel): void {
+    this.multiplayerPanel = panel;
+  }
 
   /**
    * Check if tutorial is completed - if so, FeedControls is the primary handler
@@ -700,8 +709,8 @@ export class FeedControls {
     }
 
     // 2. Multiplayer panel & keyboard (priority: 90)
-    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
-    if (multiplayerPanel) {
+    if (this.multiplayerPanel) {
+      const multiplayerPanel = this.multiplayerPanel;
       try {
         const keypad = multiplayerPanel.getKeypad?.();
         const keyboardActive = keypad?.isVisible() || keypad?.isActive() || false;
@@ -858,8 +867,7 @@ export class FeedControls {
     }
     
     // Check if keyboard is visible/active
-    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
-    const keypad = multiplayerPanel?.getKeypad?.();
+    const keypad = this.multiplayerPanel?.getKeypad?.();
     if (keypad?.isVisible() || keypad?.isActive()) {
       return true;
     }
@@ -939,7 +947,7 @@ export class FeedControls {
    * Updates hover state based on finger proximity even when not pinching
    */
   private updateMultiplayerPanelHover(dt: number): void {
-    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+    const multiplayerPanel = this.multiplayerPanel;
     if (!multiplayerPanel?.isVisible()) return;
     
     try {
@@ -969,7 +977,7 @@ export class FeedControls {
   }
 
   private tryClickMultiplayerPanel(side: 'left' | 'right'): boolean {
-    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+    const multiplayerPanel = this.multiplayerPanel;
     
     // Check keypad first (highest priority when visible)
     const keypad = multiplayerPanel?.getKeypad?.();
@@ -1350,7 +1358,7 @@ export class FeedControls {
     // CRITICAL FIX: Touch-based keyboard interaction (proximity/collider detection)
     // Enhanced with error handling and null safety
     try {
-      const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+      const multiplayerPanel = this.multiplayerPanel;
       if (!multiplayerPanel) return; // Early return if panel doesn't exist
       
       const keypad = multiplayerPanel.getKeypad?.();

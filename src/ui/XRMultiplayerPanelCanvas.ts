@@ -108,11 +108,10 @@ export class XRMultiplayerPanel {
     this.keypad.onInput((text) => {
       // CRITICAL FIX: Sync keypad input with panel state and update display
       this.joinInputCode = text;
-      this.render(); // Update panel display to show typed text
-      // Debug logging only in development
-      if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
-        console.log('[XRMultiplayerPanel] Input updated:', text);
-      }
+      // Force immediate render to show typed text
+      this.render(); // This already sets texture.needsUpdate = true
+      // Debug logging to verify callback is being called
+      console.log('[XRMultiplayerPanel] ✅ Input callback called - text:', text, 'joinInputCode:', this.joinInputCode, 'mode:', this.mode);
     });
     this.keypad.onConnectClick(() => {
       // Connect button pressed on keypad
@@ -1026,8 +1025,15 @@ export class XRMultiplayerPanel {
       ctx.fillText('Please wait...', w / 2, 320);
     }
     
-    // Update texture
+    // Update texture - CRITICAL: Always update texture after render
     this.texture.needsUpdate = true;
+  }
+  
+  /**
+   * Force render update (for external calls)
+   */
+  forceRender(): void {
+    this.render();
   }
   
   private drawButton(ctx: CanvasRenderingContext2D, text: string, y: number, h: number, color: string, hovered: boolean, buttonType?: ButtonType): void {
