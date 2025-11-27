@@ -1,6 +1,46 @@
 /**
- * VRKeypad - Lightweight 3D keypad for entering Peer IDs in VR
- * Optimized for hand tracking (pinch/poke) with no frame-blocking operations
+ * VRKeypad - Virtual Touch Keyboard for WebXR Text Input
+ * 
+ * ARCHITECTURE: Virtual Touch Only (No Raycast)
+ * ==============================================
+ * 
+ * This keyboard uses EXCLUSIVELY virtual touch interaction (index finger proximity detection).
+ * NO raycast-based typing is used. This ensures reliable, tactile typing experience.
+ * 
+ * KEY PRINCIPLES:
+ * 1. One touch = one character (enforced by debouncing)
+ * 2. Key activates ONLY when: index finger collider touches key collider AND user pinches
+ * 3. All 3D interactions are blocked when keyboard is active
+ * 4. Debounce prevents rapid-fire typing (200ms cooldown per key)
+ * 
+ * INTERACTION FLOW:
+ * 1. User moves index finger near key (within 5cm threshold)
+ * 2. checkTouchInteraction() detects finger proximity to key
+ * 3. User pinches → checkTouchPress() validates debounce and triggers
+ * 4. handleKeyPress() processes key and updates input text
+ * 5. Input callback immediately syncs with UI panel
+ * 
+ * STATE MANAGEMENT:
+ * - touchedKey: Currently touched key (null if none)
+ * - touchConsumed: Prevents double-trigger from same touch event
+ * - lastTriggeredKey: Last key that was pressed (for debouncing)
+ * - lastTriggerTime: Timestamp of last key press (for debouncing)
+ * 
+ * DEBOUNCING:
+ * - Per-key debounce: 150ms (prevents rapid repeats on same key)
+ * - Global debounce: 200ms (prevents rapid-fire across different keys)
+ * - touchConsumed flag: Prevents double-trigger from same touch event
+ * 
+ * INTEGRATION:
+ * - Called from FeedControls.updateTwoHandTransform() every frame
+ * - Blocks all 3D interactions when keyboard is visible
+ * - Input changes immediately sync with XRMultiplayerPanel via callback
+ * 
+ * FUTURE-PROOF DESIGN:
+ * - All keyboard logic is centralized in this file
+ * - Clear separation: virtual touch only, no raycast
+ * - State is clearly managed and documented
+ * - Easy to debug: comprehensive logging in development mode
  */
 
 import * as THREE from 'three';
@@ -44,13 +84,13 @@ export class VRKeypad {
   
   // Virtual touch interaction - improved for reliable typing
   // Key triggers when index finger collider overlaps key collider
-  // Immediate trigger on pinch, or after short hold to prevent accidental presses
-  private readonly TOUCH_HOLD_MS = 100; // Hold time before trigger (prevents jitter)
-  private readonly TOUCH_DEBOUNCE_MS = 200; // Global debounce to prevent rapid repeats
+  // CRITICAL: One touch = one character (immediate trigger on pinch, with debouncing)
+  private readonly TOUCH_DEBOUNCE_MS = 200; // Global debounce to prevent rapid repeats (one touch = one character)
   private touchedKey: KeypadKey | null = null;
   private touchStartTime: number | null = null;
   private lastTriggeredKey: KeypadKey | null = null;
   private lastTriggerTime: number = 0;
+  private touchConsumed: boolean = false; // Track if current touch has been consumed (prevents double-trigger)
   
   // State
   private inputText = '';
@@ -292,12 +332,17 @@ export class VRKeypad {
       this.onCancel?.();
       return true; // Handled, but don't update input
     } else {
-      // Regular key - add to input
+      // Regular key - add to input (one touch = one character)
       if (this.inputText.length < 30) {
         this.inputText += key;
         inputChanged = true;
       }
     }
+    
+    // CRITICAL: Reset touch consumed flag after handling key press
+    // This allows the same key to be pressed again after debounce period
+    // (but prevents double-trigger from same touch event)
+    this.touchConsumed = false;
     
     // CRITICAL: Call input change callback IMMEDIATELY to update panel display
     // Always call callback when input text changes (even for backspace/clear)
@@ -410,10 +455,10 @@ export class VRKeypad {
             py >= expandedY && py <= expandedY + expandedH) {
           // Key is being touched
           if (this.touchedKey !== region.key) {
-            // New key touched - start touch timer and reset consumed flag
+            // New key touched - reset state for new key
             this.touchedKey = region.key;
             this.touchStartTime = performance.now();
-            this.touchConsumed = false;
+            this.touchConsumed = false; // New key = new touch = can be consumed
           }
           return region.key;
         }
@@ -453,65 +498,60 @@ export class VRKeypad {
   
   /**
    * Check if touch should trigger a key press
-   * ENHANCED: Virtual touch only - immediate trigger when finger overlaps key collider
+   * CRITICAL: Virtual touch only - immediate trigger when finger overlaps key collider AND user pinches
    * Returns key if it should be pressed, null otherwise
    * 
-   * Logic:
-   * - If pinching while touching: trigger immediately (after debounce)
-   * - If not pinching: trigger after hold time (100ms) to prevent accidental presses
-   * - Debounce prevents rapid-fire from hand jitter
+   * ARCHITECTURE:
+   * - One touch = one character (enforced by debouncing)
+   * - Key activates ONLY when: index finger collider touches key collider AND user pinches
+   * - Debounce prevents rapid-fire from hand jitter (200ms cooldown per key)
+   * - touchConsumed flag prevents double-triggering from same touch event
    */
   checkTouchPress(isPinching: boolean = false): KeypadKey | null {
     if (!this.touchedKey) return null;
     
+    // CRITICAL: Only trigger when pinching (explicit user intent)
+    // This ensures one touch = one character (no accidental presses)
+    if (!isPinching) {
+      return null; // User must pinch to activate key
+    }
+    
+    // CRITICAL: Prevent double-triggering from same touch
+    if (this.touchConsumed) {
+      return null; // This touch already triggered a key press
+    }
+    
     const now = performance.now();
     
-    // Immediate trigger: if pinching while touching, trigger immediately (after debounce)
-    if (isPinching) {
-      if (this.canPressKey(this.touchedKey)) {
-        const key = this.touchedKey;
-        this.lastTriggeredKey = key;
-        this.lastTriggerTime = now;
-        return key;
-      }
-      return null; // Still in debounce
-    }
-    
-    // Hold-based trigger: key must be held for minimum duration (prevents accidental presses)
-    if (!this.touchStartTime) {
-      return null;
-    }
-    
-    const holdTime = now - this.touchStartTime;
-    if (holdTime < this.TOUCH_HOLD_MS) {
-      return null; // Not held long enough - prevents accidental typing from jitter
-    }
-    
-    // Check debounce
+    // Check debounce (ensures one touch = one character)
     if (!this.canPressKey(this.touchedKey)) {
       return null; // Still in debounce period
     }
     
+    // Key can be pressed - mark as consumed and trigger
     const key = this.touchedKey;
     this.lastTriggeredKey = key;
     this.lastTriggerTime = now;
+    this.touchConsumed = true; // Prevent double-trigger from same touch
     return key;
   }
   
   /**
    * Reset touch state when finger leaves key
+   * CRITICAL: Resets consumed flag to allow next touch to trigger
    */
   resetTouchState(): void {
     // Only reset if we're not currently triggering (allow trigger to complete)
     const now = performance.now();
     if (this.lastTriggeredKey && now - this.lastTriggerTime < this.TOUCH_DEBOUNCE_MS) {
-      // Still in debounce - don't reset yet
+      // Still in debounce - don't reset yet (prevents rapid re-triggering)
       return;
     }
     
     this.touchedKey = null;
     this.touchStartTime = null;
     this.lastTriggeredKey = null;
+    this.touchConsumed = false; // Reset consumed flag for next touch
   }
   
   /**
