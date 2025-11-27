@@ -641,21 +641,47 @@ export class FeedStore {
 
   async applyRemoteState(state: {
     index: number;
+    itemId: string | null;
     position: { x: number; y: number; z: number } | null;
     scale: number;
     rotationY: number;
   }): Promise<void> {
     try {
-      const clampedIndex = Math.max(0, Math.min(state.index ?? this.index, this.items.length - 1));
-      if (this.items.length > 0 && Number.isFinite(clampedIndex) && clampedIndex !== this.index) {
-        this.index = clampedIndex;
+      // ENHANCED: Match by itemId first (more reliable than index), fallback to index
+      let targetIndex = this.index;
+      
+      if (state.itemId) {
+        // Try to find item by ID
+        const itemIndex = this.items.findIndex(item => item.id === state.itemId);
+        if (itemIndex >= 0) {
+          targetIndex = itemIndex;
+        } else {
+          // Item ID not found, use index as fallback
+          const clampedIndex = Math.max(0, Math.min(state.index ?? this.index, this.items.length - 1));
+          if (Number.isFinite(clampedIndex)) {
+            targetIndex = clampedIndex;
+          }
+        }
+      } else {
+        // No itemId, use index
+        const clampedIndex = Math.max(0, Math.min(state.index ?? this.index, this.items.length - 1));
+        if (Number.isFinite(clampedIndex)) {
+          targetIndex = clampedIndex;
+        }
+      }
+      
+      // Only change feed item if index actually changed
+      if (this.items.length > 0 && targetIndex !== this.index) {
+        this.index = targetIndex;
         await this.showCurrent();
       }
 
+      // Apply position if provided
       if (state.position) {
         this.setPosition(new THREE.Vector3(state.position.x, state.position.y, state.position.z));
       }
 
+      // Apply transform if provided
       if (Number.isFinite(state.scale) || Number.isFinite(state.rotationY)) {
         this.setTransform(
           Number.isFinite(state.scale) ? state.scale : this.scale,

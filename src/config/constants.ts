@@ -166,11 +166,14 @@ export const MULTIPLAYER = {
   /** Click debounce time (ms) - prevents rapid-fire clicks */
   CLICK_DEBOUNCE_MS: 500,
   
-  /** Touch threshold for button interaction (m) - increased for more comfortable hand tracking */
-  BUTTON_TOUCH_THRESHOLD: 0.05,
+  /** Touch threshold for button interaction (m) - significantly increased for comfortable hand tracking */
+  BUTTON_TOUCH_THRESHOLD: 0.15, // 15cm - much more comfortable distance
   
-  /** Raycast hit thickness multiplier - increased for easier interaction */
-  RAYCAST_THICKNESS_MULTIPLIER: 1.5,
+  /** Raycast hit thickness multiplier - significantly increased for easier interaction */
+  RAYCAST_THICKNESS_MULTIPLIER: 3.0, // 3x larger interaction zone
+  
+  /** Maximum raycast distance for UI panels (m) - how far away user can interact */
+  UI_RAYCAST_MAX_DISTANCE: 1.5, // 1.5m - comfortable interaction distance
   
   /** Hover glow fill time (ms) - time to fill border glow from 0% to 100% */
   HOVER_GLOW_FILL_TIME_MS: 800,
