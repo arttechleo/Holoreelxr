@@ -6,6 +6,7 @@ import { Hud } from './ui/Hud';
 import { GlobalPlayer } from './integrations/player';
 import { checkWebXRSupport, logError } from './utils/errors';
 import { detectXRMode, getXRBackground } from './config/xr';
+import { MULTIPLAYER } from './config/constants';
 import { AssetLinkManager } from './feed/AssetLinkManager';
 import { AuthManager } from './auth/AuthManager';
 import { MusicManager } from './music/MusicManager';
@@ -58,9 +59,68 @@ const xrMultiplayerPanel = new XRMultiplayerPanel(
 // Onboarding tutorial (only shows in XR)
 const onboarding = new OnboardingTutorial(app.scene, hands, store);
 
-const FEED_SYNC_INTERVAL_MS = 250;
+const FEED_SYNC_MIN_INTERVAL_MS = MULTIPLAYER.FEED_SYNC_MIN_INTERVAL_MS;
+const FEED_SYNC_TRAILING_MS = MULTIPLAYER.FEED_SYNC_TRAILING_MS;
+const FEED_SYNC_HEARTBEAT_MS = MULTIPLAYER.FEED_SYNC_HEARTBEAT_MS;
+
+type FeedSyncReason = 'scroll' | 'keyboard' | 'heartbeat' | 'trailing';
+
 let lastFeedSyncAt = 0;
+let lastFeedSignature = '';
+let feedSyncTrailingHandle: ReturnType<typeof setTimeout> | null = null;
 let pendingFeedSync = Promise.resolve();
+
+const broadcastFeedSync = (
+  reason: FeedSyncReason,
+  options: { force?: boolean; skipTrailing?: boolean } = {}
+) => {
+  if (!multiplayer.isConnected()) return;
+  const snapshot = store.getStateSnapshot();
+  const signature = `${snapshot.index}:${snapshot.itemId ?? 'null'}`;
+  const now = performance.now();
+  const force = options.force ?? false;
+  const skipTrailing = options.skipTrailing ?? false;
+  
+  if (!force && signature === lastFeedSignature && now - lastFeedSyncAt < FEED_SYNC_MIN_INTERVAL_MS) {
+    if (!skipTrailing) {
+      scheduleTrailingFeedSync();
+    }
+    return;
+  }
+  
+  sendFeedSnapshot(snapshot, skipTrailing);
+};
+
+function sendFeedSnapshot(
+  snapshot: ReturnType<typeof store.getStateSnapshot>,
+  skipTrailing: boolean
+) {
+  lastFeedSignature = `${snapshot.index}:${snapshot.itemId ?? 'null'}`;
+  lastFeedSyncAt = performance.now();
+  multiplayer.broadcastFeedState({
+    index: snapshot.index,
+    itemId: snapshot.itemId,
+    timestamp: lastFeedSyncAt,
+  });
+  if (!skipTrailing) {
+    scheduleTrailingFeedSync();
+  }
+}
+
+function scheduleTrailingFeedSync() {
+  if (feedSyncTrailingHandle) {
+    clearTimeout(feedSyncTrailingHandle);
+  }
+  feedSyncTrailingHandle = window.setTimeout(() => {
+    feedSyncTrailingHandle = null;
+    if (!multiplayer.isConnected()) return;
+    const latest = store.getStateSnapshot();
+    const signature = `${latest.index}:${latest.itemId ?? 'null'}`;
+    if (signature !== lastFeedSignature) {
+      sendFeedSnapshot(latest, false);
+    }
+  }, FEED_SYNC_TRAILING_MS);
+}
 
 // Expose multiplayer panel globally for easy access from connect.html or console
 (window as any).multiplayerPanel = xrMultiplayerPanel;
@@ -107,15 +167,7 @@ multiplayer.onConnectionChange((connected: boolean) => {
     hud.toast('🎉 Multiplayer connected!');
     remoteHands.setVisible(true);
     if (multiplayer.isHostRole()) {
-      // CRITICAL FIX: Only broadcast content state (index/itemId), not transforms
-      const state = store.getStateSnapshot();
-      const contentOnlyState = {
-        index: state.index,
-        itemId: state.itemId,
-        // CRITICAL: Do NOT include position, scale, rotationY - each user controls their own
-        timestamp: state.timestamp,
-      };
-      multiplayer.broadcastFeedState(contentOnlyState);
+      broadcastFeedSync('scroll', { force: true });
     }
   } else {
     hud.toast('❌ Multiplayer disconnected');
@@ -125,7 +177,6 @@ multiplayer.onConnectionChange((connected: boolean) => {
 });
 
 multiplayer.onRemoteFeed((state) => {
-  if (multiplayer.isHostRole()) return;
   pendingFeedSync = pendingFeedSync.then(() => store.applyRemoteState(state));
 });
 
@@ -301,21 +352,6 @@ async function loadMainFeed() {
       
       multiplayer.broadcastHands(handState);
       
-      // CRITICAL FIX: Each user controls their own model locally
-      // Only sync content changes (feed index/itemId), NOT transforms (position/rotation/scale)
-      // This prevents host from controlling everyone's model and eliminates flickering
-      if (multiplayer.isHostRole() && now - lastFeedSyncAt > FEED_SYNC_INTERVAL_MS) {
-        lastFeedSyncAt = now;
-        // Only broadcast content state (index/itemId), not transforms
-        const state = store.getStateSnapshot();
-        const contentOnlyState = {
-          index: state.index,
-          itemId: state.itemId,
-          // CRITICAL: Do NOT include position, scale, rotationY - each user controls their own
-          timestamp: state.timestamp,
-        };
-        multiplayer.broadcastFeedState(contentOnlyState);
-      }
     }
     
     // Update 3D panels to face camera
@@ -325,6 +361,13 @@ async function loadMainFeed() {
     // Update multiplayer panel (like ReactionHud - positions itself relative to object)
     const dt = 0.016; // ~60fps
     xrMultiplayerPanel.tick(dt);
+    
+    if (multiplayer.isConnected()) {
+      const heartbeatNow = performance.now();
+      if (heartbeatNow - lastFeedSyncAt > FEED_SYNC_HEARTBEAT_MS) {
+        broadcastFeedSync('heartbeat', { force: true, skipTrailing: true });
+      }
+    }
     
     // Update tutorial panel position to the right of the 3D model
     // CRITICAL: Only update if tutorial is actually active
@@ -379,8 +422,7 @@ async function loadMainFeed() {
     const controls = new FeedControls(app, hands, store);
     // CRITICAL FIX: Set multiplayer panel reference for keyboard interaction
     controls.setMultiplayerPanel(xrMultiplayerPanel);
-    // CRITICAL FIX: Pass multiplayer reference to FeedControls for gesture broadcasting
-    (controls as any).multiplayer = multiplayer;
+    controls.setFeedSyncCallback(() => broadcastFeedSync('scroll'));
     // Wire up 3D panels to controls
     (controls as any).authPanel = xrAuthPanel;
     (controls as any).musicPanel = xrMusicPanel;
@@ -408,12 +450,14 @@ document.addEventListener('keydown', (e) => {
     case 'a':
       store.next(-1);
       hud.toast('⬅️ Previous item');
+      broadcastFeedSync('keyboard');
       break;
     
     case 'ArrowRight':
     case 'd':
       store.next(+1);
       hud.toast('➡️ Next item');
+      broadcastFeedSync('keyboard');
       break;
     
     case 'ArrowUp':

@@ -183,6 +183,15 @@ export const MULTIPLAYER = {
   
   /** Panel dimming opacity when keypad is active (0.0 to 1.0) */
   PANEL_DIMMED_OPACITY: 0.4,
+  
+  /** Minimum interval between feed sync broadcasts (ms) */
+  FEED_SYNC_MIN_INTERVAL_MS: 120,
+  
+  /** Delay for trailing feed sync confirmation (ms) */
+  FEED_SYNC_TRAILING_MS: 250,
+  
+  /** Heartbeat interval to re-send feed state even if unchanged (ms) */
+  FEED_SYNC_HEARTBEAT_MS: 5000,
 } as const;
 
 // ========== VISUAL EFFECTS ==========

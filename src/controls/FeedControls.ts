@@ -135,6 +135,7 @@ export class FeedControls {
   // 🎓 Gesture tutorial
   private tutorial: GestureTutorial;
   private showTutorialOnStart = true;
+  private feedSyncCallback?: (info: { reason: 'scroll'; direction: number }) => void;
 
   // ---- anti-burst (close-hands) gating ----
   private readonly CLUSTER_DIST = REACTIONS.CLUSTER_DISTANCE;
@@ -449,6 +450,10 @@ export class FeedControls {
   // Set multiplayer panel reference for keyboard interaction
   setMultiplayerPanel(panel: XRMultiplayerPanel): void {
     this.multiplayerPanel = panel;
+  }
+
+  setFeedSyncCallback(callback: (info: { reason: 'scroll'; direction: number }) => void): void {
+    this.feedSyncCallback = callback;
   }
 
   /**
@@ -2036,6 +2041,10 @@ export class FeedControls {
       console.log(`  New index: ${newIndex} / ${totalItems}`);
       console.log(`  New item: ${this.store.items[newIndex]?.title || 'unknown'}`);
       console.log(`  Index changed: ${oldIndex !== newIndex ? 'YES ✅' : 'NO ❌'}`);
+      
+      if (oldIndex !== newIndex) {
+        this.feedSyncCallback?.({ reason: 'scroll', direction: dir });
+      }
       
       this.hudMgr.showFor(this.currentModelKey());
       this.scrollAccum = 0;
