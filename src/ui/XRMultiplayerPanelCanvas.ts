@@ -107,11 +107,13 @@ export class XRMultiplayerPanel {
     this.keypad = new VRKeypad(scene);
     this.keypad.onInput((text) => {
       // CRITICAL FIX: Sync keypad input with panel state and update display
+      console.log('[XRMultiplayerPanel] 🔔 Input callback received - text:', text, 'current joinInputCode:', this.joinInputCode, 'mode:', this.mode);
       this.joinInputCode = text;
+      console.log('[XRMultiplayerPanel] 📝 Updated joinInputCode to:', this.joinInputCode);
+      
       // Force immediate render to show typed text
       this.render(); // This already sets texture.needsUpdate = true
-      // Debug logging to verify callback is being called
-      console.log('[XRMultiplayerPanel] ✅ Input callback called - text:', text, 'joinInputCode:', this.joinInputCode, 'mode:', this.mode);
+      console.log('[XRMultiplayerPanel] ✅ Render called, mode:', this.mode, 'joinInputCode:', this.joinInputCode);
     });
     this.keypad.onConnectClick(() => {
       // Connect button pressed on keypad
@@ -121,12 +123,14 @@ export class XRMultiplayerPanel {
       // Cancel button pressed - hide keypad and return to idle
       this.keypad?.hide();
       this.mode = 'idle';
+      // CRITICAL: Clear input when canceling
       this.joinInputCode = '';
-      this.render();
-      // Debug logging only in development
-      if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
-        console.log('[XRMultiplayerPanel] Keypad cancelled');
+      // Also clear keypad's input text
+      if (this.keypad) {
+        this.keypad.setInputText('');
       }
+      this.render();
+      console.log('[XRMultiplayerPanel] Keypad cancelled - input cleared');
     });
     
     // Create canvas
@@ -542,7 +546,8 @@ export class XRMultiplayerPanel {
   private async handleJoin(): Promise<void> {
     // Switch to joining mode - show keypad
     this.mode = 'joining';
-    this.joinInputCode = '';
+    // CRITICAL: Don't clear joinInputCode - preserve any existing input
+    // this.joinInputCode = ''; // REMOVED - preserve input
     this.render();
     
     // Show keypad in front of camera
@@ -556,8 +561,13 @@ export class XRMultiplayerPanel {
     const keypadPos = camPos.clone().add(camDir.multiplyScalar(0.7));
     keypadPos.y -= 0.15; // Lower for comfortable typing
     
+    // CRITICAL: Sync keypad inputText with panel's joinInputCode before showing
+    if (this.keypad) {
+      this.keypad.setInputText(this.joinInputCode);
+    }
+    
     this.keypad?.show(keypadPos, camPos);
-    console.log('[XRMultiplayerPanel] Join mode - keypad shown');
+    console.log('[XRMultiplayerPanel] Join mode - keypad shown, joinInputCode:', this.joinInputCode);
   }
   
   /**
@@ -922,6 +932,10 @@ export class XRMultiplayerPanel {
       ctx.fillStyle = '#00ff00';
       ctx.font = 'bold 36px monospace';
       const displayText = this.joinInputCode || '...';
+      // CRITICAL: Debug log to verify text is being rendered
+      if (this.joinInputCode) {
+        console.log('[XRMultiplayerPanel] 🎨 Rendering text in joining mode:', displayText, 'at y=320');
+      }
       ctx.fillText(displayText, w / 2, 320);
       
       // Instructions for keypad
