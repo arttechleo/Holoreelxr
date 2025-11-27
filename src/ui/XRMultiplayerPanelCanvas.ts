@@ -106,14 +106,18 @@ export class XRMultiplayerPanel {
     // Create VR keypad
     this.keypad = new VRKeypad(scene);
     this.keypad.onInput((text) => {
-      // CRITICAL FIX: Sync keypad input with panel state and update display
-      console.log('[XRMultiplayerPanel] 🔔 Input callback received - text:', text, 'current joinInputCode:', this.joinInputCode, 'mode:', this.mode);
-      this.joinInputCode = text;
-      console.log('[XRMultiplayerPanel] 📝 Updated joinInputCode to:', this.joinInputCode);
+      // CRITICAL: Sync keypad input with panel state and update display IMMEDIATELY
+      // This callback is called every time a key is pressed
+      console.log('[XRMultiplayerPanel] 🔔 Input callback - text:', text, 'mode:', this.mode);
       
-      // Force immediate render to show typed text
-      this.render(); // This already sets texture.needsUpdate = true
-      console.log('[XRMultiplayerPanel] ✅ Render called, mode:', this.mode, 'joinInputCode:', this.joinInputCode);
+      // Update joinInputCode with new text
+      this.joinInputCode = text;
+      
+      // CRITICAL: Force immediate render to show typed text in real-time
+      this.render();
+      this.texture.needsUpdate = true; // Ensure texture is updated
+      
+      console.log('[XRMultiplayerPanel] ✅ Text field updated - joinInputCode:', this.joinInputCode);
     });
     this.keypad.onConnectClick(() => {
       // Connect button pressed on keypad
