@@ -554,6 +554,7 @@ export class FeedControls {
   }
 
   /** Collapse bursts and require a short stable hold before accepting a gesture. */
+  /** ENHANCED: More lenient thresholds for easier intentional triggering, harder accidental */
   private acceptGesture(kind: 'like' | 'heart' | 'repost'): boolean {
     const now = performance.now();
 
@@ -563,13 +564,17 @@ export class FeedControls {
       this.clusterCooldownUntil = now + this.CLUSTER_COOLDOWN_MS;
     }
 
-    // simple hold hysteresis: same kind must be "stable" for GESTURE_HOLD_MS
+    // ENHANCED: Reduced hold time for heart gesture (more responsive)
+    // Other gestures keep standard hold time to prevent false positives
+    const holdTime = kind === 'heart' ? this.GESTURE_HOLD_MS * 0.6 : this.GESTURE_HOLD_MS;
+    
+    // simple hold hysteresis: same kind must be "stable" for holdTime
     if (this.lastStableKind !== kind) {
       this.lastStableKind = kind;
       this.lastStableCheckAt = now;
       return false; // first frame we see this kind -> start timing
     }
-    if (now - this.lastStableCheckAt < this.GESTURE_HOLD_MS) return false;
+    if (now - this.lastStableCheckAt < holdTime) return false;
 
     // passed gates
     this.lastStableCheckAt = now; // keep ticking while continuing

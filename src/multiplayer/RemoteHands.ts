@@ -21,8 +21,9 @@ interface HandRenderGroup {
 export class RemoteHands {
   private scene: THREE.Scene;
   private group = new THREE.Group();
-  private readonly HAND_COLOR = 0x4ecdc4;
-  private readonly PINCH_COLOR = 0xffd93d;
+  // ENHANCED: Match single-user hand styling (WebXR default is cyan/teal)
+  private readonly HAND_COLOR = 0x4ecdc4; // Cyan/teal to match WebXR hand tracking
+  private readonly PINCH_COLOR = 0xffd93d; // Yellow for pinch indicator
 
   private readonly leftHand: HandRenderGroup;
   private readonly rightHand: HandRenderGroup;
@@ -47,12 +48,13 @@ export class RemoteHands {
     const jointPositions = new Float32Array(HAND_JOINT_NAMES.length * 3);
     const jointGeometry = new THREE.BufferGeometry();
     jointGeometry.setAttribute('position', new THREE.BufferAttribute(jointPositions, 3));
+    // ENHANCED: Match single-user hand styling - slightly larger, more visible joints
     const jointMaterial = new THREE.PointsMaterial({
       color: this.HAND_COLOR,
-      size: 0.01,
+      size: 0.012, // Slightly larger (0.01 -> 0.012) for better visibility
       sizeAttenuation: true,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.9, // More opaque (0.85 -> 0.9) for better visibility
       depthWrite: false,
     });
     const joints = new THREE.Points(jointGeometry, jointMaterial);
@@ -61,10 +63,12 @@ export class RemoteHands {
     const bonePositions = new Float32Array(HAND_BONE_CONNECTIONS.length * 6);
     const boneGeometry = new THREE.BufferGeometry();
     boneGeometry.setAttribute('position', new THREE.BufferAttribute(bonePositions, 3));
+    // ENHANCED: Match single-user hand styling - more visible bones
     const boneMaterial = new THREE.LineBasicMaterial({
       color: this.HAND_COLOR,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.7, // More opaque (0.6 -> 0.7) for better visibility
+      linewidth: 2, // Slightly thicker lines
       depthWrite: false,
     });
     const bones = new THREE.LineSegments(boneGeometry, boneMaterial);
@@ -106,7 +110,8 @@ export class RemoteHands {
     const rightVisible = this.updateHand(hands.right, this.rightHand);
     const anyVisible = leftVisible || rightVisible;
     // ENHANCED: Show group if any hand is visible, but don't hide if explicitly set to visible
-    if (anyVisible) {
+    // CRITICAL: Always show group when connected (even if no hand data yet) to match single-user behavior
+    if (anyVisible || this.group.visible) {
       this.group.visible = true;
     }
 

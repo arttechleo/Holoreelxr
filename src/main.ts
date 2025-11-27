@@ -224,18 +224,22 @@ async function loadMainFeed() {
 
     // Keep joints flowing
   let lastStopPalmToggle = 0;
-  const STOP_PALM_COOLDOWN = 1000; // 1 second cooldown to prevent rapid toggling
+  let stopPalmWasActive = false; // Track previous state for edge detection
+  const STOP_PALM_COOLDOWN = 500; // 500ms cooldown to prevent rapid toggling
   
   app.onFrame((info) => { 
     hands.update(info);
     
-    // EXPERIMENTAL: Toggle multiplayer panel with stop-palm gesture (flat hand facing forward)
+    // ENHANCED: Single-tap host panel toggle (edge detection on stop-palm gesture)
     // CRITICAL FIX: Only allow multiplayer panel AFTER tutorial is complete
-    // Use stop-palm to toggle panel on/off with cooldown
+    // Use edge detection: trigger on stopPalm becoming true (not while held)
     const now = performance.now();
-    if (hands.state.stopPalm && !multiplayer.isConnected() && !onboarding.isTutorialActive() && (now - lastStopPalmToggle) > STOP_PALM_COOLDOWN) {
+    const stopPalmActive = hands.state.stopPalm;
+    const stopPalmJustActivated = stopPalmActive && !stopPalmWasActive; // Edge detection
+    
+    if (stopPalmJustActivated && !multiplayer.isConnected() && !onboarding.isTutorialActive() && (now - lastStopPalmToggle) > STOP_PALM_COOLDOWN) {
       lastStopPalmToggle = now;
-      // Toggle panel visibility
+      // Toggle panel visibility (single tap, no hold required)
       if (!xrMultiplayerPanel.isVisible()) {
         xrMultiplayerPanel.show();
         hud.toast('🎮 Multiplayer panel opened!');
@@ -244,6 +248,9 @@ async function loadMainFeed() {
         hud.toast('Multiplayer panel closed');
       }
     }
+    
+    // Update previous state for edge detection
+    stopPalmWasActive = stopPalmActive;
     
     // EXPERIMENTAL: Broadcast hand positions to multiplayer partner (throttled)
     if (multiplayer.isConnected()) {
