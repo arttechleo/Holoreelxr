@@ -257,8 +257,9 @@ export class HandEngine {
         const indexDist = dist(L_i, R_i);
         const thumbDist = dist(L_t, R_t);
         
-        // SIMPLE DETECTION: Both pairs must be close (within 15cm) - same as tutorial
-        const HEART_DISTANCE = 0.15; // 15cm
+        // ENHANCED DETECTION: More lenient thresholds for easier intentional triggering
+        // Both pairs must be close (within 18cm) - more forgiving than tutorial
+        const HEART_DISTANCE = 0.18; // 18cm (increased from 15cm for easier detection)
         const indexClose = indexDist < HEART_DISTANCE;
         const thumbClose = thumbDist < HEART_DISTANCE;
         

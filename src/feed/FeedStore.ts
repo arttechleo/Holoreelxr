@@ -639,6 +639,11 @@ export class FeedStore {
     };
   }
 
+  // CRITICAL FIX: Throttle remote state updates to prevent flickering
+  private lastRemoteStateUpdate = 0;
+  private readonly REMOTE_STATE_THROTTLE_MS = 100; // Max 10 updates per second
+  private pendingRemoteState: { index: number; itemId: string | null; position: { x: number; y: number; z: number } | null; scale: number; rotationY: number } | null = null;
+  
   async applyRemoteState(state: {
     index: number;
     itemId: string | null;
@@ -647,6 +652,23 @@ export class FeedStore {
     rotationY: number;
   }): Promise<void> {
     try {
+      const now = performance.now();
+      
+      // CRITICAL FIX: Throttle updates to prevent flickering from rapid network updates
+      if (now - this.lastRemoteStateUpdate < this.REMOTE_STATE_THROTTLE_MS) {
+        // Store pending state and apply on next throttle window
+        this.pendingRemoteState = state;
+        return;
+      }
+      
+      // Apply pending state if exists
+      if (this.pendingRemoteState) {
+        state = this.pendingRemoteState;
+        this.pendingRemoteState = null;
+      }
+      
+      this.lastRemoteStateUpdate = now;
+      
       // ENHANCED: Match by itemId first (more reliable than index), fallback to index
       let targetIndex = this.index;
       
@@ -670,23 +692,42 @@ export class FeedStore {
         }
       }
       
-      // Only change feed item if index actually changed
-      if (this.items.length > 0 && targetIndex !== this.index) {
+      // CRITICAL FIX: Only change feed item if index actually changed AND we're not currently loading
+      // This prevents flickering from rapid index changes
+      if (this.items.length > 0 && targetIndex !== this.index && !this.isLoading) {
         this.index = targetIndex;
         await this.showCurrent();
       }
 
-      // Apply position if provided
+      // CRITICAL FIX: Smooth position updates to prevent flickering
+      // Only apply if position changed significantly (more than 1cm)
       if (state.position) {
-        this.setPosition(new THREE.Vector3(state.position.x, state.position.y, state.position.z));
+        const currentPos = this.getObjectWorldPos();
+        if (currentPos) {
+          const newPos = new THREE.Vector3(state.position.x, state.position.y, state.position.z);
+          const distance = currentPos.distanceTo(newPos);
+          // Only update if moved more than 1cm (prevents jitter from network noise)
+          if (distance > 0.01) {
+            this.setPosition(newPos);
+          }
+        } else {
+          // No current position, apply immediately
+          this.setPosition(new THREE.Vector3(state.position.x, state.position.y, state.position.z));
+        }
       }
 
-      // Apply transform if provided
+      // CRITICAL FIX: Smooth transform updates to prevent flickering
+      // Only apply if transform changed significantly
       if (Number.isFinite(state.scale) || Number.isFinite(state.rotationY)) {
-        this.setTransform(
-          Number.isFinite(state.scale) ? state.scale : this.scale,
-          Number.isFinite(state.rotationY) ? state.rotationY : this.rotationY
-        );
+        const scaleChanged = Number.isFinite(state.scale) && Math.abs(state.scale - this.scale) > 0.01;
+        const rotationChanged = Number.isFinite(state.rotationY) && Math.abs(state.rotationY - this.rotationY) > 0.01;
+        
+        if (scaleChanged || rotationChanged) {
+          this.setTransform(
+            Number.isFinite(state.scale) ? state.scale : this.scale,
+            Number.isFinite(state.rotationY) ? state.rotationY : this.rotationY
+          );
+        }
       }
     } catch (error) {
       logError(error, 'FeedStore.applyRemoteState');
