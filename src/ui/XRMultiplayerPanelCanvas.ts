@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { MultiplayerManager, VoiceState } from '../multiplayer/MultiplayerManager';
 import { VRKeypad } from './VRKeypad';
+import { MULTIPLAYER } from '../config/constants';
 
 type ButtonType = 'host' | 'join' | 'close' | 'voice' | 'mute';
 
@@ -41,8 +42,11 @@ export class XRMultiplayerPanel {
   // RIGHT side (positive X) - 50cm right, 5cm up
   private readonly OFFSET = new THREE.Vector3(0.50, 0.05, 0);
   
-  // Hit detection thickness (like ReactionHud)
-  private readonly HIT_THICKNESS = 0.08;
+  // Hit detection thickness (like ReactionHud) - increased for easier interaction
+  private readonly HIT_THICKNESS = 0.08 * MULTIPLAYER.RAYCAST_THICKNESS_MULTIPLIER;
+  
+  // Touch-based interaction threshold (increased for comfortable hand tracking)
+  private readonly TOUCH_THRESHOLD = MULTIPLAYER.BUTTON_TOUCH_THRESHOLD;
   
   // Callback to get object position
   private getObjectWorldPos: () => THREE.Vector3 | null;
@@ -66,6 +70,15 @@ export class XRMultiplayerPanel {
     remoteMuted: false,
   };
   private voiceBusy = false;
+  
+  // Progressive hover-glow tracking
+  private buttonHoverProgress = new Map<ButtonType, number>(); // 0.0 to 1.0
+  private buttonHoverStartTime = new Map<ButtonType, number>(); // timestamp when hover started
+  private buttonHoverConsumed = new Map<ButtonType, boolean>(); // track if glow has triggered click
+  
+  // Panel dimming state
+  private baseOpacity = 1.0;
+  private targetOpacity = 1.0;
   
   // Button regions for raycasting (in canvas coordinates)
   private buttonRegions = {
@@ -141,6 +154,14 @@ export class XRMultiplayerPanel {
     this.anchor.add(this.panel);
     scene.add(this.anchor);
     
+    // Initialize hover progress tracking for all buttons
+    const allButtons: ButtonType[] = ['host', 'join', 'close', 'voice', 'mute'];
+    allButtons.forEach(btn => {
+      this.buttonHoverProgress.set(btn, 0.0);
+      this.buttonHoverStartTime.set(btn, 0);
+      this.buttonHoverConsumed.set(btn, false);
+    });
+    
     // Create raycast line material
     this.rayMaterial = new THREE.LineBasicMaterial({
       color: 0x00aaff,
@@ -175,41 +196,43 @@ export class XRMultiplayerPanel {
   
   /**
    * Raycast in world space against the panel (matching ReactionHud pattern EXACTLY)
+   * Enhanced with increased interaction distance
    */
   raycastHit(ray: THREE.Ray, thickness = 10): MultiplayerHit {
     if (!this.visible || !ray || !this.anchor) return null;
     
     try {
       // Build plane for panel (like ReactionHud)
-    const normal = new THREE.Vector3(0, 0, 1);
-    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, this.anchor.position);
-    const hitPoint = new THREE.Vector3();
-    const ok = ray.intersectPlane(plane, hitPoint);
-    if (!ok) return null;
-    
-    // Reject if too far from center in Z (like ReactionHud)
-    if (Math.abs(hitPoint.z - this.anchor.position.z) > (this.HIT_THICKNESS * (thickness/10))) return null;
-    
-    // Convert world point to panel space (like ReactionHud)
-    const dx = hitPoint.x - this.anchor.position.x;
-    const dy = hitPoint.y - this.anchor.position.y;
-    if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) return null;
-    
-    // Convert to UV coordinates (like ReactionHud)
-    const u = (dx / this.PANEL_W) + 0.5;
-    const v = 0.5 - (dy / this.PANEL_H);
-    const px = u * this.CANVAS_W;
-    const py = v * this.CANVAS_H;
-    
-    // Check which button was hit
-    for (const [name, region] of Object.entries(this.buttonRegions)) {
-      if (px >= region.x && px <= region.x + region.w &&
-          py >= region.y && py <= region.y + region.h) {
-        return { button: name as ButtonType, point: hitPoint };
+      const normal = new THREE.Vector3(0, 0, 1);
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, this.anchor.position);
+      const hitPoint = new THREE.Vector3();
+      const ok = ray.intersectPlane(plane, hitPoint);
+      if (!ok) return null;
+      
+      // Reject if too far from center in Z (like ReactionHud) - increased threshold
+      const effectiveThickness = this.HIT_THICKNESS * (thickness / 10) * MULTIPLAYER.RAYCAST_THICKNESS_MULTIPLIER;
+      if (Math.abs(hitPoint.z - this.anchor.position.z) > effectiveThickness) return null;
+      
+      // Convert world point to panel space (like ReactionHud)
+      const dx = hitPoint.x - this.anchor.position.x;
+      const dy = hitPoint.y - this.anchor.position.y;
+      if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) return null;
+      
+      // Convert to UV coordinates (like ReactionHud)
+      const u = (dx / this.PANEL_W) + 0.5;
+      const v = 0.5 - (dy / this.PANEL_H);
+      const px = u * this.CANVAS_W;
+      const py = v * this.CANVAS_H;
+      
+      // Check which button was hit
+      for (const [name, region] of Object.entries(this.buttonRegions)) {
+        if (px >= region.x && px <= region.x + region.w &&
+            py >= region.y && py <= region.y + region.h) {
+          return { button: name as ButtonType, point: hitPoint };
+        }
       }
-    }
-    
-    return null; // Hit panel but no button
+      
+      return null; // Hit panel but no button
     } catch (error) {
       // CRITICAL FIX: Don't crash on raycast errors
       console.error('[XRMultiplayerPanel] Error in raycastHit:', error);
@@ -218,13 +241,155 @@ export class XRMultiplayerPanel {
   }
   
   /**
-   * Set button hover (for visual feedback)
+   * Check touch-based interaction (proximity detection) for buttons
+   * Returns the button being touched, or null if none
+   * Enhanced with proper panel orientation handling
    */
-  setButtonHover(button: ButtonType | null): void {
+  checkTouchInteraction(indexTip: THREE.Vector3): ButtonType | null {
+    if (!this.visible || !this.anchor) return null;
+    
+    try {
+      // Get panel plane normal (panel faces forward in local Z+ direction)
+      const panelNormal = new THREE.Vector3(0, 0, 1);
+      panelNormal.applyQuaternion(this.anchor.quaternion);
+      const panelPos = this.anchor.position.clone();
+      
+      // Calculate distance from finger to panel plane
+      const toPanel = indexTip.clone().sub(panelPos);
+      const distToPlane = Math.abs(toPanel.dot(panelNormal));
+      
+      // Must be close to panel plane (within touch threshold)
+      if (distToPlane > this.TOUCH_THRESHOLD) return null;
+      
+      // Project finger position onto panel plane
+      const planeDist = toPanel.dot(panelNormal);
+      const projected = indexTip.clone().sub(panelNormal.clone().multiplyScalar(planeDist));
+      
+      // Convert to panel local space
+      const worldToLocal = new THREE.Matrix4();
+      worldToLocal.copy(this.anchor.matrixWorld).invert();
+      const localPos = new THREE.Vector3();
+      localPos.copy(projected);
+      localPos.applyMatrix4(worldToLocal);
+      
+      // Panel is in XY plane in local space, centered at origin
+      // Convert to canvas coordinates (u: 0-1, v: 0-1)
+      const u = (localPos.x / this.PANEL_W) + 0.5;
+      const v = 0.5 - (localPos.y / this.PANEL_H);
+      
+      // Clamp to valid range
+      if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+      
+      const px = u * this.CANVAS_W;
+      const py = v * this.CANVAS_H;
+      
+      // Check which button region contains this point
+      for (const [name, region] of Object.entries(this.buttonRegions)) {
+        if (region.w > 0 && region.h > 0 && // Region must be valid
+            px >= region.x && px <= region.x + region.w &&
+            py >= region.y && py <= region.y + region.h) {
+          return name as ButtonType;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      // Don't crash on touch detection errors
+      if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
+        console.error('[XRMultiplayerPanel] Error in checkTouchInteraction:', error);
+      }
+      return null;
+    }
+  }
+  
+  /**
+   * Set button hover (for visual feedback) with progressive glow tracking
+   */
+  setButtonHover(button: ButtonType | null, dt: number = 0): void {
+    const now = performance.now();
+    
+    // Reset hover progress for all buttons not being hovered
+    const allButtons: ButtonType[] = ['host', 'join', 'close', 'voice', 'mute'];
+    allButtons.forEach(btn => {
+      if (btn !== button) {
+        // Fade out hover progress when not hovered
+        const currentProgress = this.buttonHoverProgress.get(btn) || 0;
+        if (currentProgress > 0) {
+          const fadeSpeed = 3.0; // fade out speed
+          const newProgress = Math.max(0, currentProgress - fadeSpeed * dt);
+          this.buttonHoverProgress.set(btn, newProgress);
+          this.buttonHoverStartTime.set(btn, 0);
+          this.buttonHoverConsumed.set(btn, false);
+        }
+      }
+    });
+    
+    if (button) {
+      // Update hover progress for the hovered button
+      const startTime = this.buttonHoverStartTime.get(button) || 0;
+      const consumed = this.buttonHoverConsumed.get(button) || false;
+      
+      if (startTime === 0) {
+        // Just started hovering
+        this.buttonHoverStartTime.set(button, now);
+        this.buttonHoverConsumed.set(button, false);
+      } else if (!consumed) {
+        // Calculate progress based on hover time
+        const hoverDuration = now - startTime;
+        const progress = Math.min(1.0, hoverDuration / MULTIPLAYER.HOVER_GLOW_FILL_TIME_MS);
+        this.buttonHoverProgress.set(button, progress);
+        
+        // Check if glow is complete and minimum hover time has passed
+        if (progress >= 1.0 && hoverDuration >= MULTIPLAYER.MIN_HOVER_TIME_MS) {
+          // Glow complete - button is ready to be clicked
+          // This will be handled by the interaction system
+        }
+      }
+    }
+    
     if (this.hoveredButton !== button) {
       this.hoveredButton = button;
       this.render();
+    } else if (button) {
+      // Same button, but progress may have changed - re-render
+      this.render();
     }
+  }
+  
+  /**
+   * Get hover progress for a button (0.0 to 1.0)
+   */
+  getButtonHoverProgress(button: ButtonType): number {
+    return this.buttonHoverProgress.get(button) || 0.0;
+  }
+  
+  /**
+   * Check if button hover glow is complete and ready to trigger click
+   */
+  isButtonHoverComplete(button: ButtonType): boolean {
+    const progress = this.buttonHoverProgress.get(button) || 0.0;
+    const startTime = this.buttonHoverStartTime.get(button) || 0;
+    const consumed = this.buttonHoverConsumed.get(button) || false;
+    
+    if (consumed) return false; // Already consumed
+    
+    const now = performance.now();
+    const hoverDuration = startTime > 0 ? now - startTime : 0;
+    
+    return progress >= 1.0 && hoverDuration >= MULTIPLAYER.MIN_HOVER_TIME_MS;
+  }
+  
+  /**
+   * Mark button hover as consumed (prevents repeat triggers)
+   */
+  consumeButtonHover(button: ButtonType): void {
+    this.buttonHoverConsumed.set(button, true);
+    // Reset progress after a short delay to allow visual feedback
+    setTimeout(() => {
+      this.buttonHoverProgress.set(button, 0.0);
+      this.buttonHoverStartTime.set(button, 0);
+      this.buttonHoverConsumed.set(button, false);
+    }, 200);
   }
   
   /**
@@ -476,6 +641,7 @@ export class XRMultiplayerPanel {
   /**
    * Update panel position (like ReactionHud.tick) - call every frame
    * CRITICAL FIX: Enhanced error handling and null safety
+   * Added: Panel dimming when keypad is active
    */
   tick(dt: number): void {
     if (!this.visible) return;
@@ -488,14 +654,48 @@ export class XRMultiplayerPanel {
       }
       
       // Update keypad position to face camera
-      if (this.keypad?.isVisible()) {
+      const keypadVisible = this.keypad?.isVisible() || false;
+      
+      if (keypadVisible) {
         try {
           const camera = this.getCamera();
           if (camera) {
-            this.keypad.update(camera);
+            this.keypad?.update(camera);
           }
         } catch (error) {
           console.error('[XRMultiplayerPanel] Error updating keypad:', error);
+        }
+      }
+      
+      // Panel dimming: dim when keypad is active
+      this.targetOpacity = keypadVisible ? MULTIPLAYER.PANEL_DIMMED_OPACITY : 1.0;
+      
+      // Smooth opacity transition
+      const opacitySpeed = 3.0; // transition speed
+      this.baseOpacity += (this.targetOpacity - this.baseOpacity) * opacitySpeed * dt;
+      this.panel.material.opacity = this.baseOpacity;
+      
+      // Update hover progress (fade out when not hovered)
+      if (this.hoveredButton) {
+        this.setButtonHover(this.hoveredButton, dt);
+      } else {
+        // Fade out all hover progress
+        const allButtons: ButtonType[] = ['host', 'join', 'close', 'voice', 'mute'];
+        allButtons.forEach(btn => {
+          const currentProgress = this.buttonHoverProgress.get(btn) || 0;
+          if (currentProgress > 0) {
+            const fadeSpeed = 3.0;
+            const newProgress = Math.max(0, currentProgress - fadeSpeed * dt);
+            this.buttonHoverProgress.set(btn, newProgress);
+            if (newProgress === 0) {
+              this.buttonHoverStartTime.set(btn, 0);
+              this.buttonHoverConsumed.set(btn, false);
+            }
+          }
+        });
+        // Re-render if progress changed
+        if (allButtons.some(btn => (this.buttonHoverProgress.get(btn) || 0) > 0)) {
+          this.render();
         }
       }
     } catch (error) {
@@ -590,13 +790,13 @@ export class XRMultiplayerPanel {
       const hostY = 240;
       const hostH = 140;
       this.buttonRegions.host = { x: 112, y: hostY, w: 800, h: hostH };
-      this.drawButton(ctx, 'HOST', hostY, hostH, '#667eea', this.hoveredButton === 'host');
+      this.drawButton(ctx, 'HOST', hostY, hostH, '#667eea', this.hoveredButton === 'host', 'host');
       
       // JOIN button
       const joinY = 420;
       const joinH = 140;
       this.buttonRegions.join = { x: 112, y: joinY, w: 800, h: joinH };
-      this.drawButton(ctx, 'JOIN', joinY, joinH, '#f5576c', this.hoveredButton === 'join');
+      this.drawButton(ctx, 'JOIN', joinY, joinH, '#f5576c', this.hoveredButton === 'join', 'join');
       
       // Close button
       const closeY = 650;
@@ -690,14 +890,14 @@ export class XRMultiplayerPanel {
         const voiceH = 90;
         this.buttonRegions.voice = { x: 112, y: voiceY, w: 800, h: voiceH };
         const voiceLabel = this.voiceState.enabled ? 'VOICE READY' : 'VOICE ON';
-        this.drawButton(ctx, voiceLabel, voiceY, voiceH, '#888888', this.hoveredButton === 'voice');
+        this.drawButton(ctx, voiceLabel, voiceY, voiceH, '#888888', this.hoveredButton === 'voice', 'voice');
 
         if (this.voiceState.enabled) {
           const muteY = voiceY + 130;
           const muteH = 90;
           this.buttonRegions.mute = { x: 112, y: muteY, w: 800, h: muteH };
           const muteLabel = this.voiceState.muted ? 'UNMUTE' : 'MUTE';
-          this.drawButton(ctx, muteLabel, muteY, muteH, '#444444', this.hoveredButton === 'mute');
+          this.drawButton(ctx, muteLabel, muteY, muteH, '#444444', this.hoveredButton === 'mute', 'mute');
         }
       }
       
@@ -726,22 +926,84 @@ export class XRMultiplayerPanel {
     this.texture.needsUpdate = true;
   }
   
-  private drawButton(ctx: CanvasRenderingContext2D, text: string, y: number, h: number, color: string, hovered: boolean): void {
+  private drawButton(ctx: CanvasRenderingContext2D, text: string, y: number, h: number, color: string, hovered: boolean, buttonType?: ButtonType): void {
     const w = this.canvas.width;
     const buttonW = 800;
     const buttonX = (w - buttonW) / 2;
     
-    if (hovered) {
-      // Hovered - white background
+    // Get hover glow progress for this button
+    const glowProgress = buttonType ? this.getButtonHoverProgress(buttonType) : 0;
+    
+    if (hovered || glowProgress > 0) {
+      // Hovered or glowing - white background
       ctx.shadowColor = color;
       ctx.shadowBlur = 20;
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(buttonX, y, buttonW, h);
       ctx.shadowBlur = 0;
       
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 6;
-      ctx.strokeRect(buttonX + 3, y + 3, buttonW - 6, h - 6);
+      // Progressive glow border effect
+      if (glowProgress > 0) {
+        // Draw border glow that fills based on progress
+        const borderWidth = 8;
+        const glowColor = color;
+        
+        // Calculate how much of the border to fill
+        const perimeter = 2 * (buttonW + h);
+        const filledLength = perimeter * glowProgress;
+        
+        // Draw filled portion of border
+        ctx.strokeStyle = glowColor;
+        ctx.lineWidth = borderWidth;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        // Top edge
+        if (filledLength > 0) {
+          const topFill = Math.min(buttonW, filledLength);
+          ctx.beginPath();
+          ctx.moveTo(buttonX, y);
+          ctx.lineTo(buttonX + topFill, y);
+          ctx.stroke();
+        }
+        
+        // Right edge
+        if (filledLength > buttonW) {
+          const rightFill = Math.min(h, filledLength - buttonW);
+          ctx.beginPath();
+          ctx.moveTo(buttonX + buttonW, y);
+          ctx.lineTo(buttonX + buttonW, y + rightFill);
+          ctx.stroke();
+        }
+        
+        // Bottom edge
+        if (filledLength > buttonW + h) {
+          const bottomFill = Math.min(buttonW, filledLength - buttonW - h);
+          ctx.beginPath();
+          ctx.moveTo(buttonX + buttonW, y + h);
+          ctx.lineTo(buttonX + buttonW - bottomFill, y + h);
+          ctx.stroke();
+        }
+        
+        // Left edge
+        if (filledLength > 2 * buttonW + h) {
+          const leftFill = Math.min(h, filledLength - 2 * buttonW - h);
+          ctx.beginPath();
+          ctx.moveTo(buttonX, y + h);
+          ctx.lineTo(buttonX, y + h - leftFill);
+          ctx.stroke();
+        }
+        
+        // Draw remaining unfilled border in white
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(buttonX + 2, y + 2, buttonW - 4, h - 4);
+      } else {
+        // No glow yet, just normal hover border
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 6;
+        ctx.strokeRect(buttonX + 3, y + 3, buttonW - 6, h - 6);
+      }
     } else {
       // Normal - colored background
       ctx.fillStyle = color;
@@ -753,7 +1015,7 @@ export class XRMultiplayerPanel {
     }
     
     // Button text
-    ctx.fillStyle = hovered ? color : '#ffffff';
+    ctx.fillStyle = (hovered || glowProgress > 0) ? color : '#ffffff';
     ctx.font = 'bold 68px Arial';
     ctx.textAlign = 'center';
     ctx.fillText(text, w / 2, y + h / 2 + 24);
