@@ -1337,29 +1337,33 @@ export class FeedControls {
     }
     
     // ========== KEYBOARD VIRTUAL TOUCH INTERACTION ==========
-    // CRITICAL ARCHITECTURE: Keyboard uses virtual touch ONLY (no raycast)
+    // COMPLETE REWRITE: Clean, reliable virtual-touch keyboard
     // 
-    // Flow:
+    // ARCHITECTURE:
+    // - Every key is a collider (defined by key regions)
+    // - When index finger collider enters/overlaps key collider → trigger key press
+    // - Small debounce prevents spam (150ms per key)
+    // - Immediate text field updates via callback
+    // - No raycast typing - virtual touch only
+    //
+    // FLOW:
     // 1. Check if keyboard is visible
     // 2. Check both hands for index finger proximity to keys (5cm threshold)
-    // 3. If finger touches key AND user pinches → trigger key press (one touch = one character)
+    // 3. If finger touches key → trigger key press IMMEDIATELY (after debounce)
     // 4. Block all 3D interactions when keyboard is active
-    // 5. Debounce prevents rapid-fire typing (200ms cooldown per key)
-    //
-    // This system is completely separate from raycast-based UI interactions
+    // 5. Callback updates UI text field in real-time
     try {
       const multiplayerPanel = this.multiplayerPanel;
-      if (!multiplayerPanel) return; // Early return if panel doesn't exist
+      if (!multiplayerPanel) return;
       
       const keypad = multiplayerPanel.getKeypad?.();
-      if (!keypad || !keypad.isVisible()) return; // Early return if keypad not visible
+      if (!keypad || !keypad.isVisible()) return;
       
       // CRITICAL: Keyboard is active - block ALL 3D interactions immediately
-      // This ensures no 3D model reacts while typing
       this.uiActive = true;
       this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
       
-      // Check both hands for finger proximity to keys (virtual touch detection)
+      // Check both hands for index finger collider touching key collider
       const leftIndexTip = this.hands.indexTip('left');
       const rightIndexTip = this.hands.indexTip('right');
       
@@ -1392,22 +1396,16 @@ export class FeedControls {
       }
       
       if (touchedKey) {
-        // CRITICAL: Index finger collider is touching key collider - trigger IMMEDIATELY
-        // One touch = one character (enforced by debouncing in checkTouchPress)
-        // No pinch required - immediate trigger on touch
-        
-        // Check if key should be pressed (triggers immediately when touched + debounce allows)
+        // CRITICAL: Index finger collider is touching key collider
+        // Check if key should be pressed (triggers immediately after debounce)
         try {
           const pressedKey = keypad.checkTouchPress();
           if (pressedKey) {
-            // Key should be pressed - handle it IMMEDIATELY (one touch = one character)
+            // Key should be pressed - handle it IMMEDIATELY
+            // This updates inputText and triggers callback to update UI text field
             const handled = keypad.handleKeyPress(pressedKey);
             if (handled) {
-              // Successfully pressed - reset touch state after brief delay to allow next press
-              // This ensures clean state for next key press
-              setTimeout(() => {
-                keypad.resetTouchState();
-              }, 50);
+              console.log('[FeedControls] ✅ Key pressed:', pressedKey);
             }
           }
         } catch (error) {
@@ -1415,19 +1413,16 @@ export class FeedControls {
         }
         
         // CRITICAL: Return early to block ALL other interactions (3D and UI)
-        // Keyboard has exclusive priority when active
         return;
       } else {
-        // Not touching any key - clear hover and reset touch state
+        // Not touching any key - clear hover
         try {
           keypad.setHoveredKey(null);
-          keypad.resetTouchState();
         } catch (error) {
-          logError(error, 'FeedControls.keypad.resetState');
+          logError(error, 'FeedControls.keypad.resetHover');
         }
       }
     } catch (error) {
-      // CRITICAL FIX: Don't crash on keyboard interaction errors
       logError(error, 'FeedControls.keypad.interaction');
     }
     
