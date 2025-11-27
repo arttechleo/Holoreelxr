@@ -1363,65 +1363,14 @@ export class FeedControls {
       this.uiActive = true;
       this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
       
-      // Check both hands for index finger collider touching key collider
-      const leftIndexTip = this.hands.indexTip('left');
-      const rightIndexTip = this.hands.indexTip('right');
+      keypad.processFingerTouches([
+        this.hands.indexTip('left'),
+        this.hands.indexTip('right'),
+      ]);
       
-      let touchedKey: KeypadKey | null = null;
-      
-      // Check left hand
-      if (leftIndexTip) {
-        try {
-          const leftTouch = keypad.checkTouchInteraction(leftIndexTip);
-          if (leftTouch) {
-            touchedKey = leftTouch;
-            keypad.setHoveredKey(leftTouch); // Visual feedback
-          }
-        } catch (error) {
-          logError(error, 'FeedControls.keypad.leftTouch');
-        }
-      }
-      
-      // Check right hand (right hand takes priority if both are touching)
-      if (rightIndexTip) {
-        try {
-          const rightTouch = keypad.checkTouchInteraction(rightIndexTip);
-          if (rightTouch) {
-            touchedKey = rightTouch;
-            keypad.setHoveredKey(rightTouch); // Visual feedback
-          }
-        } catch (error) {
-          logError(error, 'FeedControls.keypad.rightTouch');
-        }
-      }
-      
-      if (touchedKey) {
-        // CRITICAL: Index finger collider is touching key collider
-        // Check if key should be pressed (triggers immediately after debounce)
-        try {
-          const pressedKey = keypad.checkTouchPress();
-          if (pressedKey) {
-            // Key should be pressed - handle it IMMEDIATELY
-            // This updates inputText and triggers callback to update UI text field
-            const handled = keypad.handleKeyPress(pressedKey);
-            if (handled) {
-              console.log('[FeedControls] ✅ Key pressed:', pressedKey);
-            }
-          }
-        } catch (error) {
-          logError(error, 'FeedControls.keypad.handleKeyPress');
-        }
-        
-        // CRITICAL: Return early to block ALL other interactions (3D and UI)
-        return;
-      } else {
-        // Not touching any key - clear hover
-        try {
-          keypad.setHoveredKey(null);
-        } catch (error) {
-          logError(error, 'FeedControls.keypad.resetHover');
-        }
-      }
+      // Keyboard owns the interaction loop while visible
+      // Always return early so no other UI/3D logic runs while typing
+      return;
     } catch (error) {
       logError(error, 'FeedControls.keypad.interaction');
     }
