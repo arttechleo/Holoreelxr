@@ -121,8 +121,9 @@ export class OnboardingTutorial {
   private progressPercentage: number = 0;
   private lastLoggedProgress: number = -1; // Track last logged progress to avoid spam
   private readonly AUTO_ADVANCE_DELAY_MS = 2600;
-  private buttonRegions: { prev: { x: number; y: number; w: number; h: number }; next: { x: number; y: number; w: number; h: number } } | null = null;
-  private hoveredButton: 'prev' | 'next' | null = null;
+  private buttonRegions: { prev: { x: number; y: number; w: number; h: number }; next: { x: number; y: number; w: number; h: number }; skip: { x: number; y: number; w: number; h: number } } | null = null;
+  private hoveredButton: 'prev' | 'next' | 'skip' | null = null;
+  private buttonLastClickTime = new Map<'prev' | 'next' | 'skip', number>(); // Debouncing
   private rotationInitialValue: number | null = null;
   private scaleInitialValue: number | null = null;
   private userHasInteracted = false; // Track if user has interacted with model
@@ -974,17 +975,38 @@ export class OnboardingTutorial {
     this.onComplete = callback;
   }
   
-  setButtonHover(button: 'prev' | 'next' | null) {
+  setButtonHover(button: 'prev' | 'next' | 'skip' | null) {
     if (this.hoveredButton !== button) {
       this.hoveredButton = button;
       this.updatePanel();
     }
   }
   
-  handleButtonClick(buttonType: 'prev' | 'next'): boolean {
+  canClickButton(buttonType: 'prev' | 'next' | 'skip'): boolean {
+    const now = performance.now();
+    const lastClick = this.buttonLastClickTime.get(buttonType) || 0;
+    const debounceTime = 300; // 300ms debounce
+    return (now - lastClick) >= debounceTime;
+  }
+  
+  handleButtonClick(buttonType: 'prev' | 'next' | 'skip'): boolean {
     if (!this.group.visible || this.isLoading) return false;
     
-    if (buttonType === 'next') {
+    // Debounce check
+    if (!this.canClickButton(buttonType)) {
+      return false;
+    }
+    
+    // Mark as clicked
+    this.buttonLastClickTime.set(buttonType, performance.now());
+    
+    if (buttonType === 'skip') {
+      // Skip tutorial - complete it immediately
+      console.log('[Tutorial] ⏭ Skip Tutorial button clicked');
+      this.hoveredButton = null;
+      this.complete();
+      return true;
+    } else if (buttonType === 'next') {
       if (this.currentStepIndex < this.steps.length - 1) {
         this.hoveredButton = null;
         this.nextStep();
@@ -1552,11 +1574,16 @@ export class OnboardingTutorial {
     const buttonHeight = 45;
     const buttonY = this.canvas.height - 80;
     const buttonSpacing = 20;
+    const skipButtonWidth = 180; // Wider for "Skip Tutorial"
     const totalWidth = buttonWidth * 2 + buttonSpacing;
     const startX = (this.canvas.width - totalWidth) / 2;
     
     if (!this.buttonRegions) {
-      this.buttonRegions = { prev: { x: 0, y: 0, w: 0, h: 0 }, next: { x: 0, y: 0, w: 0, h: 0 } };
+      this.buttonRegions = { 
+        prev: { x: 0, y: 0, w: 0, h: 0 }, 
+        next: { x: 0, y: 0, w: 0, h: 0 },
+        skip: { x: 0, y: 0, w: 0, h: 0 }
+      };
     }
     
     // Previous button
@@ -1591,6 +1618,23 @@ export class OnboardingTutorial {
     ctx.fillText('Next ▶', nextX + buttonWidth / 2, buttonY + buttonHeight / 2 + 7);
     
     this.buttonRegions.next = { x: nextX, y: buttonY, w: buttonWidth, h: buttonHeight };
+    
+    // Skip Tutorial button (top right, always visible)
+    const skipX = this.canvas.width - skipButtonWidth - 20;
+    const skipY = 20;
+    const skipHovered = this.hoveredButton === 'skip';
+    
+    ctx.fillStyle = skipHovered ? '#ff6b6b' : '#ff4444';
+    ctx.fillRect(skipX, skipY, skipButtonWidth, buttonHeight);
+    ctx.strokeStyle = skipHovered ? '#fff' : '#fff';
+    ctx.lineWidth = skipHovered ? 3 : 2;
+    ctx.strokeRect(skipX, skipY, skipButtonWidth, buttonHeight);
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('⏭ Skip Tutorial', skipX + skipButtonWidth / 2, skipY + buttonHeight / 2 + 6);
+    
+    this.buttonRegions.skip = { x: skipX, y: skipY, w: skipButtonWidth, h: buttonHeight };
   }
 
   private complete() {
@@ -1818,7 +1862,7 @@ export class OnboardingTutorial {
   }
   
   // Raycast hit test for button clicks (hand gesture based)
-  raycast(ray: THREE.Ray): { button?: 'prev' | 'next' } | null {
+  raycast(ray: THREE.Ray): { button?: 'prev' | 'next' | 'skip' } | null {
     if (!this.group.visible || !this.panel) {
       return null;
     }
@@ -1844,15 +1888,24 @@ export class OnboardingTutorial {
       const y = (1 - uv.y) * this.canvas.height;
       
       if (this.buttonRegions) {
+        // Check skip button first (top priority)
+        const skip = this.buttonRegions.skip;
+        if (skip && x >= skip.x && x <= skip.x + skip.w &&
+            y >= skip.y && y <= skip.y + skip.h) {
+          return { button: 'skip' };
+        }
+        
+        // Check previous button
         const prev = this.buttonRegions.prev;
-        if (x >= prev.x && x <= prev.x + prev.w &&
+        if (prev && x >= prev.x && x <= prev.x + prev.w &&
             y >= prev.y && y <= prev.y + prev.h &&
             this.currentStepIndex > 0) {
           return { button: 'prev' };
         }
         
+        // Check next button
         const next = this.buttonRegions.next;
-        if (x >= next.x && x <= next.x + next.w &&
+        if (next && x >= next.x && x <= next.x + next.w &&
             y >= next.y && y <= next.y + next.h &&
             this.currentStepIndex < this.steps.length - 1) {
           return { button: 'next' };
@@ -1862,6 +1915,61 @@ export class OnboardingTutorial {
       return null;
     } catch (error) {
       console.error(`[Tutorial] Raycast error:`, error);
+      return null;
+    }
+  }
+  
+  /**
+   * Check touch-based interaction for buttons
+   */
+  checkTouchInteraction(indexTip: THREE.Vector3): 'prev' | 'next' | 'skip' | null {
+    if (!this.group.visible || !this.panel || !indexTip) return null;
+    
+    try {
+      // Convert finger position to panel local space
+      const localPos = new THREE.Vector3();
+      this.group.worldToLocal(localPos.copy(indexTip));
+      
+      // Check distance to panel plane
+      const distToPlane = Math.abs(localPos.z);
+      if (distToPlane > 0.1) return null; // 10cm threshold
+      
+      // Convert to canvas coordinates
+      const u = (localPos.x / 0.7) + 0.5;
+      const v = 0.5 - (localPos.y / 0.4);
+      if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+      
+      const px = u * this.canvas.width;
+      const py = v * this.canvas.height;
+      
+      if (this.buttonRegions) {
+        // Check skip button first
+        const skip = this.buttonRegions.skip;
+        if (skip && px >= skip.x && px <= skip.x + skip.w &&
+            py >= skip.y && py <= skip.y + skip.h) {
+          return 'skip';
+        }
+        
+        // Check previous button
+        const prev = this.buttonRegions.prev;
+        if (prev && px >= prev.x && px <= prev.x + prev.w &&
+            py >= prev.y && py <= prev.y + prev.h &&
+            this.currentStepIndex > 0) {
+          return 'prev';
+        }
+        
+        // Check next button
+        const next = this.buttonRegions.next;
+        if (next && px >= next.x && px <= next.x + next.w &&
+            py >= next.y && py <= next.y + next.h &&
+            this.currentStepIndex < this.steps.length - 1) {
+          return 'next';
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[Tutorial] Error in checkTouchInteraction:', error);
       return null;
     }
   }

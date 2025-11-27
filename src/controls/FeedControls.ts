@@ -924,26 +924,39 @@ export class FeedControls {
     
     // Check tutorial panel first (if visible) - HAND GESTURE BASED
     if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
-      const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
+      // ENHANCED: Try touch-based interaction first (more reliable)
+      const indexTip = this.hands.indexTip(pointingSide);
+      const isPinching = pointingSide === 'right' 
+        ? this.hands.state.right.pinch 
+        : this.hands.state.left.pinch;
+      let tutorialButton: 'prev' | 'next' | 'skip' | null = null;
       
-      if (tutorialHit?.button) {
-        // Use pinch gesture on the pointing hand to click
-        const pointingHandPinch = pointingSide === 'right' 
-          ? this.hands.state.right.pinch 
-          : this.hands.state.left.pinch;
+      if (indexTip && (this.onboardingTutorial as any).checkTouchInteraction) {
+        tutorialButton = (this.onboardingTutorial as any).checkTouchInteraction(indexTip);
+      }
+      
+      // Fallback to raycast if no touch detected
+      if (!tutorialButton) {
+        const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
+        tutorialButton = tutorialHit?.button || null;
+      }
+      
+      if (tutorialButton) {
+        // Update hover state
+        (this.onboardingTutorial as any).setButtonHover?.(tutorialButton);
         
-        if (pointingHandPinch) {
-          // Update hover state for visual feedback
-          (this.onboardingTutorial as any).setButtonHover?.(tutorialHit.button);
-          
-          // Click on pinch (hand gesture click)
-          const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialHit.button);
+        // ENHANCED: Immediate click on pinch (no waiting for glow)
+        if (isPinching && (this.onboardingTutorial as any).canClickButton && 
+            (this.onboardingTutorial as any).canClickButton(tutorialButton)) {
+          // Pinch detected while pointing at button - immediate click
+          const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialButton);
           if (handled) {
             return; // Button click handled, don't process other UI
           }
         } else {
-          // Just hovering - show visual feedback
-          (this.onboardingTutorial as any).setButtonHover?.(tutorialHit.button);
+          // Not pinching - mark UI as active for visual feedback
+          this.uiActive = true;
+          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
         }
       } else {
         // Not pointing at any button - clear hover
@@ -1027,15 +1040,31 @@ export class FeedControls {
         this.uiActive = true;
         this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
         
-        // Check if touch has been held long enough to trigger press
-        try {
-          const pressedKey = keypad.checkTouchPress();
-          if (pressedKey) {
-            // CRITICAL FIX: Valid press - handle it (this will trigger onInputChange callback)
-            keypad.handleKeyPress(pressedKey);
+        // ENHANCED: Immediate press on pinch (no hold time required)
+        const isPinching = this.hands.state[side].pinch;
+        if (isPinching) {
+          try {
+            // Check if key can be pressed (debounce check)
+            if (keypad.canPressKey && keypad.canPressKey(touchedKey)) {
+              // Pinch detected while touching key - immediate press
+              keypad.handleKeyPress(touchedKey);
+              // Reset touch state to allow next press
+              keypad.resetTouchState();
+            }
+          } catch (error) {
+            logError(error, 'FeedControls.keypad.handleKeyPress');
           }
-        } catch (error) {
-          logError(error, 'FeedControls.keypad.handleKeyPress');
+        } else {
+          // Not pinching - check for hold-based press (fallback)
+          try {
+            const pressedKey = keypad.checkTouchPress();
+            if (pressedKey) {
+              keypad.handleKeyPress(pressedKey);
+              keypad.resetTouchState();
+            }
+          } catch (error) {
+            logError(error, 'FeedControls.keypad.checkTouchPress');
+          }
         }
         
         return; // Block other UI and 3D interaction
