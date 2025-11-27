@@ -672,16 +672,19 @@ export class FeedControls {
     // Within UI, closer hits win (distance-based priority)
     
     // 1. Tutorial panel (priority: 100)
+    // CRITICAL: Check for hit even when not pinching (for visualization and blocking 3D)
     if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
       try {
         const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
-        if (tutorialHit?.button && isPinching) {
+        if (tutorialHit?.button) {
           const panelCenter = this.onboardingTutorial.group?.position;
           const distance = panelCenter ? tip.distanceTo(panelCenter) : Infinity;
           uiHits.push({
             hit: tutorialHit,
             distance,
             handler: () => {
+              // Only handle interaction if pinching
+              if (!isPinching) return false;
               const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialHit.button);
               if (handled) {
                 this.uiActive = true;
@@ -705,36 +708,44 @@ export class FeedControls {
         const panelActive = multiplayerPanel.isVisible?.() || false;
         
         if (keyboardActive || panelActive) {
-          // Check keypad first (highest priority within multiplayer)
-          if (keyboardActive && keypad?.raycastHit) {
-            const keypadHit = keypad.raycastHit(ray);
-            if (keypadHit && isPinching) {
-              const keypadPos = keypad.group?.position;
-              const distance = keypadPos ? tip.distanceTo(keypadPos) : Infinity;
-              uiHits.push({
-                hit: keypadHit,
-                distance,
-                handler: () => {
-                  const handled = keypad.handleKeyPress?.(keypadHit);
-                  if (handled) {
-                    this.uiActive = true;
-                    this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-                  }
-                  return !!handled;
+        // Check keypad first (highest priority within multiplayer)
+        // CRITICAL: Check for hit even when not pinching (for visualization and blocking 3D)
+        if (keyboardActive && keypad?.raycastHit) {
+          const keypadHit = keypad.raycastHit(ray);
+          if (keypadHit) {
+            const keypadPos = keypad.group?.position;
+            const distance = keypadPos ? tip.distanceTo(keypadPos) : Infinity;
+            uiHits.push({
+              hit: keypadHit,
+              distance,
+              handler: () => {
+                // Only handle interaction if pinching
+                if (!isPinching) return false;
+                const handled = keypad.handleKeyPress?.(keypadHit);
+                if (handled) {
+                  this.uiActive = true;
+                  this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
                 }
-              });
-            }
+                return !!handled;
+              }
+            });
           }
+        }
           
           // Check multiplayer panel buttons
+          // CRITICAL: Check for hit even when not pinching (for visualization and blocking 3D)
           const mpHit = multiplayerPanel.raycastHit?.(ray);
-          if (mpHit?.button && isPinching && multiplayerPanel.canClickButton?.(mpHit.button)) {
+          if (mpHit?.button) {
             const panelPos = multiplayerPanel.group?.position || multiplayerPanel.panel?.position;
             const distance = panelPos ? tip.distanceTo(panelPos) : Infinity;
             uiHits.push({
               hit: mpHit,
               distance,
               handler: () => {
+                // Only handle interaction if pinching and button can be clicked
+                if (!isPinching || !multiplayerPanel.canClickButton?.(mpHit.button)) {
+                  return false;
+                }
                 multiplayerPanel.handleClick(mpHit.button).catch(() => {});
                 this.uiActive = true;
                 this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
@@ -751,7 +762,8 @@ export class FeedControls {
     // 3. HUD (reaction buttons) (priority: 80)
     try {
       const hudHit = this.hudMgr.raycastHit(ray);
-      if (hudHit && isPinching) {
+      // CRITICAL: Check for HUD hit even when not pinching (for visualization and blocking 3D)
+      if (hudHit) {
         const hudPos = this.hudMgr.getPanelCenterWorld();
         const distance = tip.distanceTo(hudPos);
         const key = this.currentModelKey();
@@ -760,6 +772,9 @@ export class FeedControls {
           hit: hudHit,
           distance,
           handler: () => {
+            // Only handle interaction if pinching
+            if (!isPinching) return false;
+            
             if (hudHit.kind === 'like' && this.acceptGesture('like')) {
               this.store.likeCurrent(pinch.clone(), side);
               this.hudMgr.bump(key, 'like');
@@ -1542,6 +1557,12 @@ export class FeedControls {
         return;
       }
       
+      // CRITICAL: Hide 3D ray if UI is active (UI has priority)
+      if (this.isUIActive()) {
+        line.visible = false;
+        return;
+      }
+      
       // Show ray if:
       // - Hand is pinching
       // - Not composing in HUD
@@ -1595,6 +1616,12 @@ export class FeedControls {
   
   private updateScrollRay(objPos: THREE.Vector3 | null) {
     if (!this.scrollRay) {
+      return;
+    }
+    
+    // CRITICAL: Hide scroll ray if UI is active (UI has priority)
+    if (this.isUIActive()) {
+      this.scrollRay.visible = false;
       return;
     }
     
