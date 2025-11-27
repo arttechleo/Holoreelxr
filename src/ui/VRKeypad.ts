@@ -280,8 +280,14 @@ export class VRKeypad {
     }
     
     // CRITICAL: Call input change callback IMMEDIATELY to update panel display
-    if (inputChanged) {
-      this.onInputChange?.(this.inputText);
+    // Always call callback when input text changes (even for backspace/clear)
+    if (inputChanged && this.onInputChange) {
+      // Call synchronously to ensure immediate update
+      try {
+        this.onInputChange(this.inputText);
+      } catch (error) {
+        console.error('[VRKeypad] Error in input change callback:', error);
+      }
     }
     
     // Update visual feedback

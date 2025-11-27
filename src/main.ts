@@ -377,13 +377,13 @@ async function loadMainFeed() {
   });
 
     const controls = new FeedControls(app, hands, store);
+    // CRITICAL FIX: Set multiplayer panel reference for keyboard interaction
+    controls.setMultiplayerPanel(xrMultiplayerPanel);
     // CRITICAL FIX: Pass multiplayer reference to FeedControls for gesture broadcasting
     (controls as any).multiplayer = multiplayer;
-    (controls as any).multiplayerPanel = xrMultiplayerPanel;
     // Wire up 3D panels to controls
     (controls as any).authPanel = xrAuthPanel;
     (controls as any).musicPanel = xrMusicPanel;
-    (controls as any).multiplayerPanel = xrMultiplayerPanel;
     // Disable FeedControls during onboarding tutorial
     controls.setOnboardingTutorial(onboarding);
     // Pass FeedControls reference to tutorial for state checking
