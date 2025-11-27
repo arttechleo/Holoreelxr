@@ -673,19 +673,20 @@ export class FeedControls {
     
     // ENHANCED: Try touch-based interaction first (more reliable for hand tracking)
     const indexTip = this.hands.indexTip(side);
+    const isPinching = this.hands.state[side].pinch;
+    
     if (indexTip && multiplayerPanel.checkTouchInteraction) {
       const touchedButton = multiplayerPanel.checkTouchInteraction(indexTip);
       if (touchedButton) {
         // Finger is touching a button - update hover state
-        const dt = 1.0 / 60.0; // Approximate delta time (will be refined in continuous update)
+        const dt = 1.0 / 60.0; // Approximate delta time
         multiplayerPanel.setButtonHover(touchedButton, dt);
         
-        // Check if hover glow is complete and ready to click
-        if (multiplayerPanel.isButtonHoverComplete && multiplayerPanel.isButtonHoverComplete(touchedButton)) {
-          // Glow complete - trigger click
+        // SIMPLIFIED: Immediate click on pinch (no waiting for glow)
+        if (isPinching && multiplayerPanel.canClickButton && multiplayerPanel.canClickButton(touchedButton)) {
+          // Pinch detected while touching button - immediate click
           this.mpLastClickTime = now;
           multiplayerPanel.hideRayLine(this.app.scene);
-          multiplayerPanel.consumeButtonHover(touchedButton);
           multiplayerPanel.handleClick(touchedButton).catch((error) => {
             console.error('[FeedControls] Multiplayer panel click error:', error);
           });
@@ -694,7 +695,7 @@ export class FeedControls {
           return true; // Handled
         }
         
-        // Touch detected but glow not complete - mark UI as active
+        // Touch detected but not pinching - mark UI as active
         this.uiActive = true;
         this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
         this.setRayVisible(side, false);
@@ -737,16 +738,17 @@ export class FeedControls {
     if (mpHit?.button) {
       // Hit detected via raycast - update hover state
       const dt = 1.0 / 60.0; // Approximate delta time
+      const isPinching = this.hands.state[side].pinch;
+      
       if (multiplayerPanel.setButtonHover) {
         multiplayerPanel.setButtonHover(mpHit.button, dt);
       }
       
-      // Check if hover glow is complete
-      if (multiplayerPanel.isButtonHoverComplete && multiplayerPanel.isButtonHoverComplete(mpHit.button)) {
-        // Glow complete - trigger click
+      // SIMPLIFIED: Immediate click on pinch (no waiting for glow)
+      if (isPinching && multiplayerPanel.canClickButton && multiplayerPanel.canClickButton(mpHit.button)) {
+        // Pinch detected while pointing at button - immediate click
         this.mpLastClickTime = now;
         multiplayerPanel.hideRayLine(this.app.scene);
-        multiplayerPanel.consumeButtonHover(mpHit.button);
         multiplayerPanel.handleClick(mpHit.button).catch((error) => {
           console.error('[FeedControls] Multiplayer panel click error:', error);
         });
@@ -755,7 +757,7 @@ export class FeedControls {
         return true; // Handled
       }
       
-      // Raycast hit but glow not complete - mark UI as active
+      // Raycast hit but not pinching - mark UI as active
       this.uiActive = true;
       this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
       this.setRayVisible(side, false);
