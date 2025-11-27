@@ -42,12 +42,14 @@ export class VRKeypad {
   // Touch-based interaction (proximity/collider) - ENHANCED for better detection
   private readonly TOUCH_THRESHOLD = 0.05; // 5cm proximity (increased for comfortable interaction)
   
-  // Virtual touch hold threshold - key must be held for this duration before triggering
-  // Prevents rapid-fire from hand jitter
-  private readonly TOUCH_HOLD_MS = 150; // 150ms hold time before key triggers
+  // Virtual touch interaction - improved for reliable typing
+  // Key triggers immediately on pinch while touching, or after short hold
+  private readonly TOUCH_HOLD_MS = 100; // Reduced to 100ms for faster response
+  private readonly TOUCH_DEBOUNCE_MS = 200; // Per-key debounce to prevent rapid repeats
   private touchedKey: KeypadKey | null = null;
   private touchStartTime: number | null = null;
-  private touchConsumed: boolean = false; // Track if touch has been consumed (prevents repeat fires)
+  private lastTriggeredKey: KeypadKey | null = null;
+  private lastTriggerTime: number = 0;
   
   // State
   private inputText = '';
@@ -56,10 +58,12 @@ export class VRKeypad {
   private onConnect?: () => void;
   private onCancel?: () => void;
   
-  // Key press stability (prevent accidental presses) - SIMPLIFIED for immediate response
+  // Key press stability (prevent accidental presses)
   private lastKeyPressTime = new Map<KeypadKey, number>(); // Per-key debouncing
-  private readonly KEY_DEBOUNCE_MS = 150; // Reduced to 150ms for faster typing
+  private readonly KEY_DEBOUNCE_MS = 150; // Per-key debounce time
   private readonly HIT_ZONE_PADDING = 8; // Increased padding for easier targeting
+  private lastPressedKey: KeypadKey | null = null; // Track last pressed key
+  private keyPressStartTime: number | null = null; // Track when key press started
   
   constructor(scene: THREE.Scene) {
     // Create canvas
@@ -221,50 +225,6 @@ export class VRKeypad {
   }
   
   /**
-   * Start key press (called when pinch starts on key)
-   */
-  startKeyPress(key: KeypadKey): void {
-    const now = performance.now();
-    
-    // Debounce: prevent rapid-fire presses
-    if (now - this.lastKeyPressTime < this.KEY_DEBOUNCE_MS) {
-      return;
-    }
-    
-    // Prevent same key from being pressed twice in quick succession
-    if (this.lastPressedKey === key && now - this.lastKeyPressTime < this.KEY_DEBOUNCE_MS * 2) {
-      return;
-    }
-    
-    this.keyPressStartTime = now;
-    this.lastPressedKey = key;
-  }
-  
-  /**
-   * End key press (called when pinch ends) - only registers if held long enough
-   */
-  endKeyPress(key: KeypadKey): boolean {
-    const now = performance.now();
-    
-    if (this.keyPressStartTime === null) {
-      return false; // No press started
-    }
-    
-    // Check if key matches and was held long enough
-    if (this.lastPressedKey === key) {
-      const pressDuration = now - this.keyPressStartTime;
-      if (pressDuration >= this.KEY_PRESS_MIN_DURATION_MS) {
-        this.lastKeyPressTime = now;
-        this.keyPressStartTime = null;
-        return true; // Valid press
-      }
-    }
-    
-    this.keyPressStartTime = null;
-    return false; // Too short or wrong key
-  }
-  
-  /**
    * Set hovered key (for visual feedback)
    */
   setHoveredKey(key: KeypadKey | null): void {
@@ -276,9 +236,9 @@ export class VRKeypad {
   
   /**
    * Handle key press (with per-key debouncing)
-   * ENHANCED: Immediate response, proper input binding
+   * ENHANCED: Immediate response, proper input binding, visual feedback
    */
-  handleKeyPress(key: KeypadKey): void {
+  handleKeyPress(key: KeypadKey): boolean {
     const now = performance.now();
     
     // Per-key debounce check
@@ -286,37 +246,60 @@ export class VRKeypad {
       if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
         console.log('[VRKeypad] Key press debounced:', key);
       }
-      return;
+      return false;
     }
     
     // Mark key as pressed for debouncing
     this.lastKeyPressTime.set(key, now);
+    this.lastPressedKey = key;
+    
+    // Handle key action
+    let inputChanged = false;
     
     if (key === 'backspace') {
-      this.inputText = this.inputText.slice(0, -1);
+      if (this.inputText.length > 0) {
+        this.inputText = this.inputText.slice(0, -1);
+        inputChanged = true;
+      }
     } else if (key === 'clear') {
       this.inputText = '';
+      inputChanged = true;
     } else if (key === 'connect') {
       this.onConnect?.();
-      return; // Don't update input for connect
+      return true; // Handled, but don't update input
     } else if (key === 'cancel') {
       this.onCancel?.();
-      return; // Don't update input for cancel
+      return true; // Handled, but don't update input
     } else {
-      // Limit input length (Peer IDs are typically short)
+      // Regular key - add to input
       if (this.inputText.length < 30) {
         this.inputText += key;
+        inputChanged = true;
       }
     }
     
     // CRITICAL: Call input change callback IMMEDIATELY to update panel display
-    this.onInputChange?.(this.inputText);
+    if (inputChanged) {
+      this.onInputChange?.(this.inputText);
+    }
+    
+    // Update visual feedback
+    this.setHoveredKey(key); // Show pressed key
     this.render(); // Update keypad display
+    
+    // Reset hover after brief moment (visual feedback)
+    setTimeout(() => {
+      if (this.hoveredKey === key) {
+        this.setHoveredKey(null);
+      }
+    }, 100);
     
     // Debug logging only in development
     if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
       console.log('[VRKeypad] ✅ Key pressed:', key, 'Input text:', this.inputText);
     }
+    
+    return true; // Successfully handled
   }
   
   /**
@@ -413,44 +396,64 @@ export class VRKeypad {
   
   /**
    * Check if key can be pressed (debounce check)
-   * ENHANCED: Immediate response, no hold time required
+   * Uses both per-key debounce and global touch debounce
    */
   canPressKey(key: KeypadKey): boolean {
     const now = performance.now();
+    
+    // Per-key debounce
     const lastPress = this.lastKeyPressTime.get(key) || 0;
-    return (now - lastPress) >= this.KEY_DEBOUNCE_MS;
+    if (now - lastPress < this.KEY_DEBOUNCE_MS) {
+      return false;
+    }
+    
+    // Global touch debounce (prevents rapid triggers from same key)
+    if (this.lastTriggeredKey === key && now - this.lastTriggerTime < this.TOUCH_DEBOUNCE_MS) {
+      return false;
+    }
+    
+    return true;
   }
   
   /**
-   * Check if touch has been held long enough to trigger press
-   * ENHANCED: Virtual touch with hold threshold - prevents rapid-fire from jitter
-   * Key must be held for TOUCH_HOLD_MS before triggering
+   * Check if touch should trigger a key press
+   * ENHANCED: Immediate trigger on pinch, or hold-based trigger
+   * Returns key if it should be pressed, null otherwise
    */
-  checkTouchPress(): KeypadKey | null {
-    if (!this.touchedKey || this.touchConsumed) return null;
-    
-    // Check if key has been held long enough (virtual touch threshold)
-    if (!this.touchStartTime) {
-      return null; // No touch start time recorded
-    }
+  checkTouchPress(isPinching: boolean = false): KeypadKey | null {
+    if (!this.touchedKey) return null;
     
     const now = performance.now();
-    const holdTime = now - this.touchStartTime;
     
-    // Key must be held for minimum duration before triggering
-    if (holdTime < this.TOUCH_HOLD_MS) {
-      return null; // Not held long enough yet
+    // Immediate trigger: if pinching while touching, trigger immediately (after debounce)
+    if (isPinching) {
+      if (this.canPressKey(this.touchedKey)) {
+        const key = this.touchedKey;
+        this.lastTriggeredKey = key;
+        this.lastTriggerTime = now;
+        return key;
+      }
+      return null; // Still in debounce
     }
     
-    // Check debounce per key (prevents rapid repeats)
+    // Hold-based trigger: key must be held for minimum duration
+    if (!this.touchStartTime) {
+      return null;
+    }
+    
+    const holdTime = now - this.touchStartTime;
+    if (holdTime < this.TOUCH_HOLD_MS) {
+      return null; // Not held long enough
+    }
+    
+    // Check debounce
     if (!this.canPressKey(this.touchedKey)) {
       return null; // Still in debounce period
     }
     
     const key = this.touchedKey;
-    // Mark as consumed (prevents repeat fires)
-    this.touchConsumed = true;
-    // Don't reset touch state yet - wait until finger leaves key
+    this.lastTriggeredKey = key;
+    this.lastTriggerTime = now;
     return key;
   }
   
@@ -458,9 +461,16 @@ export class VRKeypad {
    * Reset touch state when finger leaves key
    */
   resetTouchState(): void {
+    // Only reset if we're not currently triggering (allow trigger to complete)
+    const now = performance.now();
+    if (this.lastTriggeredKey && now - this.lastTriggerTime < this.TOUCH_DEBOUNCE_MS) {
+      // Still in debounce - don't reset yet
+      return;
+    }
+    
     this.touchedKey = null;
     this.touchStartTime = null;
-    this.touchConsumed = false;
+    this.lastTriggeredKey = null;
   }
   
   /**

@@ -1019,7 +1019,8 @@ export class FeedControls {
           this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
           
           // Check if touch has been held long enough
-          const pressedKey = keypad.checkTouchPress();
+          const isPinching = this.hands.state[side].pinch || this.hands.state[side === 'left' ? 'right' : 'left'].pinch;
+          const pressedKey = keypad.checkTouchPress(isPinching);
           if (pressedKey) {
             keypad.handleKeyPress(pressedKey);
           }
@@ -1408,31 +1409,24 @@ export class FeedControls {
         this.uiActive = true;
         this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
         
-        // ENHANCED: Immediate press on pinch (no hold time required)
-        const isPinching = this.hands.state[side].pinch;
-        if (isPinching) {
-          try {
-            // Check if key can be pressed (debounce check)
-            if (keypad.canPressKey && keypad.canPressKey(touchedKey)) {
-              // Pinch detected while touching key - immediate press
-              keypad.handleKeyPress(touchedKey);
-              // Reset touch state to allow next press
-              keypad.resetTouchState();
+        // ENHANCED: Use improved virtual touch system
+        const isPinching = this.hands.state[side].pinch || this.hands.state[side === 'left' ? 'right' : 'left'].pinch;
+        
+        // Check if key should be pressed (handles both pinch and hold-based triggers)
+        try {
+          const pressedKey = keypad.checkTouchPress(isPinching);
+          if (pressedKey) {
+            // Key should be pressed - handle it
+            const handled = keypad.handleKeyPress(pressedKey);
+            if (handled) {
+              // Successfully pressed - reset touch state after brief delay to allow next press
+              setTimeout(() => {
+                keypad.resetTouchState();
+              }, 50);
             }
-          } catch (error) {
-            logError(error, 'FeedControls.keypad.handleKeyPress');
           }
-        } else {
-          // Not pinching - check for hold-based press (fallback)
-          try {
-            const pressedKey = keypad.checkTouchPress();
-            if (pressedKey) {
-              keypad.handleKeyPress(pressedKey);
-              keypad.resetTouchState();
-            }
-          } catch (error) {
-            logError(error, 'FeedControls.keypad.checkTouchPress');
-          }
+        } catch (error) {
+          logError(error, 'FeedControls.keypad.handleKeyPress');
         }
         
         return; // Block other UI and 3D interaction
