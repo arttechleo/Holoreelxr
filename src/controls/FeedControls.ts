@@ -708,31 +708,16 @@ export class FeedControls {
         const panelActive = multiplayerPanel.isVisible?.() || false;
         
         if (keyboardActive || panelActive) {
-        // Check keypad first (highest priority within multiplayer)
-        // CRITICAL: Check for hit even when not pinching (for visualization and blocking 3D)
-        if (keyboardActive && keypad?.raycastHit) {
-          const keypadHit = keypad.raycastHit(ray);
-          if (keypadHit) {
-            const keypadPos = keypad.group?.position;
-            const distance = keypadPos ? tip.distanceTo(keypadPos) : Infinity;
-            uiHits.push({
-              hit: keypadHit,
-              distance,
-              handler: () => {
-                // Only handle interaction if pinching
-                if (!isPinching) return false;
-                const handled = keypad.handleKeyPress?.(keypadHit);
-                if (handled) {
-                  this.uiActive = true;
-                  this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-                }
-                return !!handled;
-              }
-            });
-          }
+        // CRITICAL: Keyboard uses virtual touch ONLY - no raycast typing
+        // When keyboard is active, mark UI as active to block 3D interactions
+        if (keyboardActive) {
+          this.uiActive = true;
+          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+          // Keyboard interaction is handled via virtual touch in updateTwoHandTransform
+          // Don't add to uiHits - keyboard blocks 3D but doesn't use raycast
         }
           
-          // Check multiplayer panel buttons
+          // Check multiplayer panel buttons (keyboard excluded from raycast)
           // CRITICAL: Check for hit even when not pinching (for visualization and blocking 3D)
           const mpHit = multiplayerPanel.raycastHit?.(ray);
           if (mpHit?.button) {
@@ -1866,44 +1851,8 @@ export class FeedControls {
   }
 
   private onPinchEnd(side: 'left' | 'right') {
-    // CRITICAL FIX: Handle keypad key press on pinch end (with duration check)
-    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
-    const keypad = multiplayerPanel?.getKeypad?.();
-    if (keypad?.isVisible()) {
-      // Get the key that was being pressed
-      const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
-      if (from) {
-        const tip = this.hands.indexTip(side);
-        const wrist = this.hands.wrist?.(side);
-        
-        let handDir: THREE.Vector3;
-        if (tip && wrist) {
-          handDir = tip.clone().sub(wrist).normalize();
-        } else if (tip) {
-          const camPos = new THREE.Vector3();
-          this.app.camera.getWorldPosition(camPos);
-          handDir = tip.clone().sub(camPos).normalize();
-        } else {
-          const camPos = new THREE.Vector3();
-          this.app.camera.getWorldPosition(camPos);
-          handDir = from.clone().sub(camPos).normalize();
-        }
-        
-        const ray = new THREE.Ray(from, handDir);
-        const keypadHit = keypad.raycastHit(ray);
-        
-        if (keypadHit) {
-          // Check if this was a valid press (held long enough)
-          if (keypad.endKeyPress(keypadHit)) {
-            // Valid press - handle it
-            keypad.handleKeyPress(keypadHit);
-            this.setRayVisible(side, false);
-            this.scrollDisarmedThisPinch = true;
-            return; // Handled
-          }
-        }
-      }
-    }
+    // CRITICAL: Keyboard uses virtual touch ONLY - no raycast handling on pinch end
+    // Keyboard interaction is handled continuously via virtual touch in updateTwoHandTransform
     
     // Always hide ray
     this.setRayVisible(side, false);
@@ -1935,6 +1884,15 @@ export class FeedControls {
 
   private updateScroll(now: number) {
     if (now < this.scrollCooldownUntil) return;
+    
+    // CRITICAL: UI has priority - block scroll if UI is active (mutually exclusive mode)
+    if (this.isAnyUIActiveOrVisible()) {
+      if (this.scrollRay) this.scrollRay.visible = false;
+      // Reset scroll state when UI blocks it
+      this.scrollArmed = false;
+      this.scrollAccum = 0;
+      return;
+    }
     
     // FIX #1: BLOCK scroll during two-hand rotation/scaling
     // User shouldn't scroll while actively manipulating the model

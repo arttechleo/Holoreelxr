@@ -43,9 +43,10 @@ export class VRKeypad {
   private readonly TOUCH_THRESHOLD = 0.05; // 5cm proximity (increased for comfortable interaction)
   
   // Virtual touch interaction - improved for reliable typing
-  // Key triggers immediately on pinch while touching, or after short hold
-  private readonly TOUCH_HOLD_MS = 100; // Reduced to 100ms for faster response
-  private readonly TOUCH_DEBOUNCE_MS = 200; // Per-key debounce to prevent rapid repeats
+  // Key triggers when index finger collider overlaps key collider
+  // Immediate trigger on pinch, or after short hold to prevent accidental presses
+  private readonly TOUCH_HOLD_MS = 100; // Hold time before trigger (prevents jitter)
+  private readonly TOUCH_DEBOUNCE_MS = 200; // Global debounce to prevent rapid repeats
   private touchedKey: KeypadKey | null = null;
   private touchStartTime: number | null = null;
   private lastTriggeredKey: KeypadKey | null = null;
@@ -417,8 +418,13 @@ export class VRKeypad {
   
   /**
    * Check if touch should trigger a key press
-   * ENHANCED: Immediate trigger on pinch, or hold-based trigger
+   * ENHANCED: Virtual touch only - immediate trigger when finger overlaps key collider
    * Returns key if it should be pressed, null otherwise
+   * 
+   * Logic:
+   * - If pinching while touching: trigger immediately (after debounce)
+   * - If not pinching: trigger after hold time (100ms) to prevent accidental presses
+   * - Debounce prevents rapid-fire from hand jitter
    */
   checkTouchPress(isPinching: boolean = false): KeypadKey | null {
     if (!this.touchedKey) return null;
@@ -436,14 +442,14 @@ export class VRKeypad {
       return null; // Still in debounce
     }
     
-    // Hold-based trigger: key must be held for minimum duration
+    // Hold-based trigger: key must be held for minimum duration (prevents accidental presses)
     if (!this.touchStartTime) {
       return null;
     }
     
     const holdTime = now - this.touchStartTime;
     if (holdTime < this.TOUCH_HOLD_MS) {
-      return null; // Not held long enough
+      return null; // Not held long enough - prevents accidental typing from jitter
     }
     
     // Check debounce
