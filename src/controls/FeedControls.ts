@@ -1392,15 +1392,15 @@ export class FeedControls {
       }
       
       if (touchedKey) {
-        // Finger is touching a key - trigger key press immediately (no pinch required)
-        // CRITICAL: One touch = one character (enforced by debouncing in checkTouchPress)
-        // Key activates when index finger collider touches key collider
+        // CRITICAL: Index finger collider is touching key collider - trigger IMMEDIATELY
+        // One touch = one character (enforced by debouncing in checkTouchPress)
+        // No pinch required - immediate trigger on touch
         
-        // Check if key should be pressed (triggers immediately on touch, with debounce)
+        // Check if key should be pressed (triggers immediately when touched + debounce allows)
         try {
           const pressedKey = keypad.checkTouchPress();
           if (pressedKey) {
-            // Key should be pressed - handle it immediately (one touch = one character)
+            // Key should be pressed - handle it IMMEDIATELY (one touch = one character)
             const handled = keypad.handleKeyPress(pressedKey);
             if (handled) {
               // Successfully pressed - reset touch state after brief delay to allow next press
