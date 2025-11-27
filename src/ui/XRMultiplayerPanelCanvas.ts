@@ -74,10 +74,11 @@ export class XRMultiplayerPanel {
   };
   private voiceBusy = false;
   
-  // Progressive hover-glow tracking
-  private buttonHoverProgress = new Map<ButtonType, number>(); // 0.0 to 1.0
+  // Button interaction state
+  private buttonHoverProgress = new Map<ButtonType, number>(); // 0.0 to 1.0 (visual feedback only)
   private buttonHoverStartTime = new Map<ButtonType, number>(); // timestamp when hover started
-  private buttonHoverConsumed = new Map<ButtonType, boolean>(); // track if glow has triggered click
+  private buttonLastClickTime = new Map<ButtonType, number>(); // debounce per button
+  private activeButton: ButtonType | null = null; // button currently being pressed
   
   // Panel dimming state
   private baseOpacity = 1.0;
@@ -157,12 +158,12 @@ export class XRMultiplayerPanel {
     this.anchor.add(this.panel);
     scene.add(this.anchor);
     
-    // Initialize hover progress tracking for all buttons
+    // Initialize button state tracking
     const allButtons: ButtonType[] = ['host', 'join', 'close', 'voice', 'mute'];
     allButtons.forEach(btn => {
       this.buttonHoverProgress.set(btn, 0.0);
       this.buttonHoverStartTime.set(btn, 0);
-      this.buttonHoverConsumed.set(btn, false);
+      this.buttonLastClickTime.set(btn, 0);
     });
     
     // Create raycast line material
@@ -332,7 +333,7 @@ export class XRMultiplayerPanel {
   }
   
   /**
-   * Set button hover (for visual feedback) with progressive glow tracking
+   * Set button hover (for visual feedback) - simplified and immediate
    */
   setButtonHover(button: ButtonType | null, dt: number = 0): void {
     const now = performance.now();
@@ -344,88 +345,89 @@ export class XRMultiplayerPanel {
         // Fade out hover progress when not hovered
         const currentProgress = this.buttonHoverProgress.get(btn) || 0;
         if (currentProgress > 0) {
-          const fadeSpeed = 3.0; // fade out speed
+          const fadeSpeed = 5.0; // faster fade out
           const newProgress = Math.max(0, currentProgress - fadeSpeed * dt);
           this.buttonHoverProgress.set(btn, newProgress);
-          this.buttonHoverStartTime.set(btn, 0);
-          this.buttonHoverConsumed.set(btn, false);
+          if (newProgress === 0) {
+            this.buttonHoverStartTime.set(btn, 0);
+          }
         }
       }
     });
     
     if (button) {
-      // Update hover progress for the hovered button
+      // Update hover progress for the hovered button (visual feedback only)
       const startTime = this.buttonHoverStartTime.get(button) || 0;
-      const consumed = this.buttonHoverConsumed.get(button) || false;
       
       if (startTime === 0) {
         // Just started hovering
         this.buttonHoverStartTime.set(button, now);
-        this.buttonHoverConsumed.set(button, false);
-      } else if (!consumed) {
-        // Calculate progress based on hover time
-        const hoverDuration = now - startTime;
-        const progress = Math.min(1.0, hoverDuration / MULTIPLAYER.HOVER_GLOW_FILL_TIME_MS);
-        this.buttonHoverProgress.set(button, progress);
-        
-        // Check if glow is complete and minimum hover time has passed
-        if (progress >= 1.0 && hoverDuration >= MULTIPLAYER.MIN_HOVER_TIME_MS) {
-          // Glow complete - button is ready to be clicked
-          // This will be handled by the interaction system
-        }
       }
+      
+      // Calculate progress based on hover time (for visual feedback)
+      const hoverDuration = now - startTime;
+      const progress = Math.min(1.0, hoverDuration / (MULTIPLAYER.HOVER_GLOW_FILL_TIME_MS * 0.5)); // Faster glow
+      this.buttonHoverProgress.set(button, progress);
     }
     
     if (this.hoveredButton !== button) {
       this.hoveredButton = button;
       this.render();
-    } else if (button) {
-      // Same button, but progress may have changed - re-render
+    } else if (button && dt > 0) {
+      // Same button, but progress may have changed - re-render periodically
       this.render();
     }
   }
   
   /**
-   * Get hover progress for a button (0.0 to 1.0)
+   * Get hover progress for a button (0.0 to 1.0) - visual feedback only
    */
   getButtonHoverProgress(button: ButtonType): number {
     return this.buttonHoverProgress.get(button) || 0.0;
   }
   
   /**
-   * Check if button hover glow is complete and ready to trigger click
+   * Check if button can be clicked (debounce check)
    */
-  isButtonHoverComplete(button: ButtonType): boolean {
-    const progress = this.buttonHoverProgress.get(button) || 0.0;
-    const startTime = this.buttonHoverStartTime.get(button) || 0;
-    const consumed = this.buttonHoverConsumed.get(button) || false;
-    
-    if (consumed) return false; // Already consumed
-    
+  canClickButton(button: ButtonType): boolean {
     const now = performance.now();
-    const hoverDuration = startTime > 0 ? now - startTime : 0;
-    
-    return progress >= 1.0 && hoverDuration >= MULTIPLAYER.MIN_HOVER_TIME_MS;
+    const lastClick = this.buttonLastClickTime.get(button) || 0;
+    const debounceTime = MULTIPLAYER.CLICK_DEBOUNCE_MS;
+    return (now - lastClick) >= debounceTime;
   }
   
   /**
-   * Mark button hover as consumed (prevents repeat triggers)
+   * Mark button as clicked (for debouncing)
    */
-  consumeButtonHover(button: ButtonType): void {
-    this.buttonHoverConsumed.set(button, true);
-    // Reset progress after a short delay to allow visual feedback
+  markButtonClicked(button: ButtonType): void {
+    this.buttonLastClickTime.set(button, performance.now());
+    this.activeButton = button;
+    // Clear active state after animation
     setTimeout(() => {
-      this.buttonHoverProgress.set(button, 0.0);
-      this.buttonHoverStartTime.set(button, 0);
-      this.buttonHoverConsumed.set(button, false);
-    }, 200);
+      if (this.activeButton === button) {
+        this.activeButton = null;
+        this.render();
+      }
+    }, 150);
   }
   
   /**
-   * Handle button click
-   * CRITICAL FIX: Enhanced error handling
+   * Handle button click - simplified and immediate
+   * CRITICAL FIX: Enhanced error handling and debouncing
    */
   async handleClick(button: ButtonType): Promise<void> {
+    // Debounce check
+    if (!this.canClickButton(button)) {
+      if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
+        console.log('[XRMultiplayerPanel] Button click debounced:', button);
+      }
+      return;
+    }
+    
+    // Mark as clicked for debouncing
+    this.markButtonClicked(button);
+    this.render(); // Immediate visual feedback
+    
     // Debug logging only in development
     if (typeof window !== 'undefined' && (window as any).__DEBUG_UI) {
       console.log('[XRMultiplayerPanel] 🖱️ Button clicked:', button);
@@ -696,13 +698,19 @@ export class XRMultiplayerPanel {
         }
       }
       
-      // Panel dimming: dim when keypad is active
+      // Panel dimming: dim when keypad is active (foreground panel)
       this.targetOpacity = keypadVisible ? MULTIPLAYER.PANEL_DIMMED_OPACITY : 1.0;
       
       // Smooth opacity transition
-      const opacitySpeed = 3.0; // transition speed
+      const opacitySpeed = 5.0; // faster transition for responsive feel
       this.baseOpacity += (this.targetOpacity - this.baseOpacity) * opacitySpeed * dt;
       this.panel.material.opacity = this.baseOpacity;
+      
+      // ENHANCED: Disable interaction when dimmed (keypad is active)
+      if (keypadVisible) {
+        // Panel is dimmed - keypad is in foreground, this panel should not be interactable
+        // This is handled by UI priority system in FeedControls
+      }
       
       // Update hover progress (fade out when not hovered)
       if (this.hoveredButton) {
@@ -718,7 +726,6 @@ export class XRMultiplayerPanel {
             this.buttonHoverProgress.set(btn, newProgress);
             if (newProgress === 0) {
               this.buttonHoverStartTime.set(btn, 0);
-              this.buttonHoverConsumed.set(btn, false);
             }
           }
         });
@@ -827,14 +834,31 @@ export class XRMultiplayerPanel {
       this.buttonRegions.join = { x: 112, y: joinY, w: 800, h: joinH };
       this.drawButton(ctx, 'JOIN', joinY, joinH, '#f5576c', this.hoveredButton === 'join', 'join');
       
-      // Close button
+      // Close button with enhanced visual feedback
       const closeY = 650;
       const closeH = 80;
       this.buttonRegions.close = { x: 362, y: closeY, w: 300, h: closeH };
-      ctx.fillStyle = this.hoveredButton === 'close' ? '#888888' : '#444444';
+      const closeHovered = this.hoveredButton === 'close';
+      const closeActive = this.activeButton === 'close';
+      const closeGlow = this.getButtonHoverProgress('close');
+      
+      if (closeActive) {
+        ctx.fillStyle = '#ff6666';
+        ctx.shadowColor = '#ff0000';
+        ctx.shadowBlur = 15;
+      } else if (closeHovered || closeGlow > 0) {
+        ctx.fillStyle = '#aa4444';
+        ctx.shadowColor = '#ff0000';
+        ctx.shadowBlur = 10;
+      } else {
+        ctx.fillStyle = '#444444';
+        ctx.shadowBlur = 0;
+      }
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
+      ctx.shadowBlur = 0;
+      
       ctx.fillStyle = '#ffffff';
-      ctx.font = '40px Arial';
+      ctx.font = closeActive ? 'bold 44px Arial' : '40px Arial';
       ctx.fillText('X', w / 2, closeY + 55);
       
     } else if (this.mode === 'hosting') {
@@ -857,14 +881,31 @@ export class XRMultiplayerPanel {
       ctx.font = '20px Arial';
       ctx.fillText('(Code copied to console - check browser)', w / 2, 380);
       
-      // Close button
+      // Close button with enhanced visual feedback
       const closeY = 650;
       const closeH = 80;
       this.buttonRegions.close = { x: 312, y: closeY, w: 400, h: closeH };
-      ctx.fillStyle = this.hoveredButton === 'close' ? '#ff4444' : '#444444';
+      const closeHovered = this.hoveredButton === 'close';
+      const closeActive = this.activeButton === 'close';
+      const closeGlow = this.getButtonHoverProgress('close');
+      
+      if (closeActive) {
+        ctx.fillStyle = '#ff6666';
+        ctx.shadowColor = '#ff0000';
+        ctx.shadowBlur = 20;
+      } else if (closeHovered || closeGlow > 0) {
+        ctx.fillStyle = '#ff4444';
+        ctx.shadowColor = '#ff0000';
+        ctx.shadowBlur = 15;
+      } else {
+        ctx.fillStyle = '#444444';
+        ctx.shadowBlur = 0;
+      }
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
+      ctx.shadowBlur = 0;
+      
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 38px Arial';
+      ctx.font = closeActive ? 'bold 42px Arial' : 'bold 38px Arial';
       ctx.fillText('CLOSE', w / 2, closeY + 56);
       
     } else if (this.mode === 'joining') {
@@ -890,14 +931,31 @@ export class XRMultiplayerPanel {
       ctx.fillText('Pinch on keypad keys to type', w / 2, 380);
       ctx.fillText('Press CONNECT when done', w / 2, 410);
       
-      // Close button to go back
+      // Close button to go back with enhanced visual feedback
       const closeY = 650;
       const closeH = 80;
       this.buttonRegions.close = { x: 312, y: closeY, w: 400, h: closeH };
-      ctx.fillStyle = this.hoveredButton === 'close' ? '#ff4444' : '#444444';
+      const closeHovered = this.hoveredButton === 'close';
+      const closeActive = this.activeButton === 'close';
+      const closeGlow = this.getButtonHoverProgress('close');
+      
+      if (closeActive) {
+        ctx.fillStyle = '#ff6666';
+        ctx.shadowColor = '#ff0000';
+        ctx.shadowBlur = 20;
+      } else if (closeHovered || closeGlow > 0) {
+        ctx.fillStyle = '#ff4444';
+        ctx.shadowColor = '#ff0000';
+        ctx.shadowBlur = 15;
+      } else {
+        ctx.fillStyle = '#444444';
+        ctx.shadowBlur = 0;
+      }
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
+      ctx.shadowBlur = 0;
+      
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 38px Arial';
+      ctx.font = closeActive ? 'bold 42px Arial' : 'bold 38px Arial';
       ctx.fillText('BACK', w / 2, closeY + 56);
       
     } else if (this.mode === 'waiting') {
@@ -930,14 +988,31 @@ export class XRMultiplayerPanel {
         }
       }
       
-      // Close button - explicit control
+      // Close button - explicit control with enhanced visual feedback
       const closeY = 650;
       const closeH = 80;
       this.buttonRegions.close = { x: 312, y: closeY, w: 400, h: closeH };
-      ctx.fillStyle = this.hoveredButton === 'close' ? '#ff4444' : '#444444';
+      const closeHovered = this.hoveredButton === 'close';
+      const closeActive = this.activeButton === 'close';
+      const closeGlow = this.getButtonHoverProgress('close');
+      
+      if (closeActive) {
+        ctx.fillStyle = '#ff6666';
+        ctx.shadowColor = '#ff0000';
+        ctx.shadowBlur = 20;
+      } else if (closeHovered || closeGlow > 0) {
+        ctx.fillStyle = '#ff4444';
+        ctx.shadowColor = '#ff0000';
+        ctx.shadowBlur = 15;
+      } else {
+        ctx.fillStyle = '#444444';
+        ctx.shadowBlur = 0;
+      }
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
+      ctx.shadowBlur = 0;
+      
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 38px Arial';
+      ctx.font = closeActive ? 'bold 42px Arial' : 'bold 38px Arial';
       ctx.fillText('CLOSE', w / 2, closeY + 56);
       
     } else if (this.mode === 'waiting_old') {
@@ -960,10 +1035,23 @@ export class XRMultiplayerPanel {
     const buttonW = 800;
     const buttonX = (w - buttonW) / 2;
     
-    // Get hover glow progress for this button
+    // Get visual state
     const glowProgress = buttonType ? this.getButtonHoverProgress(buttonType) : 0;
+    const isActive = buttonType ? (this.activeButton === buttonType) : false;
     
-    if (hovered || glowProgress > 0) {
+    // Determine button state: active > hovered > normal
+    if (isActive) {
+      // Active/clicked state - bright highlight
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 30;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(buttonX, y, buttonW, h);
+      ctx.shadowBlur = 0;
+      
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 8;
+      ctx.strokeRect(buttonX + 2, y + 2, buttonW - 4, h - 4);
+    } else if (hovered || glowProgress > 0) {
       // Hovered or glowing - white background
       ctx.shadowColor = color;
       ctx.shadowBlur = 20;
@@ -1044,8 +1132,13 @@ export class XRMultiplayerPanel {
     }
     
     // Button text
-    ctx.fillStyle = (hovered || glowProgress > 0) ? color : '#ffffff';
-    ctx.font = 'bold 68px Arial';
+    if (isActive) {
+      ctx.fillStyle = color;
+      ctx.font = 'bold 72px Arial'; // Slightly larger when active
+    } else {
+      ctx.fillStyle = (hovered || glowProgress > 0) ? color : '#ffffff';
+      ctx.font = 'bold 68px Arial';
+    }
     ctx.textAlign = 'center';
     ctx.fillText(text, w / 2, y + h / 2 + 24);
   }
