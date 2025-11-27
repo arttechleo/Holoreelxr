@@ -111,7 +111,7 @@ export class OnboardingTutorial {
   private hands: HandEngine;
   private store: FeedStore;
   private onComplete?: () => void;
-  private tutorialItemIndices: number[] = [];
+  tutorialItemIndices: number[] = []; // Made public for FeedControls to check
   private isLoading = false;
   private interactionMonitorInterval: number | null = null;
   private twoHandCheckInterval: number | null = null;
@@ -1040,14 +1040,18 @@ export class OnboardingTutorial {
     this.tutorialItemIndices = [];
     this.firstNonTutorialIndex = -1; // Use -1 to indicate "not found yet"
     
+    // CRITICAL: Only use core shapes (pyramid, cube/box, sphere) for tutorial
+    const allowedShapes: Array<'box' | 'sphere' | 'pyramid'> = ['box', 'sphere', 'pyramid'];
+    
     for (let i = 0; i < this.store.items.length; i++) {
       const item = this.store.items[i];
-      // Only tutorial items have id starting with "tutorial-"
-      // Regular shape items (blue sphere, yellow pyramid, red square) are NOT tutorial items
-      if (item.type === 'shape' && item.id.startsWith('tutorial-')) {
+      // Only tutorial items are core shapes (pyramid, cube/box, sphere)
+      // This ensures tutorial focuses on basic shapes only
+      if (item.type === 'shape' && allowedShapes.includes(item.shape as any)) {
         this.tutorialItemIndices.push(i);
+        console.log(`[Tutorial] Found tutorial shape at index ${i}: ${item.shape} (${item.title || item.id})`);
       } else if (this.firstNonTutorialIndex === -1) {
-        // First non-tutorial item found
+        // First non-tutorial item found (not a core shape)
         this.firstNonTutorialIndex = i;
         console.log(`[Tutorial] First non-tutorial item found at index ${i}: ${item.title || item.id}`);
       }
@@ -1060,11 +1064,11 @@ export class OnboardingTutorial {
         console.log(`[Tutorial] No non-tutorial items found, using fallback index: ${this.firstNonTutorialIndex}`);
       } else {
         this.firstNonTutorialIndex = 0;
-        console.warn(`[Tutorial] No items found in feed!`);
+        console.warn(`[Tutorial] No tutorial shapes found in feed!`);
       }
     }
     
-    console.log(`[Tutorial] Tutorial items: [${this.tutorialItemIndices.join(', ')}], First non-tutorial: ${this.firstNonTutorialIndex}`);
+    console.log(`[Tutorial] Tutorial items (core shapes only): [${this.tutorialItemIndices.join(', ')}], First non-tutorial: ${this.firstNonTutorialIndex}`);
   }
 
   private clearGestureHandlers(options?: { preserveTwoHandTracking?: boolean }) {
@@ -1806,23 +1810,21 @@ export class OnboardingTutorial {
     }, 2000);
   }
 
-  // Update panel position to the right of the 3D model
+  // Update panel position - place BEHIND the 3D model, rotated 90° to face user
   // CRITICAL FIX: World-locked panel (no billboarding, no camera following)
   updatePosition(objectPosition: THREE.Vector3, cameraPosition: THREE.Vector3) {
     if (!this.group.visible) return;
     
-    // Position panel to the RIGHT of the object
-    const rightOffset = new THREE.Vector3(0.5, 0, 0); // 0.5m to the right
-    const panelPos = objectPosition.clone().add(rightOffset);
+    // Position panel BEHIND the object (negative Z direction)
+    const behindOffset = new THREE.Vector3(0, 0, -0.6); // 0.6m behind the object
+    const panelPos = objectPosition.clone().add(behindOffset);
     panelPos.y = objectPosition.y + 0.2; // Slightly above object center
     
     this.group.position.copy(panelPos);
     
-    // CRITICAL FIX: World-locked orientation - rotate 90° on Y axis to face user
-    // Panel should face the same direction as the 3D model (readable from user's POV)
-    // Rotate 90° around Y axis so panel faces forward (toward negative Z in world space)
+    // CRITICAL FIX: Rotate 90° on Y axis to face user (same direction as 3D model)
+    // Panel should be fully readable from user's POV
     this.group.rotation.set(0, Math.PI / 2, 0); // 90° rotation on Y axis
-    // Ensure panel is readable from user's perspective (facing forward, not sideways)
   }
 
   async show(camera: THREE.Camera) {
