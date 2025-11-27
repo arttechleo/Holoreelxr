@@ -682,10 +682,9 @@ export class FeedControls {
           return { handled: true, target: 'ui' };
         }
         
-        // UI is visible but no hit - still block 3D to prevent interference
-        this.uiActive = true;
-        this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
-        return { handled: false, target: 'ui' }; // Block 3D but no action taken
+        // UI is visible but no hit - allow 3D interactions (user might be pointing at 3D object)
+        // Only block if user is clearly pointing at UI area
+        return { handled: false, target: null }; // Allow 3D - no UI hit
       }
     }
 
@@ -1553,20 +1552,16 @@ export class FeedControls {
     }
     
     // UNIFIED INTERACTION SYSTEM: Check UI first, then 3D
-    // This ensures UI always takes priority when active/visible
+    // CRITICAL FIX: Only block 3D if UI is actually hit, not just visible
     try {
       const interaction = this.performUnifiedInteraction(side);
       if (interaction.handled && interaction.target === 'ui') {
         // UI interaction handled - block 3D
         return;
       }
-      if (interaction.target === 'ui' && !interaction.handled) {
-        // UI is visible but no hit - block 3D to prevent interference
-        this.uiActive = true;
-        this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
-        return;
-      }
-      // No UI hit or UI not active - continue to 3D interactions below
+      // CRITICAL: Only block 3D if UI was actually hit, not just visible
+      // This allows grab to work when UI is visible but user is pointing at 3D object
+      // No UI hit - continue to 3D interactions below
     } catch (error) {
       logError(error, 'FeedControls.unifiedInteraction');
     }
@@ -1590,36 +1585,41 @@ export class FeedControls {
       return;
     }
 
-    // FIXED: Clear distance zones for grab vs scroll
-    // 0-GRAB_ZONE_DISTANCE = GRAB ZONE (grab has priority)
-    // >GRAB_ZONE_DISTANCE = SCROLL ZONE (scroll has priority)
+    // RESTORED: Improved grab detection - more lenient and reliable
+    // Grab should work from any reasonable distance, not just close
     const objPosNow = this.store.getObjectWorldPos();
     const objExists = !!this.store.getObject();
+    const pinch = this.hands.pinchMid(side);
     
-    if (objExists && objPosNow && pinch && d != null) {
-      if (d <= TRANSFORM.GRAB_ZONE_DISTANCE) {
-        // GRAB ZONE: User is close to object
-        if (d <= this.INSTANT_GRAB_DIST) {
-          // Very close - instant grab
-          console.log(`[Grab] ✅ Instant grab! Distance: ${(d * 100).toFixed(1)}cm`);
-          this.grabbing = true;
-          this.grabSide = side;
-          this.grabOffset.copy(objPosNow).sub(pinch);
-          this.store.notify('Grabbed');
-          this.scrollDisarmedThisPinch = true;
-          return;
-        } else {
-          // Close but not instant - start grab pending
-          console.log(`[Grab] Grab zone (${(d * 100).toFixed(1)}cm) - pending grab`);
-          this.tryStartGrabPending(side);
-        }
+    if (objExists && objPosNow && pinch) {
+      // Calculate distance to object
+      const d = this.distanceToObjectSurface(pinch);
+      
+      // RESTORED: More lenient grab - works from further away
+      // Instant grab if very close (10cm)
+      if (d != null && d <= this.INSTANT_GRAB_DIST) {
+        console.log(`[Grab] ✅ Instant grab! Distance: ${(d * 100).toFixed(1)}cm`);
+        this.grabbing = true;
+        this.grabSide = side;
+        this.grabOffset.copy(objPosNow).sub(pinch);
+        this.store.notify('Grabbed');
+        this.scrollDisarmedThisPinch = true;
+        return;
+      }
+      
+      // RESTORED: Grab pending for any distance (up to max grab distance)
+      // This makes grab much more reliable - user doesn't need to be super close
+      if (d == null || d <= this.GRAB_MAX_DIST) {
+        // Object exists and within grab range - start grab pending
+        console.log(`[Grab] Starting grab pending (distance: ${d ? (d * 100).toFixed(1) : 'unknown'}cm)`);
+        this.tryStartGrabPending(side);
+        return; // Don't allow scroll when grab is pending
       } else {
-        // SCROLL ZONE: User is far from object
-        console.log(`[Scroll] Scroll zone (${(d * 100).toFixed(1)}cm) - ready to scroll on movement`);
-        // Scroll will arm automatically when user moves hand vertically
+        // Too far for grab - allow scroll
+        console.log(`[Scroll] Too far for grab (${(d * 100).toFixed(1)}cm) - scroll zone active`);
       }
     } else {
-      // No object or distance unknown - default to scroll zone
+      // No object or distance unknown - allow scroll
       console.log(`[Scroll] No object or distance unknown - scroll zone active`);
     }
   }
@@ -1852,6 +1852,22 @@ export class FeedControls {
       const context = tutorialActive ? 'Tutorial' : 'MainFeed';
       const oldIndex = this.store.index;
       const totalItems = this.store.items.length;
+      
+      // CRITICAL: During tutorial, only allow scrolling to tutorial items (core shapes)
+      if (tutorialActive && this.onboardingTutorial) {
+        const tutorial = this.onboardingTutorial as any;
+        const tutorialItemIndices = tutorial.tutorialItemIndices || [];
+        const nextIndex = oldIndex + dir;
+        
+        // Check if next item is a tutorial item
+        if (tutorialItemIndices.length > 0 && !tutorialItemIndices.includes(nextIndex)) {
+          // Next item is NOT a tutorial item - block scroll
+          console.log(`[Tutorial-Scroll] ⚠️ Blocked scroll to non-tutorial item (index ${nextIndex})`);
+          this.scrollAccum = 0; // Reset accumulation
+          this.store.notify('Tutorial: Use core shapes only');
+          return;
+        }
+      }
       
       console.log(`[${context}-Scroll] ✅✅✅ TRIGGERING SCROLL!`);
       console.log(`  Direction: ${dir > 0 ? 'Next (+1)' : 'Previous (-1)'}`);
