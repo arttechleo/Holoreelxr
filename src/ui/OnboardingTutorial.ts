@@ -1818,15 +1818,11 @@ export class OnboardingTutorial {
     
     this.group.position.copy(panelPos);
     
-    // CRITICAL FIX: World-locked orientation - face forward in world space (not camera)
-    // Set rotation to face forward (negative Z direction in world space)
-    // This keeps the panel fixed in world space, not following the camera
-    this.group.rotation.set(0, 0, 0); // Default forward-facing orientation
-    // Optional: Face the panel toward the object center for better visibility
-    const toObject = objectPosition.clone().sub(panelPos).normalize();
-    if (toObject.length() > 0.1) {
-      this.group.lookAt(objectPosition); // Face toward object, not camera
-    }
+    // CRITICAL FIX: World-locked orientation - rotate 90° on Y axis to face user
+    // Panel should face the same direction as the 3D model (readable from user's POV)
+    // Rotate 90° around Y axis so panel faces forward (toward negative Z in world space)
+    this.group.rotation.set(0, Math.PI / 2, 0); // 90° rotation on Y axis
+    // Ensure panel is readable from user's perspective (facing forward, not sideways)
   }
 
   async show(camera: THREE.Camera) {

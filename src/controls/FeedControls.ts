@@ -606,6 +606,123 @@ export class FeedControls {
   // NOTE: External composer removed - was freezing XR session
   // Now using built-in ReactionHud compose mode (stays in VR)
 
+  // ========== UNIFIED INTERACTION SYSTEM ==========
+  /**
+   * Unified pinch+raycast interaction pipeline
+   * Content-agnostic: works for both UI panels and 3D objects
+   * Priority: UI panels always win when active/visible
+   * 
+   * @param side - Which hand is pinching
+   * @returns true if interaction was handled (UI or 3D), false if nothing hit
+   */
+  private performUnifiedInteraction(side: 'left' | 'right'): { handled: boolean; target: 'ui' | '3d' | null } {
+    const pinch = this.hands.pinchMid(side);
+    const tip = this.hands.indexTip(side);
+    if (!pinch || !tip) {
+      return { handled: false, target: null };
+    }
+
+    // Create ray from index tip (consistent for all interactions)
+    const wrist = this.hands.wrist?.(side);
+    let handDir: THREE.Vector3;
+    if (wrist) {
+      handDir = tip.clone().sub(wrist).normalize();
+    } else {
+      const camPos = new THREE.Vector3();
+      this.app.camera.getWorldPosition(camPos);
+      handDir = tip.clone().sub(camPos).normalize();
+    }
+    const ray = new THREE.Ray(tip, handDir);
+    const isPinching = this.hands.state[side].pinch;
+    const now = performance.now();
+
+    // PRIORITY 1: Check all UI panels first (tutorial, multiplayer, keyboard, HUD)
+    // UI always takes precedence when visible/active
+    
+    // 1. Tutorial panel
+    if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
+      const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
+      if (tutorialHit?.button && isPinching) {
+        const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialHit.button);
+        if (handled) {
+          this.uiActive = true;
+          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+          return { handled: true, target: 'ui' };
+        }
+      }
+    }
+
+    // 2. Multiplayer panel & keyboard
+    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+    if (multiplayerPanel) {
+      const keypad = multiplayerPanel.getKeypad?.();
+      const keyboardActive = keypad?.isVisible() || keypad?.isActive() || false;
+      const panelActive = multiplayerPanel.isVisible?.() || false;
+      
+      if (keyboardActive || panelActive) {
+        // Check keypad first (highest priority)
+        if (keyboardActive && keypad?.raycastHit) {
+          const keypadHit = keypad.raycastHit(ray);
+          if (keypadHit && isPinching) {
+            const handled = keypad.handleKeyPress?.(keypadHit);
+            if (handled) {
+              this.uiActive = true;
+              this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+              return { handled: true, target: 'ui' };
+            }
+          }
+        }
+        
+        // Check multiplayer panel buttons
+        const mpHit = multiplayerPanel.raycastHit?.(ray);
+        if (mpHit?.button && isPinching && multiplayerPanel.canClickButton?.(mpHit.button)) {
+          multiplayerPanel.handleClick(mpHit.button).catch(() => {});
+          this.uiActive = true;
+          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+          return { handled: true, target: 'ui' };
+        }
+        
+        // UI is visible but no hit - still block 3D to prevent interference
+        this.uiActive = true;
+        this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+        return { handled: false, target: 'ui' }; // Block 3D but no action taken
+      }
+    }
+
+    // 3. HUD (reaction buttons)
+    const hudHit = this.hudMgr.raycastHit(ray);
+    if (hudHit && isPinching) {
+      const key = this.currentModelKey();
+      if (hudHit.kind === 'like' && this.acceptGesture('like')) {
+        this.store.likeCurrent(pinch.clone(), side);
+        this.hudMgr.bump(key, 'like');
+        this.uiActive = true;
+        this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+        return { handled: true, target: 'ui' };
+      } else if (hudHit.kind === 'heart' && this.acceptGesture('heart')) {
+        this.store.saveCurrent(pinch.clone());
+        this.hudMgr.bump(key, 'heart');
+        this.uiActive = true;
+        this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+        return { handled: true, target: 'ui' };
+      } else if (hudHit.kind === 'repost' && this.acceptGesture('repost')) {
+        const now = performance.now();
+        if (now - this.lastRepostAt >= this.REACT_COOLDOWN_MS) {
+          this.lastRepostAt = now;
+          this.store.repostCurrent(pinch.clone(), side);
+          this.hudMgr.bump(key, 'repost');
+          this.uiActive = true;
+          this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
+          return { handled: true, target: 'ui' };
+        }
+      }
+    }
+
+    // PRIORITY 2: No UI hit - allow 3D interactions (grab, scroll, etc.)
+    // This is handled by the existing 3D interaction logic
+    return { handled: false, target: '3d' };
+  }
+
   // ---------- Try to click multiplayer panel directly from pinch start ----------
   // CRITICAL FIX: Immediate pinch-to-click for multiplayer panel (dual-path: event + frame loop)
   /**
@@ -1435,128 +1552,24 @@ export class FeedControls {
       }
     }
     
-    // PRIORITY 1: STRICT UI PRIORITY - UI always takes precedence over 3D models
-    // CRITICAL FIX: Check tutorial panel FIRST (same pinch+raycast pattern as 3D models)
-    // This ensures tutorial panel uses the same interaction pattern as 3D models
+    // UNIFIED INTERACTION SYSTEM: Check UI first, then 3D
+    // This ensures UI always takes priority when active/visible
     try {
-      if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
-        // CRITICAL FIX: Use same pinch+raycast pattern as 3D models
-        const pinch = this.hands.pinchMid(side);
-        const tip = this.hands.indexTip(side);
-        if (pinch && tip) {
-          // Create ray from index tip (same as 3D model interaction)
-          const wrist = this.hands.wrist?.(side);
-          let handDir: THREE.Vector3;
-          if (wrist) {
-            handDir = tip.clone().sub(wrist).normalize();
-          } else {
-            const camPos = new THREE.Vector3();
-            this.app.camera.getWorldPosition(camPos);
-            handDir = tip.clone().sub(camPos).normalize();
-          }
-          const ray = new THREE.Ray(tip, handDir);
-          
-          // Try raycast first (same as 3D models)
-          const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
-          if (tutorialHit?.button) {
-            // Hit detected - trigger button click (same as 3D model interaction)
-            const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialHit.button);
-            if (handled) {
-              this.uiActive = true;
-              this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
-              return; // Tutorial button clicked - block 3D
-            }
-          }
-          
-          // Fallback: try touch interaction (same as 3D models)
-          const tutorialButton = (this.onboardingTutorial as any).checkTouchInteraction?.(tip);
-          if (tutorialButton && (this.onboardingTutorial as any).canClickButton?.(tutorialButton)) {
-            const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialButton);
-            if (handled) {
-              this.uiActive = true;
-              this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
-              return; // Tutorial button clicked - block 3D
-            }
-          }
-        }
+      const interaction = this.performUnifiedInteraction(side);
+      if (interaction.handled && interaction.target === 'ui') {
+        // UI interaction handled - block 3D
+        return;
       }
-    } catch (error) {
-      logError(error, 'FeedControls.tutorial.interaction');
-    }
-    
-    // CRITICAL FIX: Check if keyboard or multiplayer panel is active - if so, disable ALL 3D interaction
-    // Enhanced with error handling and null safety
-    try {
-      const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
-      if (multiplayerPanel) {
-        const keypad = multiplayerPanel.getKeypad?.();
-        const keyboardActive = keypad?.isVisible() || keypad?.isActive() || false;
-        const panelActive = multiplayerPanel.isVisible?.() || false;
-        
-        // CRITICAL FIX: Strict UI priority - if ANY UI is visible/active, ALWAYS check UI first
-        // This ensures UI interactions are never blocked by 3D models
-        if (keyboardActive || panelActive) {
-          // UI is active - check UI first and block all 3D interaction
-          try {
-            if (this.tryClickMultiplayerPanel(side)) {
-              this.uiActive = true;
-              this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
-              return; // UI interaction handled - block 3D
-            }
-          } catch (error) {
-            logError(error, 'FeedControls.tryClickMultiplayerPanel');
-          }
-          try {
-            if (this.tryClickHud(side)) {
-              this.uiActive = true;
-              this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
-              return; // UI interaction handled - block 3D
-            }
-          } catch (error) {
-            logError(error, 'FeedControls.tryClickHud');
-          }
-          // CRITICAL: If UI is visible but no interaction detected, still block 3D to prevent interference
-          // User might be pointing at UI but not quite hitting it yet
-          this.uiActive = true;
-          this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
-          return; // Block 3D interaction when UI is visible
-        }
-      }
-    } catch (error) {
-      // CRITICAL FIX: Don't crash on UI priority check errors
-      logError(error, 'FeedControls.UI.priorityCheck');
-    }
-    
-    // Check if UI was recently active (priority window)
-    const uiNow = performance.now();
-    const uiIsActive = this.uiActive || uiNow < this.uiActiveUntil;
-    
-    // Always check UI first if UI is active OR if we're far from object
-    const pinch = this.hands.pinchMid(side);
-    const d = pinch ? this.distanceToObjectSurface(pinch) : null;
-    const farFromObject = d == null || d > MULTIPLAYER.FAR_FROM_OBJECT_DISTANCE;
-    
-    // CRITICAL FIX: Enhanced context-aware priority
-    // If UI is active OR far from object, ALWAYS check UI first (prevents 3D model interference)
-    if (uiIsActive || farFromObject) {
-      // CRITICAL FIX: Check multiplayer panel/keypad FIRST (highest priority)
-      // This ensures immediate response to pinch gesture and prevents 3D model interference
-      if (this.tryClickMultiplayerPanel(side)) {
+      if (interaction.target === 'ui' && !interaction.handled) {
+        // UI is visible but no hit - block 3D to prevent interference
         this.uiActive = true;
         this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
-        return; // UI interaction handled
+        return;
       }
-      
-      // Then check other UI panels
-      if (this.tryClickHud(side)) {
-        this.uiActive = true;
-        this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
-        return; // UI interaction handled
-      }
+      // No UI hit or UI not active - continue to 3D interactions below
+    } catch (error) {
+      logError(error, 'FeedControls.unifiedInteraction');
     }
-    
-    // If UI was checked and nothing hit, but we're close to object, allow 3D interaction
-    // (This handles the case where user is near object and wants to interact with it)
 
     // PRIORITY 2: Normal interactions (scroll, grab, etc)
     this.setRayVisible(side, true);
@@ -2211,12 +2224,12 @@ export class FeedControls {
         return;
       }
       
-      // Update position safely - reuse vector to avoid allocation
-      const newPos = this.grabOffset.clone().add(mid);
-      
-      // Always update position during grab - don't skip based on distance
-      // This ensures smooth movement even for small hand movements
-      this.store.setPosition(newPos);
+      // IMPROVED: Smooth position updates for more stable manipulation
+      // Use lerp to reduce jitter from hand tracking noise
+      const targetPos = this.grabOffset.clone().add(mid);
+      // Smooth interpolation (0.85 = 15% of new position per frame, ~60fps = smooth motion)
+      const smoothedPos = objPos.lerp(targetPos, 0.85);
+      this.store.setPosition(smoothedPos);
       
       // Debug: log position updates (throttled for performance)
       if (Math.random() < 0.1) { // 10% of calls
