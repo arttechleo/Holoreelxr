@@ -927,20 +927,47 @@ export class XRMultiplayerPanel {
       ctx.fillText('ENTER PEER ID', w / 2, 120);
       
       // Instructions
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#d0d0d0';
       ctx.font = '28px Arial';
-      ctx.fillText('Use keypad to type', w / 2, 200);
-      ctx.fillText('Peer ID below', w / 2, 240);
+      ctx.fillText('Touch keys on the keypad to type', w / 2, 190);
+      ctx.fillText('Peer ID appears below in real time', w / 2, 230);
       
-      // Show current input
-      ctx.fillStyle = '#00ff00';
-      ctx.font = 'bold 36px monospace';
-      const displayText = this.joinInputCode || '...';
-      // CRITICAL: Debug log to verify text is being rendered
-      if (this.joinInputCode) {
-        console.log('[XRMultiplayerPanel] 🎨 Rendering text in joining mode:', displayText, 'at y=320');
+      // Input field background (high-contrast card)
+      const inputBoxW = w - 180;
+      const inputBoxH = 120;
+      const inputBoxX = (w - inputBoxW) / 2;
+      const inputBoxY = 300;
+      ctx.fillStyle = 'rgba(5, 20, 20, 0.95)';
+      ctx.strokeStyle = '#00ff88';
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.rect(inputBoxX, inputBoxY - inputBoxH / 2, inputBoxW, inputBoxH);
+      ctx.fill();
+      ctx.stroke();
+      
+      // Render typed text (left-aligned inside card)
+      const textPadding = 32;
+      const textX = inputBoxX + textPadding;
+      const textY = inputBoxY;
+      const hasInput = this.joinInputCode.length > 0;
+      const displayText = hasInput ? this.joinInputCode.toUpperCase() : 'TYPE CODE...';
+      
+      ctx.save();
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = hasInput ? 'bold 60px "Consolas", "Courier New", monospace' : 'bold 46px Arial';
+      ctx.fillStyle = hasInput ? '#ffffff' : '#555555';
+      ctx.fillText(displayText, textX, textY);
+      
+      // Caret indicator (only when typing)
+      if (hasInput) {
+        const metrics = ctx.measureText(displayText);
+        const caretX = textX + metrics.width + 10;
+        const caretH = inputBoxH - 30;
+        ctx.fillStyle = '#00ff88';
+        ctx.fillRect(caretX, textY - caretH / 2, 4, caretH);
       }
-      ctx.fillText(displayText, w / 2, 320);
+      ctx.restore();
       
       // Instructions for keypad
       ctx.fillStyle = '#aaaaaa';
