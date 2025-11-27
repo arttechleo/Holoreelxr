@@ -9,16 +9,17 @@
  * 
  * KEY PRINCIPLES:
  * 1. One touch = one character (enforced by debouncing)
- * 2. Key activates ONLY when: index finger collider touches key collider AND user pinches
+ * 2. Key activates IMMEDIATELY when: index finger collider touches key collider (no pinch required)
  * 3. All 3D interactions are blocked when keyboard is active
  * 4. Debounce prevents rapid-fire typing (200ms cooldown per key)
+ * 5. Small 50ms touch duration prevents accidental presses from hand jitter
  * 
  * INTERACTION FLOW:
  * 1. User moves index finger near key (within 5cm threshold)
  * 2. checkTouchInteraction() detects finger proximity to key
- * 3. User pinches → checkTouchPress() validates debounce and triggers
- * 4. handleKeyPress() processes key and updates input text
- * 5. Input callback immediately syncs with UI panel
+ * 3. After 50ms touch duration → checkTouchPress() validates debounce and triggers
+ * 4. handleKeyPress() processes key and updates input text IMMEDIATELY
+ * 5. Input callback immediately syncs with UI panel (real-time text update)
  * 
  * STATE MANAGEMENT:
  * - touchedKey: Currently touched key (null if none)
@@ -243,6 +244,8 @@ export class VRKeypad {
   
   /**
    * Raycast to check key hit (with enlarged hit zones for stability)
+   * NOTE: This method is NOT used for keyboard interaction - keyboard uses virtual touch only.
+   * This method exists for potential future use or debugging, but is not called in the current implementation.
    */
   raycastHit(ray: THREE.Ray): KeypadKey | null {
     if (!this.visible) return null;
@@ -498,23 +501,18 @@ export class VRKeypad {
   
   /**
    * Check if touch should trigger a key press
-   * CRITICAL: Virtual touch only - immediate trigger when finger overlaps key collider AND user pinches
+   * CRITICAL: Virtual touch only - immediate trigger when index finger collider touches key collider
    * Returns key if it should be pressed, null otherwise
    * 
    * ARCHITECTURE:
    * - One touch = one character (enforced by debouncing)
-   * - Key activates ONLY when: index finger collider touches key collider AND user pinches
+   * - Key activates IMMEDIATELY when: index finger collider touches key collider (no pinch required)
    * - Debounce prevents rapid-fire from hand jitter (200ms cooldown per key)
    * - touchConsumed flag prevents double-triggering from same touch event
+   * - Small delay after touch start prevents accidental presses from jitter
    */
-  checkTouchPress(isPinching: boolean = false): KeypadKey | null {
+  checkTouchPress(): KeypadKey | null {
     if (!this.touchedKey) return null;
-    
-    // CRITICAL: Only trigger when pinching (explicit user intent)
-    // This ensures one touch = one character (no accidental presses)
-    if (!isPinching) {
-      return null; // User must pinch to activate key
-    }
     
     // CRITICAL: Prevent double-triggering from same touch
     if (this.touchConsumed) {
@@ -522,6 +520,15 @@ export class VRKeypad {
     }
     
     const now = performance.now();
+    
+    // CRITICAL: Small delay after touch start prevents accidental presses from hand jitter
+    // This ensures the finger is intentionally touching the key, not just passing through
+    if (this.touchStartTime) {
+      const touchDuration = now - this.touchStartTime;
+      if (touchDuration < 50) { // 50ms minimum touch duration
+        return null; // Not held long enough - prevents accidental presses
+      }
+    }
     
     // Check debounce (ensures one touch = one character)
     if (!this.canPressKey(this.touchedKey)) {
