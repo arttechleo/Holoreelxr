@@ -1,41 +1,29 @@
 /**
  * VRKeypad - Virtual Touch Keyboard for WebXR Text Input
- * 
- * COMPLETE REWRITE: Clean, reliable virtual-touch keyboard
- * ========================================================
- * 
+ *
+ * KEYBOARD HOLD FIX + VISUAL PRIORITY
+ * ===================================
+ *
  * ARCHITECTURE:
  * - Every key is a collider (defined by key regions)
- * - When index finger collider enters/overlaps key collider → trigger key press
- * - Small debounce prevents spam (150ms per key)
- * - Immediate text field updates via callback
- * - No raycast typing - virtual touch only
- * 
- * INTERACTION FLOW:
- * 1. User moves index finger near key (within 5cm threshold)
- * 2. checkTouchInteraction() detects finger overlap with key collider
- * 3. checkTouchPress() validates debounce and triggers IMMEDIATELY
- * 4. handleKeyPress() processes key and updates input text
- * 5. Input callback IMMEDIATELY syncs with UI panel (real-time text update)
- * 
- * STATE MANAGEMENT:
- * - touchedKey: Currently touched key (null if none)
- * - lastKeyPressTime: Map of last press time per key (for debouncing)
- * - inputText: Current input text (synced with UI panel)
- * 
- * DEBOUNCING:
- * - Per-key debounce: 150ms (prevents rapid repeats on same key)
- * - Prevents jitter from causing double-typing
- * 
+ * - When index finger collider overlaps key collider → trigger exactly ONE key press
+ * - No auto-repeat while finger stays on key (must leave + re-enter)
+ * - Small debounce (150ms per key) prevents jitter double-typing
+ * - Immediate text field updates via callback (real-time UI sync)
+ *
+ * VISUAL PRIORITY:
+ * - Keyboard plane uses depthTest=false & very high renderOrder so 3D models never occlude it
+ * - Designed to be readable regardless of scene contents
+ *
  * INTEGRATION:
- * - Called from FeedControls.updateUiRayAndDwell() every frame
- * - Blocks all 3D interactions when keyboard is visible
- * - Input changes immediately sync with XRMultiplayerPanel via callback
+ * - FeedControls calls processFingerTouches(), which handles touch detection + debouncing
+ * - FeedControls blocks 3D interactions whenever keyboard is visible
+ * - Keyboard logic is centralized inside this class (touch detection + text updates)
  */
 
 import * as THREE from 'three';
 
-type KeypadKey = 
+export type KeypadKey = 
   | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
   | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j' | 'k' | 'l' | 'm'
   | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w' | 'x' | 'y' | 'z'
@@ -79,7 +67,8 @@ export class VRKeypad {
   // State
   private inputText = '';
   private hoveredKey: KeypadKey | null = null;
-  private touchedKey: KeypadKey | null = null; // Currently touched key
+  private currentTouchKey: KeypadKey | null = null; // Currently touched key
+  private activeTouchKey: KeypadKey | null = null; // Key that already fired (requires exit/re-enter)
   private onInputChange?: (text: string) => void;
   private onConnect?: () => void;
   private onCancel?: () => void;
@@ -104,12 +93,12 @@ export class VRKeypad {
       map: this.texture,
       transparent: true,
       opacity: 1.0,
-      depthTest: true,
+      depthTest: false, // Always render on top (no 3D occlusion)
       depthWrite: false
     });
     
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.renderOrder = 20000; // Keyboard in foreground
+    this.panel.renderOrder = 100000; // Extremely high to guarantee priority
     this.group.add(this.panel);
     scene.add(this.group);
     
@@ -129,7 +118,8 @@ export class VRKeypad {
     this.group.position.copy(position);
     this.group.lookAt(lookAt);
     this.hoveredKey = null;
-    this.touchedKey = null;
+    this.currentTouchKey = null;
+    this.activeTouchKey = null;
     this.render(); // Render to set up key regions
     
     // CRITICAL: Sync keypad inputText with panel's joinInputCode if callback exists
@@ -147,7 +137,8 @@ export class VRKeypad {
     this.visible = false;
     this.group.visible = false;
     this.hoveredKey = null;
-    this.touchedKey = null;
+    this.currentTouchKey = null;
+    this.activeTouchKey = null;
   }
   
   /**
@@ -204,7 +195,7 @@ export class VRKeypad {
     this.render();
   }
   
-  /**
+  /** 
    * Set hovered key (for visual feedback)
    */
   setHoveredKey(key: KeypadKey | null): void {
@@ -214,7 +205,7 @@ export class VRKeypad {
     }
   }
   
-  /**
+  /** 
    * Update position to face camera
    */
   update(camera: THREE.Camera): void {
@@ -228,94 +219,41 @@ export class VRKeypad {
   }
   
   /**
-   * CRITICAL: Check if index finger collider touches key collider
-   * Returns the key being touched, or null if none
+   * Process finger touches (centralized keyboard interaction logic)
+   * @param fingerTips Array of finger world positions (supports multiple hands)
+   * @returns { active: boolean, pressedKey: KeypadKey | null }
    */
-  checkTouchInteraction(fingerPosition: THREE.Vector3): KeypadKey | null {
-    if (!this.visible || !fingerPosition) return null;
-    
-    try {
-      // Validate group exists
-      if (!this.group || !this.group.parent) return null;
-      
-      // Convert finger position to keypad local space
-      const localPos = new THREE.Vector3();
-      this.group.worldToLocal(localPos.copy(fingerPosition));
-      
-      // Check distance to keypad plane (must be within touch threshold)
-      const distToPlane = Math.abs(localPos.z);
-      if (distToPlane > this.TOUCH_THRESHOLD) {
-        this.touchedKey = null;
-        return null;
-      }
-      
-      // Convert to UV coordinates
-      const dx = localPos.x;
-      const dy = localPos.y;
-      
-      // Check if within panel bounds
-      if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) {
-        this.touchedKey = null;
-        return null;
-      }
-      
-      // Convert to canvas pixel coordinates
-      const u = (dx / this.PANEL_W) + 0.5;
-      const v = 0.5 - (dy / this.PANEL_H);
-      const px = u * this.CANVAS_W;
-      const py = v * this.CANVAS_H;
-      
-      // Validate key regions exist
-      if (!this.keyRegions || this.keyRegions.length === 0) {
-        return null;
-      }
-      
-      // Check which key collider is being touched (with enlarged hit zones)
-      for (const region of this.keyRegions) {
-        if (!region) continue;
-        
-        const expandedX = region.x - this.HIT_ZONE_PADDING;
-        const expandedY = region.y - this.HIT_ZONE_PADDING;
-        const expandedW = region.w + (this.HIT_ZONE_PADDING * 2);
-        const expandedH = region.h + (this.HIT_ZONE_PADDING * 2);
-        
-        if (px >= expandedX && px <= expandedX + expandedW &&
-            py >= expandedY && py <= expandedY + expandedH) {
-          // Index finger collider overlaps key collider
-          this.touchedKey = region.key;
-          return region.key;
-        }
-      }
-      
-      // Not touching any key
-      this.touchedKey = null;
-      return null;
-    } catch (error) {
-      console.error('[VRKeypad] Error in checkTouchInteraction:', error);
-      this.touchedKey = null;
-      return null;
-    }
-  }
-  
-  /**
-   * Check if touch should trigger a key press
-   * CRITICAL: Triggers IMMEDIATELY when finger touches key (after debounce check)
-   */
-  checkTouchPress(): KeypadKey | null {
-    if (!this.touchedKey) return null;
-    
-    const now = performance.now();
-    
-    // Check debounce (prevents jitter double-typing)
-    const lastPress = this.lastKeyPressTime.get(this.touchedKey) || 0;
-    if (now - lastPress < this.KEY_DEBOUNCE_MS) {
-      return null; // Still in debounce period
+  processFingerTouches(fingerTips: Array<THREE.Vector3 | null>): { active: boolean; pressedKey: KeypadKey | null } {
+    if (!this.visible) {
+      this.clearTouchState();
+      return { active: false, pressedKey: null };
     }
     
-    // Key can be pressed - mark debounce time
-    const key = this.touchedKey;
-    this.lastKeyPressTime.set(key, now);
-    return key;
+    let keyTouched: KeypadKey | null = null;
+    for (const tip of fingerTips) {
+      if (!tip) continue;
+      keyTouched = this.getKeyForFinger(tip);
+      if (keyTouched) break;
+    }
+    
+    if (!keyTouched) {
+      this.clearTouchState();
+      return { active: false, pressedKey: null };
+    }
+    
+    this.currentTouchKey = keyTouched;
+    this.setHoveredKey(keyTouched);
+    
+    if (this.activeTouchKey !== keyTouched) {
+      if (this.canPressKey(keyTouched)) {
+        this.activeTouchKey = keyTouched;
+        this.lastKeyPressTime.set(keyTouched, performance.now());
+        this.handleKeyPress(keyTouched);
+        return { active: true, pressedKey: keyTouched };
+      }
+    }
+    
+    return { active: true, pressedKey: null };
   }
   
   /**
@@ -348,6 +286,10 @@ export class VRKeypad {
     }
     
     // CRITICAL: Call input change callback IMMEDIATELY to update UI text field
+    if (inputChanged) {
+      this.render(); // Update on-keyboard display immediately
+    }
+    
     if (inputChanged && this.onInputChange) {
       try {
         console.log('[VRKeypad] 🔔 Key pressed:', key, '→ Text:', this.inputText);
@@ -357,17 +299,6 @@ export class VRKeypad {
         console.error('[VRKeypad] ❌ Error in input change callback:', error);
       }
     }
-    
-    // Update visual feedback
-    this.setHoveredKey(key);
-    this.render();
-    
-    // Reset hover after brief moment
-    setTimeout(() => {
-      if (this.hoveredKey === key) {
-        this.setHoveredKey(null);
-      }
-    }, 100);
     
     return true;
   }
@@ -492,5 +423,57 @@ export class VRKeypad {
     this.texture.dispose();
     this.panel.geometry.dispose();
     this.panel.material.dispose();
+  }
+  /**
+   * Convert finger position to local key (if any)
+   */
+  private getKeyForFinger(fingerPosition: THREE.Vector3): KeypadKey | null {
+    try {
+      if (!this.group || !this.group.parent) return null;
+      
+      const localPos = new THREE.Vector3();
+      this.group.worldToLocal(localPos.copy(fingerPosition));
+      
+      const distToPlane = Math.abs(localPos.z);
+      if (distToPlane > this.TOUCH_THRESHOLD) return null;
+      
+      const dx = localPos.x;
+      const dy = localPos.y;
+      if (Math.abs(dx) > this.PANEL_W * 0.5 || Math.abs(dy) > this.PANEL_H * 0.5) return null;
+      
+      const u = (dx / this.PANEL_W) + 0.5;
+      const v = 0.5 - (dy / this.PANEL_H);
+      const px = u * this.CANVAS_W;
+      const py = v * this.CANVAS_H;
+      
+      if (!this.keyRegions || this.keyRegions.length === 0) return null;
+      
+      for (const region of this.keyRegions) {
+        if (!region) continue;
+        const expandedX = region.x - this.HIT_ZONE_PADDING;
+        const expandedY = region.y - this.HIT_ZONE_PADDING;
+        const expandedW = region.w + (this.HIT_ZONE_PADDING * 2);
+        const expandedH = region.h + (this.HIT_ZONE_PADDING * 2);
+        
+        if (px >= expandedX && px <= expandedX + expandedW &&
+            py >= expandedY && py <= expandedY + expandedH) {
+          return region.key;
+        }
+      }
+    } catch (error) {
+      console.error('[VRKeypad] Error in getKeyForFinger:', error);
+    }
+    return null;
+  }
+  
+  /**
+   * Reset hover + touch state when no keys are touched
+   */
+  private clearTouchState(): void {
+    this.currentTouchKey = null;
+    if (this.activeTouchKey !== null) {
+      this.activeTouchKey = null;
+    }
+    this.setHoveredKey(null);
   }
 }

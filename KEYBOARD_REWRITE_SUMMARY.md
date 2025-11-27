@@ -62,11 +62,8 @@ The previous keyboard implementation had several critical issues:
 
 **Key Methods:**
 ```typescript
-// Detects when index finger collider overlaps key collider
-checkTouchInteraction(fingerPosition: THREE.Vector3): KeypadKey | null
-
-// Validates debounce and returns key to press (or null)
-checkTouchPress(): KeypadKey | null
+// Centralized touch detection + debounce + key handling
+processFingerTouches(fingerTips: Array<THREE.Vector3 | null>): { active: boolean; pressedKey: KeypadKey | null }
 
 // Handles key press - updates inputText and fires callback IMMEDIATELY
 handleKeyPress(key: KeypadKey): boolean
@@ -87,11 +84,9 @@ handleKeyPress(key: KeypadKey): boolean
 **Flow:**
 ```
 1. Check if keyboard is visible
-2. Check both hands for index finger position
-3. Call checkTouchInteraction() to detect key overlap
-4. Call checkTouchPress() to validate debounce
-5. Call handleKeyPress() to update text and fire callback
-6. Block all other interactions
+2. Gather both index finger positions
+3. Call keypad.processFingerTouches() to handle touch detection + debounce + key press
+4. Block all other interactions while keyboard is active
 ```
 
 #### 3. Enhanced XRMultiplayerPanelCanvas.ts Callback
