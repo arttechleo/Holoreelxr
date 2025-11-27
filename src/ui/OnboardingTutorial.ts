@@ -1807,6 +1807,7 @@ export class OnboardingTutorial {
   }
 
   // Update panel position to the right of the 3D model
+  // CRITICAL FIX: World-locked panel (no billboarding, no camera following)
   updatePosition(objectPosition: THREE.Vector3, cameraPosition: THREE.Vector3) {
     if (!this.group.visible) return;
     
@@ -1817,8 +1818,15 @@ export class OnboardingTutorial {
     
     this.group.position.copy(panelPos);
     
-    // Make panel face camera
-    this.group.lookAt(cameraPosition);
+    // CRITICAL FIX: World-locked orientation - face forward in world space (not camera)
+    // Set rotation to face forward (negative Z direction in world space)
+    // This keeps the panel fixed in world space, not following the camera
+    this.group.rotation.set(0, 0, 0); // Default forward-facing orientation
+    // Optional: Face the panel toward the object center for better visibility
+    const toObject = objectPosition.clone().sub(panelPos).normalize();
+    if (toObject.length() > 0.1) {
+      this.group.lookAt(objectPosition); // Face toward object, not camera
+    }
   }
 
   async show(camera: THREE.Camera) {
@@ -1842,13 +1850,15 @@ export class OnboardingTutorial {
     this.group.visible = true;
     
     // Initial position (will be updated by updatePosition)
+    // CRITICAL FIX: World-locked initial position (not camera-relative)
     const pos = new THREE.Vector3();
     const dir = new THREE.Vector3();
     camera.getWorldPosition(pos);
     camera.getWorldDirection(dir);
     this.group.position.copy(pos.add(dir.multiplyScalar(1.5)));
     this.group.position.y += 0.3;
-    this.group.lookAt(camera.position);
+    // CRITICAL FIX: Set world-locked rotation (face forward, not camera)
+    this.group.rotation.set(0, 0, 0); // Forward-facing in world space
     
     await this.showStep(0);
   }

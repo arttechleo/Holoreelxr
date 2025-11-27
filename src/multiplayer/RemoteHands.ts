@@ -21,8 +21,10 @@ interface HandRenderGroup {
 export class RemoteHands {
   private scene: THREE.Scene;
   private group = new THREE.Group();
-  // ENHANCED: Match single-user hand styling (WebXR default is cyan/teal)
-  private readonly HAND_COLOR = 0x4ecdc4; // Cyan/teal to match WebXR hand tracking
+  // CRITICAL FIX: Match single-user grey mesh hand styling
+  // Single-user hands use XRHandModelFactory.createHandModel(hand, 'mesh') which creates grey mesh hands
+  // Use grey color to match the mesh hand appearance
+  private readonly HAND_COLOR = 0x888888; // Grey to match single-user mesh hands
   private readonly PINCH_COLOR = 0xffd93d; // Yellow for pinch indicator
 
   private readonly leftHand: HandRenderGroup;
@@ -48,13 +50,14 @@ export class RemoteHands {
     const jointPositions = new Float32Array(HAND_JOINT_NAMES.length * 3);
     const jointGeometry = new THREE.BufferGeometry();
     jointGeometry.setAttribute('position', new THREE.BufferAttribute(jointPositions, 3));
-    // ENHANCED: Match single-user hand styling - slightly larger, more visible joints
+    // CRITICAL FIX: Match single-user grey mesh hand styling
+    // Use larger, more visible joints to approximate mesh hand appearance
     const jointMaterial = new THREE.PointsMaterial({
-      color: this.HAND_COLOR,
-      size: 0.012, // Slightly larger (0.01 -> 0.012) for better visibility
+      color: this.HAND_COLOR, // Grey to match mesh hands
+      size: 0.015, // Larger size to better approximate mesh hand joints
       sizeAttenuation: true,
       transparent: true,
-      opacity: 0.9, // More opaque (0.85 -> 0.9) for better visibility
+      opacity: 0.95, // High opacity to match solid mesh appearance
       depthWrite: false,
     });
     const joints = new THREE.Points(jointGeometry, jointMaterial);
@@ -63,12 +66,13 @@ export class RemoteHands {
     const bonePositions = new Float32Array(HAND_BONE_CONNECTIONS.length * 6);
     const boneGeometry = new THREE.BufferGeometry();
     boneGeometry.setAttribute('position', new THREE.BufferAttribute(bonePositions, 3));
-    // ENHANCED: Match single-user hand styling - more visible bones
+    // CRITICAL FIX: Match single-user grey mesh hand styling
+    // Use thicker, more visible bones to approximate mesh hand appearance
     const boneMaterial = new THREE.LineBasicMaterial({
-      color: this.HAND_COLOR,
+      color: this.HAND_COLOR, // Grey to match mesh hands
       transparent: true,
-      opacity: 0.7, // More opaque (0.6 -> 0.7) for better visibility
-      linewidth: 2, // Slightly thicker lines
+      opacity: 0.85, // High opacity to match solid mesh appearance
+      linewidth: 3, // Thicker lines to better approximate mesh hand bones
       depthWrite: false,
     });
     const bones = new THREE.LineSegments(boneGeometry, boneMaterial);

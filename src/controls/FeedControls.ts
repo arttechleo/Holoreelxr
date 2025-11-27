@@ -263,6 +263,16 @@ export class FeedControls {
         this.store.notify('❤️ Saved!');
         this.markGestureTriggered('heart');
         
+        // CRITICAL FIX: Broadcast heart gesture to multiplayer partner
+        const mp = (this as any).multiplayer as any | undefined;
+        if (mp?.isConnected && mp.broadcastGesture) {
+          mp.broadcastGesture({
+            type: 'heart',
+            timestamp: now,
+            position: heartPos ? { x: heartPos.x, y: heartPos.y, z: heartPos.z } : { x: 0, y: 0, z: 0 },
+          });
+        }
+        
         // Complete tutorial step if active
         if (this.tutorial && this.tutorial.getCurrentGesture() === 'heart') {
           this.tutorial.completeCurrentLesson();
@@ -303,6 +313,16 @@ export class FeedControls {
         this.hudMgr.bump(this.currentModelKey(), 'repost');
         this.store.notify('🔁 Reposted!');
         this.markGestureTriggered('peace');
+        
+        // CRITICAL FIX: Broadcast repost gesture to multiplayer partner
+        const mp = (this as any).multiplayer as any | undefined;
+        if (mp?.isConnected && mp.broadcastGesture) {
+          mp.broadcastGesture({
+            type: 'repost',
+            timestamp: now,
+            position: peaceHand ? { x: peaceHand.x, y: peaceHand.y, z: peaceHand.z } : { x: 0, y: 0, z: 0 },
+          });
+        }
         
         // Complete tutorial step if active
         if (this.tutorial && this.tutorial.getCurrentGesture() === 'peace_sign') {
@@ -400,7 +420,9 @@ export class FeedControls {
         tutorialPos.add(camDir);
         tutorialPos.y += 0.1;
         this.tutorial.getGroup().position.copy(tutorialPos);
-        this.tutorial.lookAt(camPos);
+        // CRITICAL FIX: World-locked tutorial panel (no billboarding)
+        // Tutorial panel should stay fixed in world space, not follow camera
+        // The tutorial panel's updatePosition method handles its own orientation
       }
     });
   }
@@ -1414,6 +1436,54 @@ export class FeedControls {
     }
     
     // PRIORITY 1: STRICT UI PRIORITY - UI always takes precedence over 3D models
+    // CRITICAL FIX: Check tutorial panel FIRST (same pinch+raycast pattern as 3D models)
+    // This ensures tutorial panel uses the same interaction pattern as 3D models
+    try {
+      if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
+        // CRITICAL FIX: Use same pinch+raycast pattern as 3D models
+        const pinch = this.hands.pinchMid(side);
+        const tip = this.hands.indexTip(side);
+        if (pinch && tip) {
+          // Create ray from index tip (same as 3D model interaction)
+          const wrist = this.hands.wrist?.(side);
+          let handDir: THREE.Vector3;
+          if (wrist) {
+            handDir = tip.clone().sub(wrist).normalize();
+          } else {
+            const camPos = new THREE.Vector3();
+            this.app.camera.getWorldPosition(camPos);
+            handDir = tip.clone().sub(camPos).normalize();
+          }
+          const ray = new THREE.Ray(tip, handDir);
+          
+          // Try raycast first (same as 3D models)
+          const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
+          if (tutorialHit?.button) {
+            // Hit detected - trigger button click (same as 3D model interaction)
+            const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialHit.button);
+            if (handled) {
+              this.uiActive = true;
+              this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
+              return; // Tutorial button clicked - block 3D
+            }
+          }
+          
+          // Fallback: try touch interaction (same as 3D models)
+          const tutorialButton = (this.onboardingTutorial as any).checkTouchInteraction?.(tip);
+          if (tutorialButton && (this.onboardingTutorial as any).canClickButton?.(tutorialButton)) {
+            const handled = (this.onboardingTutorial as any).handleButtonClick?.(tutorialButton);
+            if (handled) {
+              this.uiActive = true;
+              this.uiActiveUntil = pinchNow + this.UI_PRIORITY_DURATION_MS;
+              return; // Tutorial button clicked - block 3D
+            }
+          }
+        }
+      }
+    } catch (error) {
+      logError(error, 'FeedControls.tutorial.interaction');
+    }
+    
     // CRITICAL FIX: Check if keyboard or multiplayer panel is active - if so, disable ALL 3D interaction
     // Enhanced with error handling and null safety
     try {

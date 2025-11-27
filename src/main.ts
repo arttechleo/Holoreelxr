@@ -45,9 +45,6 @@ musicUI.hide();
 const xrAuthPanel = new XRAuthPanel(authMgr, app.scene);
 const xrMusicPanel = new XRMusicPanel(musicMgr, app.scene);
 
-// Onboarding tutorial (only shows in XR)
-const onboarding = new OnboardingTutorial(app.scene, hands, store);
-
 // EXPERIMENTAL: Multiplayer system (real-time hand tracking & gesture sync)
 const multiplayer = new MultiplayerManager();
 const remoteHands = new RemoteHands(app.scene);
@@ -57,6 +54,9 @@ const xrMultiplayerPanel = new XRMultiplayerPanel(
   () => store.getObjectWorldPos(), // Like ReactionHud - callback to get object position
   () => app.camera // Camera for keypad positioning
 );
+
+// Onboarding tutorial (only shows in XR)
+const onboarding = new OnboardingTutorial(app.scene, hands, store);
 
 const FEED_SYNC_INTERVAL_MS = 250;
 let lastFeedSyncAt = 0;
@@ -107,7 +107,15 @@ multiplayer.onConnectionChange((connected: boolean) => {
     hud.toast('🎉 Multiplayer connected!');
     remoteHands.setVisible(true);
     if (multiplayer.isHostRole()) {
-      multiplayer.broadcastFeedState(store.getStateSnapshot());
+      // CRITICAL FIX: Only broadcast content state (index/itemId), not transforms
+      const state = store.getStateSnapshot();
+      const contentOnlyState = {
+        index: state.index,
+        itemId: state.itemId,
+        // CRITICAL: Do NOT include position, scale, rotationY - each user controls their own
+        timestamp: state.timestamp,
+      };
+      multiplayer.broadcastFeedState(contentOnlyState);
     }
   } else {
     hud.toast('❌ Multiplayer disconnected');
@@ -293,9 +301,20 @@ async function loadMainFeed() {
       
       multiplayer.broadcastHands(handState);
       
+      // CRITICAL FIX: Each user controls their own model locally
+      // Only sync content changes (feed index/itemId), NOT transforms (position/rotation/scale)
+      // This prevents host from controlling everyone's model and eliminates flickering
       if (multiplayer.isHostRole() && now - lastFeedSyncAt > FEED_SYNC_INTERVAL_MS) {
         lastFeedSyncAt = now;
-        multiplayer.broadcastFeedState(store.getStateSnapshot());
+        // Only broadcast content state (index/itemId), not transforms
+        const state = store.getStateSnapshot();
+        const contentOnlyState = {
+          index: state.index,
+          itemId: state.itemId,
+          // CRITICAL: Do NOT include position, scale, rotationY - each user controls their own
+          timestamp: state.timestamp,
+        };
+        multiplayer.broadcastFeedState(contentOnlyState);
       }
     }
     
@@ -358,6 +377,9 @@ async function loadMainFeed() {
   });
 
     const controls = new FeedControls(app, hands, store);
+    // CRITICAL FIX: Pass multiplayer reference to FeedControls for gesture broadcasting
+    (controls as any).multiplayer = multiplayer;
+    (controls as any).multiplayerPanel = xrMultiplayerPanel;
     // Wire up 3D panels to controls
     (controls as any).authPanel = xrAuthPanel;
     (controls as any).musicPanel = xrMusicPanel;
