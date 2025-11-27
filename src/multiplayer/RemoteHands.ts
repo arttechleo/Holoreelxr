@@ -11,6 +11,7 @@ interface HandRenderGroup {
   root: THREE.Group;
   joints: THREE.Points;
   bones: THREE.LineSegments;
+  glowBones: THREE.LineSegments; // Blue glow outline layer
   pinchIndicator: THREE.Mesh;
   jointPositions: Float32Array;
   bonePositions: Float32Array;
@@ -21,11 +22,11 @@ interface HandRenderGroup {
 export class RemoteHands {
   private scene: THREE.Scene;
   private group = new THREE.Group();
-  // CRITICAL FIX: Match single-user grey mesh hand styling
-  // Single-user hands use XRHandModelFactory.createHandModel(hand, 'mesh') which creates grey mesh hands
-  // Use grey color to match the mesh hand appearance
-  private readonly HAND_COLOR = 0x888888; // Grey to match single-user mesh hands
+  // Remote hands styling: Blue-glowing mesh hands to distinguish from local hands
+  private readonly HAND_COLOR = 0x4a9eff; // Blue base color
+  private readonly GLOW_COLOR = 0x6bb5ff; // Lighter blue for glow
   private readonly PINCH_COLOR = 0xffd93d; // Yellow for pinch indicator
+  private readonly GLOW_INTENSITY = 2.0; // Emissive glow intensity
 
   private readonly leftHand: HandRenderGroup;
   private readonly rightHand: HandRenderGroup;
@@ -47,36 +48,54 @@ export class RemoteHands {
     root.name = `${side}-remote-hand`;
     this.group.add(root);
 
+    // Create mesh hand representation with blue glow
+    // Use spheres for joints (mesh-like appearance)
     const jointPositions = new Float32Array(HAND_JOINT_NAMES.length * 3);
     const jointGeometry = new THREE.BufferGeometry();
     jointGeometry.setAttribute('position', new THREE.BufferAttribute(jointPositions, 3));
-    // CRITICAL FIX: Match single-user grey mesh hand styling
-    // Use larger, more visible joints to approximate mesh hand appearance
+    
+    // Blue-glowing joint material
     const jointMaterial = new THREE.PointsMaterial({
-      color: this.HAND_COLOR, // Grey to match mesh hands
-      size: 0.015, // Larger size to better approximate mesh hand joints
+      color: this.HAND_COLOR, // Blue base color
+      size: 0.018, // Larger size for mesh-like appearance
       sizeAttenuation: true,
       transparent: true,
-      opacity: 0.95, // High opacity to match solid mesh appearance
+      opacity: 0.95,
       depthWrite: false,
     });
     const joints = new THREE.Points(jointGeometry, jointMaterial);
     root.add(joints);
 
+    // Create bone mesh representation with blue glow
     const bonePositions = new Float32Array(HAND_BONE_CONNECTIONS.length * 6);
     const boneGeometry = new THREE.BufferGeometry();
     boneGeometry.setAttribute('position', new THREE.BufferAttribute(bonePositions, 3));
-    // CRITICAL FIX: Match single-user grey mesh hand styling
-    // Use thicker, more visible bones to approximate mesh hand appearance
+    
+    // Blue-glowing bone material with emissive glow
     const boneMaterial = new THREE.LineBasicMaterial({
-      color: this.HAND_COLOR, // Grey to match mesh hands
+      color: this.HAND_COLOR, // Blue base color
       transparent: true,
-      opacity: 0.85, // High opacity to match solid mesh appearance
-      linewidth: 3, // Thicker lines to better approximate mesh hand bones
+      opacity: 0.9,
+      linewidth: 4, // Thicker lines for mesh-like appearance
       depthWrite: false,
     });
     const bones = new THREE.LineSegments(boneGeometry, boneMaterial);
     root.add(bones);
+    
+    // Add blue glow effect using emissive outline
+    // Create additional outline layer for glow effect
+    const glowGeometry = new THREE.BufferGeometry();
+    glowGeometry.setAttribute('position', new THREE.BufferAttribute(bonePositions.slice(), 3));
+    const glowMaterial = new THREE.LineBasicMaterial({
+      color: this.GLOW_COLOR, // Lighter blue for glow
+      transparent: true,
+      opacity: 0.4, // Subtle glow
+      linewidth: 6, // Thicker for glow effect
+      depthWrite: false,
+    });
+    const glowBones = new THREE.LineSegments(glowGeometry, glowMaterial);
+    glowBones.renderOrder = -1; // Render behind main bones
+    root.add(glowBones);
 
     const pinchIndicator = new THREE.Mesh(
       new THREE.RingGeometry(0.015, 0.03, 24),
@@ -96,6 +115,7 @@ export class RemoteHands {
       root,
       joints,
       bones,
+      glowBones, // Blue glow outline layer
       pinchIndicator,
       jointPositions,
       bonePositions,
@@ -119,12 +139,19 @@ export class RemoteHands {
       this.group.visible = true;
     }
 
+    // Update blue glow colors
     if (hands.gestures?.heart) {
+      // Pink for heart gesture
       (this.leftHand.bones.material as THREE.LineBasicMaterial).color.set(0xff73ff);
       (this.rightHand.bones.material as THREE.LineBasicMaterial).color.set(0xff73ff);
+      (this.leftHand.glowBones.material as THREE.LineBasicMaterial).color.set(0xff9aff);
+      (this.rightHand.glowBones.material as THREE.LineBasicMaterial).color.set(0xff9aff);
     } else {
+      // Blue glow for normal state
       (this.leftHand.bones.material as THREE.LineBasicMaterial).color.set(this.HAND_COLOR);
       (this.rightHand.bones.material as THREE.LineBasicMaterial).color.set(this.HAND_COLOR);
+      (this.leftHand.glowBones.material as THREE.LineBasicMaterial).color.set(this.GLOW_COLOR);
+      (this.rightHand.glowBones.material as THREE.LineBasicMaterial).color.set(this.GLOW_COLOR);
     }
   }
 
@@ -175,6 +202,12 @@ export class RemoteHands {
     });
 
     renderGroup.boneGeometry.attributes.position.needsUpdate = true;
+    
+    // Update glow bones geometry to match main bones (for blue glow effect)
+    const glowPositions = renderGroup.glowBones.geometry.attributes.position as THREE.BufferAttribute;
+    glowPositions.array.set(renderGroup.bonePositions);
+    glowPositions.needsUpdate = true;
+    
     renderGroup.root.visible = true;
 
     // Update pinch indicator with pinch mid (position) if available
@@ -208,6 +241,8 @@ export class RemoteHands {
       (hand.joints.material as THREE.Material).dispose();
       hand.boneGeometry.dispose();
       (hand.bones.material as THREE.Material).dispose();
+      hand.glowBones.geometry.dispose();
+      (hand.glowBones.material as THREE.Material).dispose();
       hand.pinchIndicator.geometry.dispose();
       (hand.pinchIndicator.material as THREE.Material).dispose();
     });

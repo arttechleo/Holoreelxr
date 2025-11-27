@@ -41,6 +41,10 @@ export class VRKeypad {
   
   // Touch-based interaction (proximity/collider) - ENHANCED for better detection
   private readonly TOUCH_THRESHOLD = 0.05; // 5cm proximity (increased for comfortable interaction)
+  
+  // Virtual touch hold threshold - key must be held for this duration before triggering
+  // Prevents rapid-fire from hand jitter
+  private readonly TOUCH_HOLD_MS = 150; // 150ms hold time before key triggers
   private touchedKey: KeypadKey | null = null;
   private touchStartTime: number | null = null;
   private touchConsumed: boolean = false; // Track if touch has been consumed (prevents repeat fires)
@@ -419,14 +423,26 @@ export class VRKeypad {
   
   /**
    * Check if touch has been held long enough to trigger press
-   * SIMPLIFIED: No minimum hold time - immediate on touch
-   * CRITICAL FIX: Only fires once per touch (prevents repeat fires)
+   * ENHANCED: Virtual touch with hold threshold - prevents rapid-fire from jitter
+   * Key must be held for TOUCH_HOLD_MS before triggering
    */
   checkTouchPress(): KeypadKey | null {
     if (!this.touchedKey || this.touchConsumed) return null;
     
-    // ENHANCED: Immediate press (no hold time required)
-    // Check debounce per key
+    // Check if key has been held long enough (virtual touch threshold)
+    if (!this.touchStartTime) {
+      return null; // No touch start time recorded
+    }
+    
+    const now = performance.now();
+    const holdTime = now - this.touchStartTime;
+    
+    // Key must be held for minimum duration before triggering
+    if (holdTime < this.TOUCH_HOLD_MS) {
+      return null; // Not held long enough yet
+    }
+    
+    // Check debounce per key (prevents rapid repeats)
     if (!this.canPressKey(this.touchedKey)) {
       return null; // Still in debounce period
     }

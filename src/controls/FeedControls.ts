@@ -843,6 +843,7 @@ export class FeedControls {
       }
       
       // UI hit but not pinching - still return handled to block 3D
+      // CRITICAL: When UI is hit, completely block 3D raycasts (mutually exclusive mode)
       return { handled: true, target: 'ui' };
     } else {
       // No UI hit - hide UI raycast line
@@ -850,8 +851,49 @@ export class FeedControls {
     }
 
     // PRIORITY 2: No UI hit - allow 3D interactions (grab, scroll, etc.)
-    // This is handled by the existing 3D interaction logic
+    // CRITICAL: Only allow 3D if NO UI is active/visible (mutually exclusive mode)
+    // Check if any UI panel is currently active or visible
+    if (this.isAnyUIActiveOrVisible()) {
+      // UI is active/visible - completely block 3D raycasts
+      return { handled: true, target: 'ui' };
+    }
+    
+    // No UI active - allow 3D interactions
     return { handled: false, target: '3d' };
+  }
+  
+  /**
+   * Check if any UI panel is currently active or visible
+   * Used for mutually exclusive raycast mode (UI vs 3D)
+   */
+  private isAnyUIActiveOrVisible(): boolean {
+    // Check if UI is in active state (recently interacted with)
+    if (this.isUIActive()) {
+      return true;
+    }
+    
+    // Check if keyboard is visible/active
+    const multiplayerPanel = (this as any).multiplayerPanel as any | undefined;
+    const keypad = multiplayerPanel?.getKeypad?.();
+    if (keypad?.isVisible() || keypad?.isActive()) {
+      return true;
+    }
+    
+    // Check if multiplayer panel is visible
+    if (multiplayerPanel?.isVisible?.()) {
+      return true;
+    }
+    
+    // Check if tutorial is visible
+    if (this.onboardingTutorial && (this.onboardingTutorial as any).isVisible?.()) {
+      return true;
+    }
+    
+    // Check if HUD is visible (reaction buttons)
+    // HUD is always visible, so we only check if it's being interacted with
+    // This is handled by isUIActive() above
+    
+    return false;
   }
   
   /**
@@ -1766,6 +1808,12 @@ export class FeedControls {
     }
 
     // PRIORITY 2: Normal interactions (scroll, grab, etc)
+    // CRITICAL: Only proceed if no UI is active (mutually exclusive mode)
+    if (this.isAnyUIActiveOrVisible()) {
+      // UI is active - completely block 3D interactions
+      return;
+    }
+    
     this.setRayVisible(side, true);
     this.pinchStartAt = performance.now();
     const y = this.hands.pinchMid(side)?.y ?? null;
@@ -1904,6 +1952,15 @@ export class FeedControls {
       this.lastPinchY = null;
       this.filtPinchY = null;
       if (this.scrollRay) this.scrollRay.visible = false;
+      return;
+    }
+    
+    // CRITICAL: UI has priority - block scroll if UI is active (mutually exclusive mode)
+    if (this.isAnyUIActiveOrVisible()) {
+      if (this.scrollRay) this.scrollRay.visible = false;
+      // Reset scroll state when UI blocks it
+      this.scrollArmed = false;
+      this.scrollAccum = 0;
       return;
     }
     
@@ -2100,6 +2157,16 @@ export class FeedControls {
 
   // ---------- two-hand transform ----------
   private updateTwoHandTransform(dt: number) {
+    // CRITICAL: UI has priority - block two-hand transform if UI is active
+    if (this.isAnyUIActiveOrVisible()) {
+      // UI is active - completely block 3D transforms
+      if (this.twoHandActive) {
+        this.twoHandActive = false;
+        this.rotVel = 0;
+      }
+      return;
+    }
+    
     const lp = this.hands.state.left.pinch,
       rp = this.hands.state.right.pinch;
     if (this.grabPending || this.grabbing) return;
@@ -2383,8 +2450,8 @@ export class FeedControls {
     }
   }
   private updateGrabDrag() {
-    // CRITICAL: UI has priority - block grab if UI is active
-    if (this.isUIActive()) {
+    // CRITICAL: UI has priority - block grab if UI is active (mutually exclusive mode)
+    if (this.isAnyUIActiveOrVisible()) {
       if (this.grabbing) {
         this.grabbing = false;
         this.grabSide = null;
