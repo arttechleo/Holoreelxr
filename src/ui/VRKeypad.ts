@@ -274,6 +274,15 @@ export class VRKeypad {
   }
   
   /**
+   * Debounce helper to avoid duplicate presses while finger rests on a key
+   */
+  private canPressKey(key: KeypadKey): boolean {
+    const now = performance.now();
+    const lastPress = this.lastKeyPressTime.get(key) || 0;
+    return (now - lastPress) >= this.KEY_DEBOUNCE_MS;
+  }
+
+  /**
    * Handle key press - updates input text and triggers callback IMMEDIATELY
    */
   handleKeyPress(key: KeypadKey): boolean {
