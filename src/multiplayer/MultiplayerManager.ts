@@ -28,6 +28,9 @@ export interface HandState {
     stopPalm: boolean;
   };
   timestamp: number;
+  // Head/body position for player presence
+  headPosition?: Vec3 | null;
+  headRotation?: QuaternionLike | null;
 }
 
 export interface GestureEvent {
