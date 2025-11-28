@@ -95,26 +95,26 @@ export class GestureTutorial {
     const ctx = this.canvas.getContext('2d')!;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     
-    // Background with gradient
+    // Background - grey/dark grey gradient (matching multiplayer UI theme)
     const gradient = ctx.createLinearGradient(0, 0, 0, this.canvas.height);
-    gradient.addColorStop(0, 'rgba(30, 30, 50, 0.98)');
-    gradient.addColorStop(1, 'rgba(50, 50, 80, 0.98)');
+    gradient.addColorStop(0, '#3a3a3a'); // Light grey top
+    gradient.addColorStop(1, '#1a1a1a'); // Dark grey bottom
     ctx.fillStyle = gradient;
     ctx.roundRect(0, 0, this.canvas.width, this.canvas.height, 20);
     ctx.fill();
     
     const lesson = this.lessons[this.currentLessonIndex];
     
-    // Title
-    ctx.fillStyle = '#ffffff';
+    // Title - black text
+    ctx.fillStyle = '#000000';
     ctx.font = 'bold 48px system-ui, Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillText('Gesture Tutorial', this.canvas.width / 2, 30);
     
-    // Progress
+    // Progress - black text
     ctx.font = '24px system-ui';
-    ctx.fillStyle = '#aaaacc';
+    ctx.fillStyle = '#000000';
     ctx.fillText(`${this.currentLessonIndex + 1} / ${this.lessons.length}`, this.canvas.width / 2, 85);
     
     // Icon (large)
@@ -123,20 +123,20 @@ export class GestureTutorial {
     ctx.textBaseline = 'middle';
     ctx.fillText(lesson.icon, this.canvas.width / 2, 200);
     
-    // Gesture name
+    // Gesture name - black text
     ctx.font = 'bold 36px system-ui';
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#000000';
     ctx.textBaseline = 'top';
     ctx.fillText(lesson.name, this.canvas.width / 2, 280);
     
-    // Description
+    // Description - black text
     ctx.font = '24px system-ui';
-    ctx.fillStyle = '#aaaacc';
+    ctx.fillStyle = '#000000';
     ctx.fillText(lesson.description, this.canvas.width / 2, 330);
     
-    // Instruction
+    // Instruction - black text
     ctx.font = '20px system-ui';
-    ctx.fillStyle = '#88aaff';
+    ctx.fillStyle = '#000000';
     
     // Word wrap instruction
     const maxWidth = this.canvas.width - 80;
@@ -158,9 +158,9 @@ export class GestureTutorial {
     });
     ctx.fillText(line, this.canvas.width / 2, y);
     
-    // Navigation hint
+    // Navigation hint - black text
     ctx.font = '18px system-ui';
-    ctx.fillStyle = '#666688';
+    ctx.fillStyle = '#000000';
     ctx.fillText('Try the gesture to continue...', this.canvas.width / 2, this.canvas.height - 30);
     
     this.texture.needsUpdate = true;

@@ -1500,24 +1500,27 @@ export class OnboardingTutorial {
     const step = this.steps[this.currentStepIndex];
     if (!step) return;
     
-    // Background
-    ctx.fillStyle = step.completed ? 'rgba(20, 50, 30, 0.95)' : 'rgba(20, 20, 30, 0.95)';
+    // Background - grey/dark grey gradient (matching multiplayer UI theme)
+    const bgGradient = ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+    bgGradient.addColorStop(0, '#3a3a3a'); // Light grey top
+    bgGradient.addColorStop(1, '#1a1a1a'); // Dark grey bottom
+    ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Title
-    ctx.fillStyle = step.completed ? '#4ade80' : '#fff';
+    // Title - black text
+    ctx.fillStyle = '#000000';
     ctx.font = 'bold 36px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(step.title, this.canvas.width / 2, 50);
     
-    // Description
+    // Description - black text
     ctx.font = '20px sans-serif';
-    ctx.fillStyle = '#aaa';
+    ctx.fillStyle = '#000000';
     ctx.fillText(step.description, this.canvas.width / 2, 85);
     
-    // Detailed instructions
+    // Detailed instructions - black text
     ctx.font = '16px sans-serif';
-    ctx.fillStyle = '#ccc';
+    ctx.fillStyle = '#000000';
     const maxWidth = this.canvas.width - 80;
     const words = step.detailedInstructions.split(' ');
     let line = '';
@@ -1551,27 +1554,27 @@ export class OnboardingTutorial {
       ctx.fillRect(barX, barY, barWidth, barHeight);
       
       const progressWidth = (barWidth * this.progressPercentage) / 100;
-      ctx.fillStyle = '#4ECDC4';
+      ctx.fillStyle = '#888888'; // Grey accent for progress bar
       ctx.fillRect(barX, barY, progressWidth, barHeight);
       
       ctx.font = 'bold 18px sans-serif';
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = '#000000'; // Black text
       ctx.fillText(`${Math.round(this.progressPercentage)}%`, this.canvas.width / 2, barY - 10);
     }
     
-    // Completion message
+    // Completion message - black text
     if (step.completed) {
       ctx.font = 'bold 24px sans-serif';
-      ctx.fillStyle = '#4ade80';
+      ctx.fillStyle = '#000000';
       ctx.fillText('✅ Step Complete!', this.canvas.width / 2, y + 40);
     }
     
     // Navigation buttons
     this.drawNavigationButtons(ctx);
     
-    // Instructions for button interaction (hand gestures only)
+    // Instructions for button interaction (hand gestures only) - black text
     ctx.font = '14px sans-serif';
-    ctx.fillStyle = '#888';
+    ctx.fillStyle = '#000000';
     ctx.fillText('👆 Point with index finger, pinch to click', this.canvas.width / 2, this.canvas.height - 20);
 
     this.texture.needsUpdate = true;
@@ -1599,13 +1602,13 @@ export class OnboardingTutorial {
     const prevEnabled = this.currentStepIndex > 0;
     const prevHovered = this.hoveredButton === 'prev';
     
-    ctx.fillStyle = prevHovered ? '#5EDDD5' : (prevEnabled ? '#4ECDC4' : '#666');
+    ctx.fillStyle = prevHovered ? '#888888' : (prevEnabled ? '#666666' : '#444444');
     ctx.fillRect(prevX, buttonY, buttonWidth, buttonHeight);
-    ctx.strokeStyle = prevHovered ? '#fff' : (prevEnabled ? '#fff' : '#888');
+    ctx.strokeStyle = prevHovered ? '#aaaaaa' : (prevEnabled ? '#888888' : '#666666');
     ctx.lineWidth = prevHovered ? 3 : 2;
     ctx.strokeRect(prevX, buttonY, buttonWidth, buttonHeight);
     
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#000000'; // Black text
     ctx.font = 'bold 18px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('◀ Previous', prevX + buttonWidth / 2, buttonY + buttonHeight / 2 + 7);
@@ -1617,12 +1620,13 @@ export class OnboardingTutorial {
     const nextEnabled = this.currentStepIndex < this.steps.length - 1;
     const nextHovered = this.hoveredButton === 'next';
     
-    ctx.fillStyle = nextHovered ? '#5EDDD5' : (nextEnabled ? '#4ECDC4' : '#666');
+    ctx.fillStyle = nextHovered ? '#888888' : (nextEnabled ? '#666666' : '#444444');
     ctx.fillRect(nextX, buttonY, buttonWidth, buttonHeight);
-    ctx.strokeStyle = nextHovered ? '#fff' : (nextEnabled ? '#fff' : '#888');
+    ctx.strokeStyle = nextHovered ? '#aaaaaa' : (nextEnabled ? '#888888' : '#666666');
     ctx.lineWidth = nextHovered ? 3 : 2;
     ctx.strokeRect(nextX, buttonY, buttonWidth, buttonHeight);
     
+    ctx.fillStyle = '#000000'; // Black text
     ctx.fillText('Next ▶', nextX + buttonWidth / 2, buttonY + buttonHeight / 2 + 7);
     
     this.buttonRegions.next = { x: nextX, y: buttonY, w: buttonWidth, h: buttonHeight };
@@ -1632,13 +1636,13 @@ export class OnboardingTutorial {
     const skipY = 20;
     const skipHovered = this.hoveredButton === 'skip';
     
-    ctx.fillStyle = skipHovered ? '#ff6b6b' : '#ff4444';
+    ctx.fillStyle = skipHovered ? '#888888' : '#666666';
     ctx.fillRect(skipX, skipY, skipButtonWidth, buttonHeight);
-    ctx.strokeStyle = skipHovered ? '#fff' : '#fff';
+    ctx.strokeStyle = skipHovered ? '#aaaaaa' : '#888888';
     ctx.lineWidth = skipHovered ? 3 : 2;
     ctx.strokeRect(skipX, skipY, skipButtonWidth, buttonHeight);
     
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#000000'; // Black text
     ctx.font = 'bold 16px sans-serif';
     ctx.fillText('⏭ Skip Tutorial', skipX + skipButtonWidth / 2, skipY + buttonHeight / 2 + 6);
     

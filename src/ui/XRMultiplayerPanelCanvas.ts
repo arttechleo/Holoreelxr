@@ -834,7 +834,7 @@ export class XRMultiplayerPanel {
     
     // Status/instructions
     if (this.mode === 'idle') {
-      ctx.fillStyle = '#2a2a2a';
+      ctx.fillStyle = '#000000';
       ctx.font = '36px Arial';
       ctx.fillText('👉 Point & Pinch to Interact', w / 2, 160);
       
