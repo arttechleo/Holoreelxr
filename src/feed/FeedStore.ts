@@ -102,18 +102,18 @@ export class FeedStore {
         throw new Error('Feed JSON is not an array');
       }
       
-      // FILTER: Main feed shows only GLTF/GLB models (exclude shapes, meshes, splat4d, ply)
+      // FILTER: Main feed shows GLTF/GLB models and simple shapes (cube, sphere, pyramid)
       // Tutorial items (id starts with "tutorial-") are preserved for tutorial flow
       this.items = allItems.filter(item => {
         // Keep tutorial items for tutorial flow
         if (item.id && item.id.startsWith('tutorial-')) {
           return true;
         }
-        // Main feed: only GLTF/GLB models
-        return item.type === 'gltf' || item.type === 'glb';
+        // Main feed: GLTF/GLB models and simple shapes (exclude meshes, splat4d, ply)
+        return item.type === 'gltf' || item.type === 'glb' || item.type === 'shape';
       });
       
-      console.log(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} GLTF/GLB items`);
+      console.log(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} items (GLTF/GLB + shapes)`);
     } catch (error) {
       logError(error, 'FeedStore.loadFeed');
       this.toast('Failed to load feed - using empty feed');
@@ -221,9 +221,24 @@ export class FeedStore {
     }
 
     try {
-      // CRITICAL: Main feed shows ONLY GLTF/GLB models - no shapes, meshes, splat4d, or ply
-      // Tutorial items are handled separately and should not reach this code
-      if (item.type === 'gltf' || item.type === 'glb') {
+      if (item.type === 'shape') {
+        const obj = this.makeShape(item.shape, item.color, item.id);
+        obj.name = 'content-shape';
+        obj.position.copy(spawnPos);
+        obj.rotation.y = this._rotY;
+        obj.scale.setScalar(this._scale);
+        this.parent.add(obj);
+      } else if (item.type === 'splat4d') {
+        this.seq = new SplatSequence(this.parent, item.frames, item.fps);
+        await this.seq.ready;
+        this.seq.setTransform(this._scale, this._rotY);
+        this.seq.setPosition(spawnPos);
+      } else if (item.type === 'ply') {
+        this.seq = new SplatSequence(this.parent, [item.src], 0);
+        await this.seq.ready;
+        this.seq.setTransform(this._scale, this._rotY);
+        this.seq.setPosition(spawnPos);
+      } else if (item.type === 'gltf' || item.type === 'glb') {
         // FIX #2: Load GLTF/GLB model with enhanced error handling and CORS debugging
         console.log(`[FeedStore] 🔄 Loading GLB/GLTF: "${item.title}" from ${item.src}`);
         console.log(`[FeedStore] Item details:`, { id: item.id, type: item.type, author: item.author });
@@ -282,21 +297,34 @@ export class FeedStore {
             console.error(`[FeedStore] ⚠️ Possible CORS issue - check if ${item.src} allows cross-origin requests`);
           }
           
-          // Re-throw to trigger error handling
+          // Re-throw to trigger error placeholder
           throw loadError;
         }
       } else {
-        // CRITICAL: Main feed only supports GLTF/GLB - no fallbacks or placeholders
-        // If item type is not GLTF/GLB, skip it and show error message
-        console.error(`[FeedStore] Unsupported item type in main feed: ${item.type}. Only GLTF/GLB models are allowed.`);
-        this.toast(`❌ Unsupported content type: ${item.type}`);
-        return; // Don't create any geometry
+        // generic mesh fallback
+        const geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+        const mat = new THREE.MeshStandardMaterial({ color: 0x66ccff });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.name = 'content-mesh';
+        mesh.position.copy(spawnPos);
+        this.parent.add(mesh);
       }
     } catch (error) {
       logError(error, 'FeedStore.showCurrent');
       this.toast('❌ Failed to load content');
-      // CRITICAL: No error placeholder - main feed shows only GLTF/GLB models
-      // If loading fails, show nothing (no fallback geometry)
+      
+      // Show error placeholder (solid, not wireframe for better visibility)
+      const geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+      const mat = new THREE.MeshStandardMaterial({ 
+        color: 0xff3344, 
+        wireframe: false,
+        emissive: 0x330000,
+        roughness: 0.5
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.name = 'content-error';
+      mesh.position.copy(spawnPos);
+      this.parent.add(mesh);
     }
 
     // Defer platform update to next frame to avoid blocking
