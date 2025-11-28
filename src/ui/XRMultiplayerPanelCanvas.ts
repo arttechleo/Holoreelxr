@@ -173,9 +173,9 @@ export class XRMultiplayerPanel {
       this.buttonLastClickTime.set(btn, 0);
     });
     
-    // Create raycast line material
+    // Create raycast line material - grey/silver accent
     this.rayMaterial = new THREE.LineBasicMaterial({
-      color: 0x00aaff,
+      color: 0x888888,
       linewidth: 3,
       transparent: true,
       opacity: 0.8
@@ -811,43 +811,46 @@ export class XRMultiplayerPanel {
     // Clear
     ctx.clearRect(0, 0, w, h);
     
-    // Background - solid black with border
-    ctx.fillStyle = '#000000';
+    // Background - grey/dark grey gradient
+    const bgGradient = ctx.createLinearGradient(0, 0, 0, h);
+    bgGradient.addColorStop(0, '#3a3a3a'); // Light grey top
+    bgGradient.addColorStop(1, '#1a1a1a'); // Dark grey bottom
+    ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, w, h);
     (Object.keys(this.buttonRegions) as Array<keyof typeof this.buttonRegions>).forEach((key) => {
       this.buttonRegions[key] = { x: 0, y: 0, w: 0, h: 0 };
     });
     
-    // Border
-    ctx.strokeStyle = this.hoveredButton ? '#00aaff' : '#444444';
+    // Border - grey/silver accent
+    ctx.strokeStyle = this.hoveredButton ? '#888888' : '#555555';
     ctx.lineWidth = 8;
     ctx.strokeRect(4, 4, w - 8, h - 8);
     
-    // Title
-    ctx.fillStyle = '#00ff00';
+    // Title - black/dark grey text
+    ctx.fillStyle = '#1a1a1a';
     ctx.font = 'bold 70px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('MULTIPLAYER', w / 2, 90);
     
     // Status/instructions
     if (this.mode === 'idle') {
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#2a2a2a';
       ctx.font = '36px Arial';
       ctx.fillText('👉 Point & Pinch to Interact', w / 2, 160);
       
-      // HOST button
+      // HOST button - grey/silver theme
       const hostY = 240;
       const hostH = 140;
       this.buttonRegions.host = { x: 112, y: hostY, w: 800, h: hostH };
-      this.drawButton(ctx, 'HOST', hostY, hostH, '#667eea', this.hoveredButton === 'host', 'host');
+      this.drawButton(ctx, 'HOST', hostY, hostH, '#666666', this.hoveredButton === 'host', 'host');
       
-      // JOIN button
+      // JOIN button - grey/silver theme
       const joinY = 420;
       const joinH = 140;
       this.buttonRegions.join = { x: 112, y: joinY, w: 800, h: joinH };
-      this.drawButton(ctx, 'JOIN', joinY, joinH, '#f5576c', this.hoveredButton === 'join', 'join');
+      this.drawButton(ctx, 'JOIN', joinY, joinH, '#666666', this.hoveredButton === 'join', 'join');
       
-      // Close button with enhanced visual feedback
+      // Close button with enhanced visual feedback - grey theme
       const closeY = 650;
       const closeH = 80;
       this.buttonRegions.close = { x: 362, y: closeY, w: 300, h: closeH };
@@ -856,12 +859,12 @@ export class XRMultiplayerPanel {
       const closeGlow = this.getButtonHoverProgress('close');
       
       if (closeActive) {
-        ctx.fillStyle = '#ff6666';
-        ctx.shadowColor = '#ff0000';
+        ctx.fillStyle = '#888888';
+        ctx.shadowColor = '#666666';
         ctx.shadowBlur = 15;
       } else if (closeHovered || closeGlow > 0) {
-        ctx.fillStyle = '#aa4444';
-        ctx.shadowColor = '#ff0000';
+        ctx.fillStyle = '#666666';
+        ctx.shadowColor = '#555555';
         ctx.shadowBlur = 10;
       } else {
         ctx.fillStyle = '#444444';
@@ -870,27 +873,27 @@ export class XRMultiplayerPanel {
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
       ctx.shadowBlur = 0;
       
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#1a1a1a';
       ctx.font = closeActive ? 'bold 44px Arial' : '40px Arial';
       ctx.fillText('X', w / 2, closeY + 55);
       
     } else if (this.mode === 'hosting') {
-      ctx.fillStyle = '#00ff00';
+      ctx.fillStyle = '#1a1a1a';
       ctx.font = 'bold 48px Arial';
       ctx.fillText('YOUR PEER ID:', w / 2, 120);
       
-      // Display full Peer ID (shorter, cleaner than SDP)
-      ctx.fillStyle = '#ffffff';
+      // Display full Peer ID (shorter, cleaner than SDP) - dark grey text
+      ctx.fillStyle = '#2a2a2a';
       ctx.font = 'bold 60px monospace';
       ctx.fillText(this.currentCode, w / 2, 220);
       
-      ctx.fillStyle = '#aaaaaa';
+      ctx.fillStyle = '#3a3a3a';
       ctx.font = '24px Arial';
       ctx.fillText('Share this ID with friend', w / 2, 280);
       ctx.fillText('They can join using JOIN button', w / 2, 320);
       
       // Copy to clipboard hint
-      ctx.fillStyle = '#888888';
+      ctx.fillStyle = '#4a4a4a';
       ctx.font = '20px Arial';
       ctx.fillText('(Code copied to console - check browser)', w / 2, 380);
       
@@ -903,12 +906,12 @@ export class XRMultiplayerPanel {
       const closeGlow = this.getButtonHoverProgress('close');
       
       if (closeActive) {
-        ctx.fillStyle = '#ff6666';
-        ctx.shadowColor = '#ff0000';
+        ctx.fillStyle = '#888888';
+        ctx.shadowColor = '#666666';
         ctx.shadowBlur = 20;
       } else if (closeHovered || closeGlow > 0) {
-        ctx.fillStyle = '#ff4444';
-        ctx.shadowColor = '#ff0000';
+        ctx.fillStyle = '#666666';
+        ctx.shadowColor = '#555555';
         ctx.shadowBlur = 15;
       } else {
         ctx.fillStyle = '#444444';
@@ -917,35 +920,35 @@ export class XRMultiplayerPanel {
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
       ctx.shadowBlur = 0;
       
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#1a1a1a';
       ctx.font = closeActive ? 'bold 42px Arial' : 'bold 38px Arial';
       ctx.fillText('CLOSE', w / 2, closeY + 56);
       
     } else if (this.mode === 'joining') {
-      ctx.fillStyle = '#00ff00';
+      ctx.fillStyle = '#1a1a1a';
       ctx.font = 'bold 48px Arial';
       ctx.fillText('ENTER PEER ID', w / 2, 120);
       
-      // Instructions
-      ctx.fillStyle = '#d0d0d0';
+      // Instructions - dark grey text
+      ctx.fillStyle = '#2a2a2a';
       ctx.font = '28px Arial';
       ctx.fillText('Touch keys on the keypad to type', w / 2, 190);
       ctx.fillText('Peer ID appears below in real time', w / 2, 230);
       
-      // Input field background (high-contrast card)
+      // Input field background (grey card)
       const inputBoxW = w - 180;
       const inputBoxH = 120;
       const inputBoxX = (w - inputBoxW) / 2;
       const inputBoxY = 300;
-      ctx.fillStyle = 'rgba(5, 20, 20, 0.95)';
-      ctx.strokeStyle = '#00ff88';
+      ctx.fillStyle = 'rgba(60, 60, 60, 0.95)';
+      ctx.strokeStyle = '#888888';
       ctx.lineWidth = 8;
       ctx.beginPath();
       ctx.rect(inputBoxX, inputBoxY - inputBoxH / 2, inputBoxW, inputBoxH);
       ctx.fill();
       ctx.stroke();
       
-      // Render typed text (left-aligned inside card)
+      // Render typed text (left-aligned inside card) - dark grey/black text
       const textPadding = 32;
       const textX = inputBoxX + textPadding;
       const textY = inputBoxY;
@@ -956,21 +959,21 @@ export class XRMultiplayerPanel {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.font = hasInput ? 'bold 60px "Consolas", "Courier New", monospace' : 'bold 46px Arial';
-      ctx.fillStyle = hasInput ? '#ffffff' : '#555555';
+      ctx.fillStyle = hasInput ? '#1a1a1a' : '#4a4a4a';
       ctx.fillText(displayText, textX, textY);
       
-      // Caret indicator (only when typing)
+      // Caret indicator (only when typing) - grey accent
       if (hasInput) {
         const metrics = ctx.measureText(displayText);
         const caretX = textX + metrics.width + 10;
         const caretH = inputBoxH - 30;
-        ctx.fillStyle = '#00ff88';
+        ctx.fillStyle = '#888888';
         ctx.fillRect(caretX, textY - caretH / 2, 4, caretH);
       }
       ctx.restore();
       
-      // Instructions for keypad
-      ctx.fillStyle = '#aaaaaa';
+      // Instructions for keypad - dark grey text
+      ctx.fillStyle = '#3a3a3a';
       ctx.font = '20px Arial';
       ctx.fillText('Touch keypad keys with index finger to type', w / 2, 380);
       ctx.fillText('Press CONNECT when done', w / 2, 410);
@@ -984,12 +987,12 @@ export class XRMultiplayerPanel {
       const closeGlow = this.getButtonHoverProgress('close');
       
       if (closeActive) {
-        ctx.fillStyle = '#ff6666';
-        ctx.shadowColor = '#ff0000';
+        ctx.fillStyle = '#888888';
+        ctx.shadowColor = '#666666';
         ctx.shadowBlur = 20;
       } else if (closeHovered || closeGlow > 0) {
-        ctx.fillStyle = '#ff4444';
-        ctx.shadowColor = '#ff0000';
+        ctx.fillStyle = '#666666';
+        ctx.shadowColor = '#555555';
         ctx.shadowBlur = 15;
       } else {
         ctx.fillStyle = '#444444';
@@ -998,22 +1001,22 @@ export class XRMultiplayerPanel {
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
       ctx.shadowBlur = 0;
       
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#1a1a1a';
       ctx.font = closeActive ? 'bold 42px Arial' : 'bold 38px Arial';
       ctx.fillText('BACK', w / 2, closeY + 56);
       
     } else if (this.mode === 'waiting') {
       // CRITICAL FIX: Add explicit close button to waiting mode
-      ctx.fillStyle = '#00ff00';
+      ctx.fillStyle = '#1a1a1a';
       ctx.font = 'bold 48px Arial';
       ctx.fillText('CONNECTED', w / 2, 120);
       
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#2a2a2a';
       ctx.font = '28px Arial';
       ctx.fillText('Multiplayer session active', w / 2, 200);
 
       if (this.voiceControls) {
-        ctx.fillStyle = '#aaaaaa';
+        ctx.fillStyle = '#3a3a3a';
         ctx.font = '24px Arial';
         ctx.fillText(this.getVoiceStatusText(), w / 2, 260);
 
@@ -1021,14 +1024,14 @@ export class XRMultiplayerPanel {
         const voiceH = 90;
         this.buttonRegions.voice = { x: 112, y: voiceY, w: 800, h: voiceH };
         const voiceLabel = this.voiceState.enabled ? 'VOICE READY' : 'VOICE ON';
-        this.drawButton(ctx, voiceLabel, voiceY, voiceH, '#888888', this.hoveredButton === 'voice', 'voice');
+        this.drawButton(ctx, voiceLabel, voiceY, voiceH, '#666666', this.hoveredButton === 'voice', 'voice');
 
         if (this.voiceState.enabled) {
           const muteY = voiceY + 130;
           const muteH = 90;
           this.buttonRegions.mute = { x: 112, y: muteY, w: 800, h: muteH };
           const muteLabel = this.voiceState.muted ? 'UNMUTE' : 'MUTE';
-          this.drawButton(ctx, muteLabel, muteY, muteH, '#444444', this.hoveredButton === 'mute', 'mute');
+          this.drawButton(ctx, muteLabel, muteY, muteH, '#666666', this.hoveredButton === 'mute', 'mute');
         }
       }
       
@@ -1041,12 +1044,12 @@ export class XRMultiplayerPanel {
       const closeGlow = this.getButtonHoverProgress('close');
       
       if (closeActive) {
-        ctx.fillStyle = '#ff6666';
-        ctx.shadowColor = '#ff0000';
+        ctx.fillStyle = '#888888';
+        ctx.shadowColor = '#666666';
         ctx.shadowBlur = 20;
       } else if (closeHovered || closeGlow > 0) {
-        ctx.fillStyle = '#ff4444';
-        ctx.shadowColor = '#ff0000';
+        ctx.fillStyle = '#666666';
+        ctx.shadowColor = '#555555';
         ctx.shadowBlur = 15;
       } else {
         ctx.fillStyle = '#444444';
@@ -1055,16 +1058,16 @@ export class XRMultiplayerPanel {
       ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
       ctx.shadowBlur = 0;
       
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#1a1a1a';
       ctx.font = closeActive ? 'bold 42px Arial' : 'bold 38px Arial';
       ctx.fillText('CLOSE', w / 2, closeY + 56);
       
     } else if (this.mode === 'waiting_old') {
-      ctx.fillStyle = '#00ff00';
+      ctx.fillStyle = '#1a1a1a';
       ctx.font = 'bold 48px Arial';
       ctx.fillText('CONNECTING...', w / 2, 200);
       
-      ctx.fillStyle = '#aaaaaa';
+      ctx.fillStyle = '#3a3a3a';
       ctx.font = '24px Arial';
       ctx.fillText('Establishing connection', w / 2, 280);
       ctx.fillText('Please wait...', w / 2, 320);
@@ -1092,21 +1095,21 @@ export class XRMultiplayerPanel {
     
     // Determine button state: active > hovered > normal
     if (isActive) {
-      // Active/clicked state - bright highlight
-      ctx.shadowColor = color;
+      // Active/clicked state - light grey highlight
+      ctx.shadowColor = '#888888';
       ctx.shadowBlur = 30;
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#aaaaaa';
       ctx.fillRect(buttonX, y, buttonW, h);
       ctx.shadowBlur = 0;
       
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = '#666666';
       ctx.lineWidth = 8;
       ctx.strokeRect(buttonX + 2, y + 2, buttonW - 4, h - 4);
     } else if (hovered || glowProgress > 0) {
-      // Hovered or glowing - white background
-      ctx.shadowColor = color;
+      // Hovered or glowing - light grey background
+      ctx.shadowColor = '#888888';
       ctx.shadowBlur = 20;
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#888888';
       ctx.fillRect(buttonX, y, buttonW, h);
       ctx.shadowBlur = 0;
       
@@ -1162,32 +1165,32 @@ export class XRMultiplayerPanel {
           ctx.stroke();
         }
         
-        // Draw remaining unfilled border in white
-        ctx.strokeStyle = '#ffffff';
+        // Draw remaining unfilled border in grey
+        ctx.strokeStyle = '#666666';
         ctx.lineWidth = 4;
         ctx.strokeRect(buttonX + 2, y + 2, buttonW - 4, h - 4);
       } else {
         // No glow yet, just normal hover border
-        ctx.strokeStyle = color;
+        ctx.strokeStyle = '#888888';
         ctx.lineWidth = 6;
         ctx.strokeRect(buttonX + 3, y + 3, buttonW - 6, h - 6);
       }
     } else {
-      // Normal - colored background
+      // Normal - grey background
       ctx.fillStyle = color;
       ctx.fillRect(buttonX, y, buttonW, h);
       
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = '#555555';
       ctx.lineWidth = 4;
       ctx.strokeRect(buttonX + 2, y + 2, buttonW - 4, h - 4);
     }
     
-    // Button text
+    // Button text - black/dark grey
     if (isActive) {
-      ctx.fillStyle = color;
+      ctx.fillStyle = '#1a1a1a';
       ctx.font = 'bold 72px Arial'; // Slightly larger when active
     } else {
-      ctx.fillStyle = (hovered || glowProgress > 0) ? color : '#ffffff';
+      ctx.fillStyle = (hovered || glowProgress > 0) ? '#1a1a1a' : '#1a1a1a';
       ctx.font = 'bold 68px Arial';
     }
     ctx.textAlign = 'center';

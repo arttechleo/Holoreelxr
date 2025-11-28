@@ -30,6 +30,16 @@ export class RemoteHands {
 
   private readonly leftHand: HandRenderGroup;
   private readonly rightHand: HandRenderGroup;
+  
+  // Player body representation (head + torso)
+  private playerBody: THREE.Group;
+  private headMesh: THREE.Mesh;
+  private torsoMesh: THREE.Mesh;
+  
+  // Smoothing for stable position syncing
+  private smoothedHeadPosition = new THREE.Vector3();
+  private smoothedHeadRotation = new THREE.Quaternion();
+  private readonly SMOOTH_FACTOR = 0.15; // Smoothing factor (0-1, lower = smoother)
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -38,8 +48,46 @@ export class RemoteHands {
 
     this.leftHand = this.createHandGroup('left');
     this.rightHand = this.createHandGroup('right');
+    
+    // Create player body representation (head + torso)
+    this.playerBody = this.createPlayerBody();
+    this.group.add(this.playerBody);
 
     console.log('[RemoteHands] 👻 Remote hands visualization created');
+  }
+  
+  private createPlayerBody(): THREE.Group {
+    const bodyGroup = new THREE.Group();
+    bodyGroup.name = 'remote-player-body';
+    bodyGroup.visible = false;
+    
+    // Head - simple sphere
+    const headGeometry = new THREE.SphereGeometry(0.12, 16, 16);
+    const headMaterial = new THREE.MeshStandardMaterial({
+      color: this.HAND_COLOR,
+      emissive: this.GLOW_COLOR,
+      emissiveIntensity: 0.3,
+      transparent: true,
+      opacity: 0.9,
+    });
+    this.headMesh = new THREE.Mesh(headGeometry, headMaterial);
+    this.headMesh.position.set(0, 1.6, 0); // Head at ~1.6m height
+    bodyGroup.add(this.headMesh);
+    
+    // Torso - capsule/cylinder
+    const torsoGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.6, 16);
+    const torsoMaterial = new THREE.MeshStandardMaterial({
+      color: this.HAND_COLOR,
+      emissive: this.GLOW_COLOR,
+      emissiveIntensity: 0.2,
+      transparent: true,
+      opacity: 0.85,
+    });
+    this.torsoMesh = new THREE.Mesh(torsoGeometry, torsoMaterial);
+    this.torsoMesh.position.set(0, 1.3, 0); // Torso center at ~1.3m height
+    bodyGroup.add(this.torsoMesh);
+    
+    return bodyGroup;
   }
 
   private createHandGroup(side: 'left' | 'right'): HandRenderGroup {
@@ -124,18 +172,22 @@ export class RemoteHands {
     };
   }
 
-  update(hands: HandState | null | undefined): void {
+  update(hands: HandState | null | undefined, localCamera?: THREE.Camera): void {
     if (!hands) {
       // ENHANCED: Keep group visible even if no hand data (might be temporary)
       // Only hide if explicitly set via setVisible(false)
       return;
     }
+    
+    // Update player body position (mirrored in front of local player)
+    this.updatePlayerBody(hands, localCamera);
+    
     const leftVisible = this.updateHand(hands.left, this.leftHand);
     const rightVisible = this.updateHand(hands.right, this.rightHand);
     const anyVisible = leftVisible || rightVisible;
     // ENHANCED: Show group if any hand is visible, but don't hide if explicitly set to visible
     // CRITICAL: Always show group when connected (even if no hand data yet) to match single-user behavior
-    if (anyVisible || this.group.visible) {
+    if (anyVisible || this.group.visible || (hands.headPosition && this.playerBody.visible)) {
       this.group.visible = true;
     }
 
@@ -230,6 +282,58 @@ export class RemoteHands {
 
     return true;
   }
+  
+  /**
+   * Update player body position - mirrored in front of local player
+   * Positions remote player directly across from local player
+   */
+  private updatePlayerBody(hands: HandState, localCamera?: THREE.Camera): void {
+    if (!localCamera || !hands.headPosition) {
+      this.playerBody.visible = false;
+      return;
+    }
+    
+    // Get local camera position and forward direction
+    const localCamPos = new THREE.Vector3();
+    const localCamDir = new THREE.Vector3();
+    localCamera.getWorldPosition(localCamPos);
+    localCamera.getWorldDirection(localCamDir);
+    
+    // Position remote player in front of local player (mirrored spatial relationship)
+    // Distance: ~1.5m in front (comfortable conversation distance)
+    const PLAYER_DISTANCE = 1.5;
+    const targetHeadPos = localCamPos.clone().add(localCamDir.multiplyScalar(PLAYER_DISTANCE));
+    
+    // Apply smoothing for stable position syncing (prevents jitter/flicker)
+    this.smoothedHeadPosition.lerp(targetHeadPos, this.SMOOTH_FACTOR);
+    
+    // Update head rotation if available (smoothed)
+    // Mirror the rotation so remote player faces local player
+    if (hands.headRotation) {
+      const remoteHeadRot = new THREE.Quaternion(
+        hands.headRotation.x,
+        hands.headRotation.y,
+        hands.headRotation.z,
+        hands.headRotation.w
+      );
+      // Mirror rotation on Y axis (flip horizontally)
+      remoteHeadRot.y *= -1;
+      remoteHeadRot.w *= -1;
+      this.smoothedHeadRotation.slerp(remoteHeadRot, this.SMOOTH_FACTOR);
+      this.headMesh.quaternion.copy(this.smoothedHeadRotation);
+    } else {
+      // Face local player if no rotation data
+      this.headMesh.lookAt(localCamPos);
+    }
+    
+    // Position body group at smoothed head position (body is at head position, head mesh is offset)
+    this.playerBody.position.copy(this.smoothedHeadPosition);
+    // Head mesh is already positioned at (0, 1.6, 0) relative to body, so body should be at head position - head offset
+    this.playerBody.position.y -= 1.6; // Adjust for head mesh offset
+    
+    // Make body visible
+    this.playerBody.visible = true;
+  }
 
   setVisible(visible: boolean): void {
     this.group.visible = visible;
@@ -246,6 +350,13 @@ export class RemoteHands {
       hand.pinchIndicator.geometry.dispose();
       (hand.pinchIndicator.material as THREE.Material).dispose();
     });
+    
+    // Dispose player body
+    this.headMesh.geometry.dispose();
+    (this.headMesh.material as THREE.Material).dispose();
+    this.torsoMesh.geometry.dispose();
+    (this.torsoMesh.material as THREE.Material).dispose();
+    
     this.scene.remove(this.group);
   }
 }

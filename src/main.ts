@@ -133,7 +133,8 @@ function scheduleTrailingFeedSync() {
 // Setup multiplayer callbacks
 multiplayer.onRemoteHands((hands: HandState) => {
   // ENHANCED: Always update remote hands when data is received
-  remoteHands.update(hands);
+  // Pass camera for mirrored player positioning
+  remoteHands.update(hands, app.camera);
   // Ensure remote hands are visible when connected
   if (multiplayer.isConnected()) {
     remoteHands.setVisible(true);
@@ -320,6 +321,12 @@ async function loadMainFeed() {
       const wristRight = hands.getJointQuaternion('right', 'wrist');
       const now = performance.now();
       
+      // Get head position and rotation from camera
+      const headPos = new THREE.Vector3();
+      const headQuat = new THREE.Quaternion();
+      app.camera.getWorldPosition(headPos);
+      app.camera.getWorldQuaternion(headQuat);
+      
       const handState: HandState = {
         left: {
           position: leftPinchMid
@@ -348,6 +355,9 @@ async function loadMainFeed() {
           stopPalm: hands.state.stopPalm,
         },
         timestamp: now,
+        // Head/body position for player presence
+        headPosition: { x: headPos.x, y: headPos.y, z: headPos.z },
+        headRotation: { x: headQuat.x, y: headQuat.y, z: headQuat.z, w: headQuat.w },
       };
       
       multiplayer.broadcastHands(handState);

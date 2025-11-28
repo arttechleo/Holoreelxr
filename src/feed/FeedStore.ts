@@ -97,10 +97,23 @@ export class FeedStore {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
-      this.items = await res.json();
-      if (!Array.isArray(this.items)) {
+      const allItems = await res.json();
+      if (!Array.isArray(allItems)) {
         throw new Error('Feed JSON is not an array');
       }
+      
+      // FILTER: Main feed shows only GLTF/GLB models (exclude shapes, meshes, splat4d, ply)
+      // Tutorial items (id starts with "tutorial-") are preserved for tutorial flow
+      this.items = allItems.filter(item => {
+        // Keep tutorial items for tutorial flow
+        if (item.id && item.id.startsWith('tutorial-')) {
+          return true;
+        }
+        // Main feed: only GLTF/GLB models
+        return item.type === 'gltf' || item.type === 'glb';
+      });
+      
+      console.log(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} GLTF/GLB items`);
     } catch (error) {
       logError(error, 'FeedStore.loadFeed');
       this.toast('Failed to load feed - using empty feed');

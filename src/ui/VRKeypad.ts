@@ -347,23 +347,26 @@ export class VRKeypad {
     // Clear
     ctx.clearRect(0, 0, w, h);
     
-    // Background - neutral grey
-    ctx.fillStyle = '#2a2a2a';
+    // Background - grey/dark grey gradient
+    const bgGradient = ctx.createLinearGradient(0, 0, 0, h);
+    bgGradient.addColorStop(0, '#3a3a3a'); // Light grey top
+    bgGradient.addColorStop(1, '#1a1a1a'); // Dark grey bottom
+    ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, w, h);
     
-    // Border - white
-    ctx.strokeStyle = '#ffffff';
+    // Border - grey/silver accent
+    ctx.strokeStyle = '#888888';
     ctx.lineWidth = 6;
     ctx.strokeRect(4, 4, w - 8, h - 8);
     
-    // Title - white
-    ctx.fillStyle = '#ffffff';
+    // Title - black/dark grey text
+    ctx.fillStyle = '#1a1a1a';
     ctx.font = 'bold 48px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('ENTER PEER ID', w / 2, 50);
     
-    // Input display
-    ctx.fillStyle = '#ffffff';
+    // Input display - dark grey text
+    ctx.fillStyle = '#2a2a2a';
     ctx.font = 'bold 36px monospace';
     ctx.fillText(this.inputText || '...', w / 2, 110);
     
@@ -395,7 +398,7 @@ export class VRKeypad {
     this.drawKey(ctx, 'backspace', startX, controlY, keySize * 2, keySize, '⌫');
     this.drawKey(ctx, 'clear', startX + (keySize + keySpacing) * 2.5, controlY, keySize * 2, keySize, 'CLEAR');
     this.drawKey(ctx, 'cancel', startX + (keySize + keySpacing) * 5, controlY, keySize * 2.5, keySize, 'CANCEL', '#666666');
-    this.drawKey(ctx, 'connect', startX + (keySize + keySpacing) * 7.8, controlY, keySize * 2.5, keySize, 'CONNECT', '#888888');
+    this.drawKey(ctx, 'connect', startX + (keySize + keySpacing) * 7.8, controlY, keySize * 2.5, keySize, 'CONNECT', '#666666');
     
     // Update texture
     this.texture.needsUpdate = true;
