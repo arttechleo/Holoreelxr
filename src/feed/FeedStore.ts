@@ -102,18 +102,26 @@ export class FeedStore {
         throw new Error('Feed JSON is not an array');
       }
       
-      // FILTER: Main feed shows GLTF/GLB models and simple shapes (cube, sphere, pyramid)
+      // FILTER: Tutorial items (shapes) preserved, main feed GLB/GLTF models only
       // Tutorial items (id starts with "tutorial-") are preserved for tutorial flow
+      // Main feed shows ONLY GLB/GLTF models - no primitive shapes in main feed
       this.items = allItems.filter(item => {
-        // Keep tutorial items for tutorial flow
+        // Keep tutorial items for tutorial flow (these are shapes)
         if (item.id && item.id.startsWith('tutorial-')) {
           return true;
         }
-        // Main feed: GLTF/GLB models and simple shapes (exclude meshes, splat4d, ply)
-        return item.type === 'gltf' || item.type === 'glb' || item.type === 'shape';
+        // Main feed: ONLY GLTF/GLB models (no shapes, meshes, splat4d, ply)
+        // This ensures main feed is a gallery of rich 3D models
+        return item.type === 'gltf' || item.type === 'glb';
       });
       
-      console.log(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} items (GLTF/GLB + shapes)`);
+      const glbCount = this.items.filter(i => i.type === 'glb' || i.type === 'gltf').length;
+      const shapeCount = this.items.filter(i => i.type === 'shape').length;
+      const tutorialCount = this.items.filter(i => i.id?.startsWith('tutorial-')).length;
+      
+      console.log(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} items`);
+      console.log(`[FeedStore] Feed composition: ${glbCount} GLB/GLTF models, ${shapeCount} tutorial shapes, ${tutorialCount} tutorial items`);
+      console.log(`[FeedStore] Main feed: ${glbCount} GLB/GLTF models ready`);
     } catch (error) {
       logError(error, 'FeedStore.loadFeed');
       this.toast('Failed to load feed - using empty feed');
@@ -708,9 +716,9 @@ export class FeedStore {
         }
       }
       
-      // CRITICAL FIX: Only change feed item if index actually changed AND we're not currently loading
+      // CRITICAL FIX: Only change feed item if index actually changed
       // This prevents flickering from rapid index changes
-      if (this.items.length > 0 && targetIndex !== this.index && !this.isLoading) {
+      if (this.items.length > 0 && targetIndex !== this.index) {
         this.index = targetIndex;
         await this.showCurrent();
       }
