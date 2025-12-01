@@ -1,0 +1,13 @@
+* [33m899dafb[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mstable-glb-loader[m[33m, [m[1;31morigin/stable-glb-loader[m[33m)[m Rollback to stable base + Robust GLB loading on scroll - ROLLBACK: Restored to commit a61b69d (stable baseline) - Tutorial with primitive shapes preserved - Multiplayer, keyboard, gestures, raycasting unchanged - ROBUST GLB LOADING: Preloading system: Preloads N+1 and N+2 while viewing N - Cache system: Tracks preloaded models for instant access - Initial preload: Preloads first 3 GLB models on feed load - Race condition protection: isLoading flag prevents duplicate loads - Error handling: Failed loads show placeholder, cache cleared for retry - PRELOADING STRATEGY: preloadNextGLTFModels(2): Aggressively preloads next 2 models - preloadInitialGLTFModels(3): Preloads first 3 models on startup - Cache-first loading: Check cache before loading (instant if preloaded) - Non-blocking: Preloading happens in background, doesn't block UI - RESULT: Models appear instantly when scrolling (already preloaded) - Smooth scrolling experience with no waiting - Failed loads show clear error placeholder - All existing features preserved (tutorial, multiplayer, input, gestures)
+[31m|[m * [33m4062616[m[33m ([m[1;31morigin/rollback-reintegrate[m[33m, [m[1;32mrollback-reintegrate[m[33m)[m Instagram-like 3D feed: Fast preloading, smooth transitions, polished UX
+[31m|[m * [33md9cfbd8[m Implement Sketchfab-driven main feed with preloading and placeholders
+[31m|[m * [33m0ff5f94[m Optimize main feed: Lightweight models and view-based scaling
+[31m|[m *   [33me201369[m Merge restore-stable-base: Restore stable FeedStore with tutorial primitives and main feed GLB/GLTF models
+[31m|[m [33m|[m[34m\[m  
+[31m|[m [33m|[m * [33m6dc6114[m[33m ([m[1;31morigin/restore-stable-base[m[33m, [m[1;32mrestore-stable-base[m[33m)[m Restore stable base: Tutorial with primitives, main feed GLB/GLTF models
+[31m|[m [33m|[m[31m/[m  
+[31m|[m[31m/[m[33m|[m   
+[31m|[m * [33m2eaebb1[m Complete redesign: Production-ready model loading system
+[31m|[m * [33m66d5e97[m Transform main feed to online 3D model gallery and polish multiplayer
+[31m|[m * [33m4effc3f[m Fix multiplayer host code visibility, remote avatar/hands rendering, and GLB/GLTF preloading
+[31m|[m * [33mab07172[m Update project - trigger build
