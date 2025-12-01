@@ -2074,6 +2074,11 @@ export class FeedControls {
       return;
     }
     
+    // CRITICAL: During tutorial rotation/scale steps, allow transforms to happen
+    // The tutorial monitors store.rotationY and store.scale, so we need to update them
+    // But the tutorial will detect completion, not FeedControls
+    // So we allow the transform to proceed normally during tutorial steps
+    
     const lp = this.hands.state.left.pinch,
       rp = this.hands.state.right.pinch;
     if (this.grabPending || this.grabbing) return;
