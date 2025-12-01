@@ -1846,16 +1846,72 @@ export class OnboardingTutorial {
   }
 
   async show(camera: THREE.Camera) {
-    // CRITICAL: Reset completion flag when starting tutorial
+    // CRITICAL: Reset completion flag when starting tutorial - ensures tutorial always works
     this.tutorialCompleted = false;
+    
+    // CRITICAL: Clear ALL existing handlers and state to ensure clean start
+    // This ensures tutorial works even if it was previously skipped
+    this.clearTutorialGrabHandlers();
+    this.clearGestureHandlers();
+    this.stopGrab();
+    this.stopTutorialGrab();
+    
+    // Reset all grab/scroll state
+    this.isGrabbing = false;
+    this.grabHand = null;
+    this.grabOffset.set(0, 0, 0);
+    this.grabStartTime = 0;
+    this.grabStartPosition = null;
+    this.grabHasMoved = false;
+    this.grabStepIndex = -1;
+    
+    // Reset scroll state
+    this.lastPinchY = null;
+    this.filtPinchY = null;
+    this.scrollAccum = 0;
+    this.scrollCooldownUntil = 0;
+    this.pinchStartAt = null;
+    this.scrollArmed = false;
+    this.scrollDisarmedThisPinch = false;
+    this.scrollStepIndex = -1;
+    this.lastScrollIndex = -1;
     
     // Reset alignment state when showing tutorial
     this.hasAlignedOnce = false;
     this.lockedRotation = null;
     
+    // Reset step state
     this.currentStepIndex = 0;
     this.progressPercentage = 0;
+    this.lastLoggedProgress = -1;
     this.steps.forEach(step => step.completed = false);
+    
+    // Reset loading and interaction state
+    this.isLoading = false;
+    this.modelLoaded = false;
+    this.userHasInteracted = false;
+    
+    // Clear any pending timeouts
+    if (this.rotationInitTimeout) {
+      clearTimeout(this.rotationInitTimeout);
+      this.rotationInitTimeout = null;
+    }
+    if (this.scaleInitTimeout) {
+      clearTimeout(this.scaleInitTimeout);
+      this.scaleInitTimeout = null;
+    }
+    if (this.completionTimeout) {
+      clearTimeout(this.completionTimeout);
+      this.completionTimeout = null;
+    }
+    if (this.postCompletionCheckTimeout) {
+      clearTimeout(this.postCompletionCheckTimeout);
+      this.postCompletionCheckTimeout = null;
+    }
+    
+    // Reset initial values
+    this.rotationInitialValue = null;
+    this.scaleInitialValue = null;
     
     if ((this.group as any).panelMaterial) {
       (this.group as any).panelMaterial.opacity = 1.0;
