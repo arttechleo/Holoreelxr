@@ -236,12 +236,26 @@ export class HandEngine {
         this.state.heart = false;
       }
     } else {
-      // Both hands in frame - check heart gesture
-      const L_i = J('left','index-finger-tip'),  R_i = J('right','index-finger-tip');
-      const L_t = J('left','thumb-tip'),        R_t = J('right','thumb-tip');
+      // Both hands in frame - REFINED heart gesture using joints 7, 8, 9
       
-      // All required joints must be present
-      if (!L_i || !R_i || !L_t || !R_t) {
+      const L_i_mid = J('left','index-finger-phalanx-intermediate');
+      const L_i_dist = J('left','index-finger-phalanx-distal');
+      const L_i_tip = J('left','index-finger-tip');
+      
+      const R_i_mid = J('right','index-finger-phalanx-intermediate');
+      const R_i_dist = J('right','index-finger-phalanx-distal');
+      const R_i_tip = J('right','index-finger-tip');
+      
+      const L_thumb = J('left','thumb-tip');
+      const R_thumb = J('right','thumb-tip');
+      
+      // If any critical joints missing, fall back to grace logic
+      const allIndexOk =
+        L_i_mid && L_i_dist && L_i_tip &&
+        R_i_mid && R_i_dist && R_i_tip &&
+        L_thumb && R_thumb;
+      
+      if (!allIndexOk) {
         if (this.lastHeartStable && now < this.heartGraceUntil) {
           this.state.heart = true;
           this.updateFlag('heart', true);
@@ -250,29 +264,58 @@ export class HandEngine {
           this.state.heart = false;
           this.updateFlag('heart', false);
         }
-      } else {
-        // TUTORIAL-STYLE HEART GESTURE: Simple and reliable detection (matches tutorial)
-        // Heart gesture: Both hands come together - thumbs AND index fingers are close
-        
-        const indexDist = dist(L_i, R_i);
-        const thumbDist = dist(L_t, R_t);
-        
-        // ENHANCED DETECTION: More lenient thresholds for easier intentional triggering
-        // Both pairs must be close (within 18cm) - more forgiving than tutorial
-        const HEART_DISTANCE = 0.18; // 18cm (increased from 15cm for easier detection)
-        const indexClose = indexDist < HEART_DISTANCE;
-        const thumbClose = thumbDist < HEART_DISTANCE;
-        
-        // Both pairs must be close for heart gesture
-        const heartNow = indexClose && thumbClose;
-        
-        if (heartNow) {
-          this.heartGraceUntil = now + 220;
-        }
-        this.lastHeartStable = heartNow;
-        this.state.heart = heartNow; 
-        this.updateFlag('heart', heartNow);
+        return;
       }
+      
+      // 1) Build index "ridge" cluster points (using 7,8,9)
+      const leftIndexCluster = L_i_mid.clone()
+        .add(L_i_dist)
+        .add(L_i_tip)
+        .multiplyScalar(1 / 3);
+      
+      const rightIndexCluster = R_i_mid.clone()
+        .add(R_i_dist)
+        .add(R_i_tip)
+        .multiplyScalar(1 / 3);
+      
+      // 2) Distances
+      const indexClusterDist = dist(leftIndexCluster, rightIndexCluster);
+      const thumbDist = dist(L_thumb, R_thumb);
+      
+      // Slightly tighter than old index distance, thumb can be a bit looser
+      const HEART_INDEX_MAX = 0.10; // ~10 cm between index ridges
+      const HEART_THUMB_MAX = 0.14; // ~14 cm between thumbs
+      
+      const indexClose = indexClusterDist < HEART_INDEX_MAX;
+      const thumbsClose = thumbDist < HEART_THUMB_MAX;
+      
+      // 3) Check index fingers face each other (direction constraint)
+      //    Use 7→9 (intermediate to tip) as direction
+      const L_indexDir = L_i_tip.clone().sub(L_i_mid).normalize();
+      const R_indexDir = R_i_tip.clone().sub(R_i_mid).normalize();
+      
+      const across = rightIndexCluster.clone().sub(leftIndexCluster).normalize();
+      const acrossLeftToRight = across;         // L → R
+      const acrossRightToLeft = across.clone().multiplyScalar(-1); // R → L
+      
+      // Both fingers should roughly point along the line between the hands
+      const L_facing = L_indexDir.dot(acrossLeftToRight);
+      const R_facing = R_indexDir.dot(acrossRightToLeft);
+      
+      // Thresholds: 1.0 is perfectly aligned, 0 is perpendicular.
+      // 0.2–0.3 is a gentle "generally pointing inward".
+      const FACING_MIN_DOT = 0.25;
+      const indicesFacingEachOther = (L_facing > FACING_MIN_DOT) && (R_facing > FACING_MIN_DOT);
+      
+      // 4) Final heart decision
+      const heartNow = indexClose && thumbsClose && indicesFacingEachOther;
+      
+      if (heartNow) {
+        this.heartGraceUntil = now + 220;
+      }
+      this.lastHeartStable = heartNow;
+      this.state.heart = heartNow;
+      this.updateFlag('heart', heartNow);
     }
 
     // OPEN PALM detection (used for gesture sync + stop palm)
