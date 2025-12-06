@@ -2069,8 +2069,16 @@ export class FeedControls {
 
   // ---------- two-hand transform ----------
   private updateTwoHandTransform(dt: number) {
+    // CRITICAL: During tutorial rotate/scale steps, allow transforms even if tutorial panel is visible
+    const tutorialActive = this.isTutorialActive() && this.onboardingTutorial;
+    const isTutorialRotateOrScale = tutorialActive && (
+      (this.onboardingTutorial as any).isRotationStepActive?.() ||
+      (this.onboardingTutorial as any).isScaleStepActive?.()
+    );
+    
     // CRITICAL: UI has priority - block two-hand transform if UI is active
-    if (this.isAnyUIActiveOrVisible()) {
+    // EXCEPTION: Allow transforms during tutorial rotate/scale steps
+    if (this.isAnyUIActiveOrVisible() && !isTutorialRotateOrScale) {
       // UI is active - completely block 3D transforms
       if (this.twoHandActive) {
         this.twoHandActive = false;

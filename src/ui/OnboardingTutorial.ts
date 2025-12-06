@@ -5,17 +5,8 @@ import { FeedStore } from '../feed/FeedStore';
 import { logError } from '../utils/errors';
 import { CONTROLS } from '../config/constants';
 import { logger } from '../config/production';
-
-interface TutorialStep {
-  id: string;
-  title: string;
-  description: string;
-  detailedInstructions: string;
-  shape: 'sphere' | 'pyramid' | 'box';
-  color: string;
-  gesture?: string;
-  completed: boolean;
-}
+import { TutorialStep, createDefaultTutorialSteps } from './tutorial/TutorialSteps';
+import { TutorialPanel } from './tutorial/TutorialPanel';
 
 export class OnboardingTutorial {
   private group = new THREE.Group();
@@ -23,91 +14,11 @@ export class OnboardingTutorial {
   private originalFeedIndex: number = 0;
   private firstNonTutorialIndex: number = 0;
   
-  // Simplified reactive tutorial steps
-  private steps: TutorialStep[] = [
-    {
-      id: 'welcome',
-      title: '🎉 Welcome to HoloreelXR!',
-      description: 'Hand gesture-based 3D social feed',
-      detailedInstructions: 'Interact with the 3D model using hand gestures. When you first interact with it, the tutorial will guide you through each gesture.',
-      shape: 'box',
-      color: '#667eea',
-      completed: false,
-    },
-    {
-      id: 'rotate',
-      title: '🔄 Rotate 3D Objects',
-      description: 'Two-hand rotation gesture',
-      detailedInstructions: 'Pinch with BOTH hands on the cube. Move your hands in a circular motion to rotate it. Rotate at least 30 degrees.',
-      shape: 'box',
-      color: '#4ECDC4',
-      gesture: 'twohandrotate',
-      completed: false,
-    },
-    {
-      id: 'scale',
-      title: '📏 Scale Objects',
-      description: 'Two-hand scaling gesture',
-      detailedInstructions: 'Pinch with BOTH hands on the cube. Move your hands closer together to shrink, or farther apart to enlarge.',
-      shape: 'box',
-      color: '#95E1D3',
-      gesture: 'twohandscale',
-      completed: false,
-    },
-    {
-      id: 'grab',
-      title: '✋ Grab and Move',
-      description: 'Single-hand grab gesture',
-      detailedInstructions: 'Pinch with ONE hand to grab the cube (works from any distance!). Move your hand to reposition it, then release the pinch to place it in the new location.',
-      shape: 'box',
-      color: '#FF6B6B',
-      gesture: 'grab',
-      completed: false,
-    },
-    {
-      id: 'scroll',
-      title: '📜 Scroll Feed',
-      description: 'Navigate through content',
-      detailedInstructions: 'Pinch with ONE hand away from the object. Move your hand UP or DOWN to scroll through the feed.',
-      shape: 'sphere',
-      color: '#6BCF7F',
-      gesture: 'scroll',
-      completed: false,
-    },
-    {
-      id: 'like',
-      title: '👍 Like Content',
-      description: 'Thumbs up gesture',
-      detailedInstructions: 'Extend your thumb upward while keeping other fingers curled. Hold the gesture to like.',
-      shape: 'sphere',
-      color: '#F38181',
-      gesture: 'thumbsup',
-      completed: false,
-    },
-    {
-      id: 'heart',
-      title: '❤️ Save Content',
-      description: 'Heart gesture',
-      detailedInstructions: 'Bring BOTH hands together. Touch index fingers together, then thumbs together.',
-      shape: 'box',
-      color: '#AA96DA',
-      gesture: 'heart',
-      completed: false,
-    },
-    {
-      id: 'repost',
-      title: '✌️ Repost Content',
-      description: 'Peace sign gesture',
-      detailedInstructions: 'Extend your index and middle fingers (peace sign) while keeping ring and pinky curled.',
-      shape: 'pyramid',
-      color: '#FFD93D',
-      gesture: 'peace',
-      completed: false,
-    },
-  ];
+  // Tutorial steps - loaded from module
+  private steps: TutorialStep[] = createDefaultTutorialSteps();
 
-  private canvas: HTMLCanvasElement;
-  private texture: THREE.CanvasTexture;
+  // Tutorial panel - handles canvas drawing
+  private panelRenderer: TutorialPanel;
   private panel?: THREE.Mesh;
   private hands: HandEngine;
   private store: FeedStore;
@@ -184,17 +95,12 @@ export class OnboardingTutorial {
     this.store = store;
     this.feedControls = feedControls;
     
-    this.canvas = document.createElement('canvas');
-    this.canvas.width = 1024;
-    this.canvas.height = 600;
-    
-    this.texture = new THREE.CanvasTexture(this.canvas);
-    this.texture.minFilter = THREE.LinearFilter;
-    this.texture.magFilter = THREE.LinearFilter;
+    // Initialize tutorial panel renderer
+    this.panelRenderer = new TutorialPanel();
     
     const geo = new THREE.PlaneGeometry(0.7, 0.4);
     const mat = new THREE.MeshBasicMaterial({
-      map: this.texture,
+      map: this.panelRenderer.texture,
       transparent: true,
       side: THREE.DoubleSide,
       depthTest: false,
@@ -668,6 +574,22 @@ export class OnboardingTutorial {
       this.filtPinchY = null;
       this.scrollArmed = false;
       return; // Don't interfere with FeedControls
+    }
+    
+    // CRITICAL: During rotate/scale steps, disable grab/scroll to avoid interference with two-hand gestures
+    const isRotateOrScaleStep = this.isRotationStepActive() || this.isScaleStepActive();
+    if (isRotateOrScaleStep) {
+      // Stop any active grab/scroll during rotate/scale steps
+      if (this.isGrabbing) {
+        this.stopGrab();
+        this.isGrabbing = false;
+        this.grabHand = null;
+      }
+      // Reset scroll state
+      this.lastPinchY = null;
+      this.filtPinchY = null;
+      this.scrollArmed = false;
+      return; // Let FeedControls handle two-hand transforms exclusively
     }
     
     // Update scroll if on scroll step
@@ -1506,166 +1428,20 @@ export class OnboardingTutorial {
   }
 
   private updatePanel() {
-    const ctx = this.canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-
     const step = this.steps[this.currentStepIndex];
     if (!step) return;
     
-    // Background - grey/dark grey gradient (matching multiplayer UI theme)
-    const bgGradient = ctx.createLinearGradient(0, 0, 0, this.canvas.height);
-    bgGradient.addColorStop(0, '#3a3a3a'); // Light grey top
-    bgGradient.addColorStop(1, '#1a1a1a'); // Dark grey bottom
-    ctx.fillStyle = bgGradient;
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    // Title - black text
-    ctx.fillStyle = '#000000';
-    ctx.font = 'bold 36px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(step.title, this.canvas.width / 2, 50);
-    
-    // Description - black text
-    ctx.font = '20px sans-serif';
-    ctx.fillStyle = '#000000';
-    ctx.fillText(step.description, this.canvas.width / 2, 85);
-    
-    // Detailed instructions - black text
-    ctx.font = '16px sans-serif';
-    ctx.fillStyle = '#000000';
-    const maxWidth = this.canvas.width - 80;
-    const words = step.detailedInstructions.split(' ');
-    let line = '';
-    let y = 120;
-    const lineHeight = 22;
-    
-    words.forEach((word) => {
-      const testLine = line + (line ? ' ' : '') + word;
-      const metrics = ctx.measureText(testLine);
-      
-      if (metrics.width > maxWidth && line !== '') {
-        ctx.fillText(line, this.canvas.width / 2, y);
-        line = word;
-        y += lineHeight;
-      } else {
-        line = testLine;
-      }
+    // Use TutorialPanel to render
+    this.panelRenderer.render({
+      step,
+      progressPercentage: this.progressPercentage,
+      hoveredButton: this.hoveredButton,
+      currentStepIndex: this.currentStepIndex,
+      totalSteps: this.steps.length
     });
-    if (line) {
-      ctx.fillText(line, this.canvas.width / 2, y);
-    }
     
-    // Progress bar for rotation/scale
-    if ((step.id === 'rotate' || step.id === 'scale') && !step.completed) {
-      const barWidth = this.canvas.width * 0.7;
-      const barHeight = 12;
-      const barX = (this.canvas.width - barWidth) / 2;
-      const barY = this.canvas.height - 120;
-      
-      ctx.fillStyle = 'rgba(100, 100, 100, 0.5)';
-      ctx.fillRect(barX, barY, barWidth, barHeight);
-      
-      const progressWidth = (barWidth * this.progressPercentage) / 100;
-      ctx.fillStyle = '#888888'; // Grey accent for progress bar
-      ctx.fillRect(barX, barY, progressWidth, barHeight);
-      
-      ctx.font = 'bold 18px sans-serif';
-      ctx.fillStyle = '#000000'; // Black text
-      ctx.fillText(`${Math.round(this.progressPercentage)}%`, this.canvas.width / 2, barY - 10);
-    }
-    
-    // Completion message - black text
-    if (step.completed) {
-      ctx.font = 'bold 24px sans-serif';
-      ctx.fillStyle = '#000000';
-      ctx.fillText('✅ Step Complete!', this.canvas.width / 2, y + 40);
-    }
-    
-    // Navigation buttons
-    this.drawNavigationButtons(ctx);
-    
-    // Instructions for button interaction (hand gestures only) - black text
-    ctx.font = '14px sans-serif';
-    ctx.fillStyle = '#000000';
-    ctx.fillText('👆 Point with index finger, pinch to click', this.canvas.width / 2, this.canvas.height - 20);
-
-    this.texture.needsUpdate = true;
-  }
-  
-  private drawNavigationButtons(ctx: CanvasRenderingContext2D) {
-    const buttonWidth = 140;
-    const buttonHeight = 45;
-    const buttonY = this.canvas.height - 80;
-    const buttonSpacing = 20;
-    const skipButtonWidth = 180; // Wider for "Skip Tutorial"
-    const totalWidth = buttonWidth * 2 + buttonSpacing;
-    const startX = (this.canvas.width - totalWidth) / 2;
-    
-    if (!this.buttonRegions) {
-      this.buttonRegions = { 
-        prev: { x: 0, y: 0, w: 0, h: 0 }, 
-        next: { x: 0, y: 0, w: 0, h: 0 },
-        skip: { x: 0, y: 0, w: 0, h: 0 }
-      };
-    }
-    
-    // Previous button
-    const prevX = startX;
-    const prevEnabled = this.currentStepIndex > 0;
-    const prevHovered = this.hoveredButton === 'prev';
-    
-    ctx.fillStyle = prevHovered ? '#888888' : (prevEnabled ? '#666666' : '#444444');
-    ctx.fillRect(prevX, buttonY, buttonWidth, buttonHeight);
-    ctx.strokeStyle = prevHovered ? '#aaaaaa' : (prevEnabled ? '#888888' : '#666666');
-    ctx.lineWidth = prevHovered ? 3 : 2;
-    ctx.strokeRect(prevX, buttonY, buttonWidth, buttonHeight);
-    
-    ctx.fillStyle = '#000000'; // Black text
-    ctx.font = 'bold 18px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('◀ Previous', prevX + buttonWidth / 2, buttonY + buttonHeight / 2 + 7);
-    
-    this.buttonRegions.prev = { x: prevX, y: buttonY, w: buttonWidth, h: buttonHeight };
-    
-    // Next button (or "Start Tutorial" on welcome step)
-    const nextX = startX + buttonWidth + buttonSpacing;
-    const nextEnabled = this.currentStepIndex < this.steps.length - 1;
-    const nextHovered = this.hoveredButton === 'next';
-    
-    // CRITICAL FIX: Always enable Next button on welcome step (step 0) to allow starting
-    const isWelcomeStep = this.currentStepIndex === 0;
-    const buttonEnabled = nextEnabled || isWelcomeStep;
-    
-    ctx.fillStyle = nextHovered ? '#888888' : (buttonEnabled ? '#666666' : '#444444');
-    ctx.fillRect(nextX, buttonY, buttonWidth, buttonHeight);
-    ctx.strokeStyle = nextHovered ? '#aaaaaa' : (buttonEnabled ? '#888888' : '#666666');
-    ctx.lineWidth = nextHovered ? 3 : 2;
-    ctx.strokeRect(nextX, buttonY, buttonWidth, buttonHeight);
-    
-    ctx.fillStyle = '#000000'; // Black text
-    // CRITICAL FIX: Show "Start Tutorial" on welcome step, "Next ▶" on other steps
-    const nextButtonText = isWelcomeStep ? 'Start Tutorial ▶' : 'Next ▶';
-    ctx.font = isWelcomeStep ? 'bold 16px sans-serif' : 'bold 18px sans-serif';
-    ctx.fillText(nextButtonText, nextX + buttonWidth / 2, buttonY + buttonHeight / 2 + 7);
-    
-    this.buttonRegions.next = { x: nextX, y: buttonY, w: buttonWidth, h: buttonHeight };
-    
-    // Skip Tutorial button (top right, always visible)
-    const skipX = this.canvas.width - skipButtonWidth - 20;
-    const skipY = 20;
-    const skipHovered = this.hoveredButton === 'skip';
-    
-    ctx.fillStyle = skipHovered ? '#888888' : '#666666';
-    ctx.fillRect(skipX, skipY, skipButtonWidth, buttonHeight);
-    ctx.strokeStyle = skipHovered ? '#aaaaaa' : '#888888';
-    ctx.lineWidth = skipHovered ? 3 : 2;
-    ctx.strokeRect(skipX, skipY, skipButtonWidth, buttonHeight);
-    
-    ctx.fillStyle = '#000000'; // Black text
-    ctx.font = 'bold 16px sans-serif';
-    ctx.fillText('⏭ Skip Tutorial', skipX + skipButtonWidth / 2, skipY + buttonHeight / 2 + 6);
-    
-    this.buttonRegions.skip = { x: skipX, y: skipY, w: skipButtonWidth, h: buttonHeight };
+    // Update buttonRegions reference
+    this.buttonRegions = this.panelRenderer.buttonRegions;
   }
 
   private complete() {
@@ -1932,8 +1708,8 @@ export class OnboardingTutorial {
       }
       
       const uv = intersect.uv;
-      const x = uv.x * this.canvas.width;
-      const y = (1 - uv.y) * this.canvas.height;
+      const x = uv.x * this.panelRenderer.canvas.width;
+      const y = (1 - uv.y) * this.panelRenderer.canvas.height;
       
       if (this.buttonRegions) {
         // Check skip button first (top priority)
@@ -1987,8 +1763,8 @@ export class OnboardingTutorial {
       const v = 0.5 - (localPos.y / 0.4);
       if (u < 0 || u > 1 || v < 0 || v > 1) return null;
       
-      const px = u * this.canvas.width;
-      const py = v * this.canvas.height;
+      const px = u * this.panelRenderer.canvas.width;
+      const py = v * this.panelRenderer.canvas.height;
       
       if (this.buttonRegions) {
         // Check skip button first
