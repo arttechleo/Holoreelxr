@@ -313,6 +313,7 @@ async function loadMainFeed() {
     stopPalmWasActive = stopPalmActive;
     
     // EXPERIMENTAL: Broadcast hand positions to multiplayer partner (throttled)
+    // OPTIMIZATION: Reuse Vector3/Quaternion objects to avoid allocations
     if (multiplayer.isConnected()) {
       const leftPinchMid = hands.pinchMid('left');
       const rightPinchMid = hands.pinchMid('right');
@@ -321,9 +322,15 @@ async function loadMainFeed() {
       const wristRight = hands.getJointQuaternion('right', 'wrist');
       const now = performance.now();
       
-      // Get head position and rotation from camera
-      const headPos = new THREE.Vector3();
-      const headQuat = new THREE.Quaternion();
+      // OPTIMIZATION: Reuse objects instead of creating new ones every frame
+      // These are module-level to persist across frames
+      if (!(window as any).__multiplayerTempVec) {
+        (window as any).__multiplayerTempVec = new THREE.Vector3();
+        (window as any).__multiplayerTempQuat = new THREE.Quaternion();
+      }
+      const headPos = (window as any).__multiplayerTempVec;
+      const headQuat = (window as any).__multiplayerTempQuat;
+      
       app.camera.getWorldPosition(headPos);
       app.camera.getWorldQuaternion(headQuat);
       

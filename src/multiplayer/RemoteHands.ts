@@ -33,8 +33,8 @@ export class RemoteHands {
   
   // Player body representation (head + torso)
   private playerBody: THREE.Group;
-  private headMesh: THREE.Mesh;
-  private torsoMesh: THREE.Mesh;
+  private headMesh!: THREE.Mesh; // Initialized in constructor via ensureBodyMeshes
+  private torsoMesh!: THREE.Mesh; // Initialized in constructor via ensureBodyMeshes
   
   // Smoothing for stable position syncing
   private smoothedHeadPosition = new THREE.Vector3();

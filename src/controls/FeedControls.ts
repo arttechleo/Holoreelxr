@@ -13,6 +13,7 @@ import { CONTROLS, TRANSFORM, REACTIONS, HUD, MULTIPLAYER } from '../config/cons
 import { logError } from '../utils/errors';
 import { UIRaycastVisualizer } from '../interaction/UIRaycastVisualizer';
 import { XRMultiplayerPanel } from '../ui/XRMultiplayerPanelCanvas';
+import { logger } from '../config/production';
 
 export class FeedControls {
   // ----- feed scroll -----
@@ -691,7 +692,8 @@ export class FeedControls {
       try {
         const tutorialHit = (this.onboardingTutorial as any).raycast?.(ray);
         if (tutorialHit?.button) {
-          const panelCenter = this.onboardingTutorial.group?.position;
+          // Use public API to get tutorial panel position
+        const panelCenter = (this.onboardingTutorial as any).getPanelPosition?.() || null;
           const distance = panelCenter ? tip.distanceTo(panelCenter) : Infinity;
           uiHits.push({
             hit: tutorialHit,
@@ -717,9 +719,9 @@ export class FeedControls {
     if (this.multiplayerPanel) {
       const multiplayerPanel = this.multiplayerPanel;
       try {
-        const keypad = multiplayerPanel.getKeypad?.();
+        const keypad = this.multiplayerPanel?.getKeypad?.();
         const keyboardActive = keypad?.isVisible() || keypad?.isActive() || false;
-        const panelActive = multiplayerPanel.isVisible?.() || false;
+        const panelActive = this.multiplayerPanel?.isVisible?.() || false;
         
         if (keyboardActive || panelActive) {
         // CRITICAL: Keyboard uses virtual touch ONLY - no raycast typing
@@ -733,9 +735,10 @@ export class FeedControls {
           
           // Check multiplayer panel buttons (keyboard excluded from raycast)
           // CRITICAL: Check for hit even when not pinching (for visualization and blocking 3D)
-          const mpHit = multiplayerPanel.raycastHit?.(ray);
+          const mpHit = this.multiplayerPanel?.raycastHit?.(ray);
           if (mpHit?.button) {
-            const panelPos = multiplayerPanel.group?.position || multiplayerPanel.panel?.position;
+            // Use public API to get panel position
+            const panelPos = (this.multiplayerPanel as any)?.getPanelPosition?.() || null;
             const distance = panelPos ? tip.distanceTo(panelPos) : Infinity;
             uiHits.push({
               hit: mpHit,
@@ -745,7 +748,7 @@ export class FeedControls {
                 if (!isPinching || !multiplayerPanel.canClickButton?.(mpHit.button)) {
                   return false;
                 }
-                multiplayerPanel.handleClick(mpHit.button).catch(() => {});
+                this.multiplayerPanel?.handleClick(mpHit.button).catch(() => {});
                 this.uiActive = true;
                 this.uiActiveUntil = now + this.UI_PRIORITY_DURATION_MS;
                 return true;
@@ -878,7 +881,7 @@ export class FeedControls {
     }
     
     // Check if multiplayer panel is visible
-    if (multiplayerPanel?.isVisible?.()) {
+    if (this.multiplayerPanel?.isVisible?.()) {
       return true;
     }
     
@@ -959,19 +962,19 @@ export class FeedControls {
       // Check both hands for hover
       for (const side of ['left', 'right'] as const) {
         const indexTip = this.hands.indexTip(side);
-        if (indexTip && multiplayerPanel.checkTouchInteraction) {
-          const touchedButton = multiplayerPanel.checkTouchInteraction(indexTip);
+        if (indexTip && this.multiplayerPanel?.checkTouchInteraction) {
+          const touchedButton = this.multiplayerPanel.checkTouchInteraction(indexTip);
           if (touchedButton) {
             // Update hover state with actual delta time
-            multiplayerPanel.setButtonHover(touchedButton, dt);
+            this.multiplayerPanel.setButtonHover(touchedButton, dt);
             return; // Only track one button at a time
           }
         }
       }
       
       // No button being touched - clear hover
-      if (multiplayerPanel.setButtonHover) {
-        multiplayerPanel.setButtonHover(null, dt);
+      if (this.multiplayerPanel?.setButtonHover) {
+        this.multiplayerPanel.setButtonHover(null, dt);
       }
     } catch (error) {
       // Don't crash on hover tracking errors
@@ -1028,15 +1031,15 @@ export class FeedControls {
       if (touchedButton) {
         // Finger is touching a button - update hover state
         const dt = 1.0 / 60.0; // Approximate delta time
-        multiplayerPanel.setButtonHover(touchedButton, dt);
+        this.multiplayerPanel?.setButtonHover(touchedButton, dt);
         
         // SIMPLIFIED: Immediate click on pinch (no waiting for glow)
-        if (isPinching && multiplayerPanel.canClickButton && multiplayerPanel.canClickButton(touchedButton)) {
+        if (isPinching && this.multiplayerPanel?.canClickButton && this.multiplayerPanel.canClickButton(touchedButton)) {
           // Pinch detected while touching button - immediate click
           this.mpLastClickTime = now;
-          multiplayerPanel.hideRayLine(this.app.scene);
-          multiplayerPanel.handleClick(touchedButton).catch((error) => {
-            console.error('[FeedControls] Multiplayer panel click error:', error);
+          this.multiplayerPanel?.hideRayLine(this.app.scene);
+          this.multiplayerPanel?.handleClick(touchedButton).catch((error) => {
+            logger.error('[FeedControls] Multiplayer panel click error:', error);
           });
           this.setRayVisible(side, false);
           this.scrollDisarmedThisPinch = true;
@@ -1056,8 +1059,8 @@ export class FeedControls {
     const from = this.hands.pinchMid(side) ?? this.hands.thumbTip(side);
     if (!from) {
       // No touch and no pinch position - clear hover
-      if (multiplayerPanel.setButtonHover) {
-        multiplayerPanel.setButtonHover(null, 0);
+      if (this.multiplayerPanel?.setButtonHover) {
+        this.multiplayerPanel.setButtonHover(null, 0);
       }
       return false;
     }
@@ -1081,24 +1084,24 @@ export class FeedControls {
     }
     
     const ray = new THREE.Ray(from, handDir);
-    const mpHit = multiplayerPanel.raycastHit(ray);
+    const mpHit = this.multiplayerPanel?.raycastHit(ray);
     
     if (mpHit?.button) {
       // Hit detected via raycast - update hover state
       const dt = 1.0 / 60.0; // Approximate delta time
       const isPinching = this.hands.state[side].pinch;
       
-      if (multiplayerPanel.setButtonHover) {
-        multiplayerPanel.setButtonHover(mpHit.button, dt);
+      if (this.multiplayerPanel?.setButtonHover) {
+        this.multiplayerPanel.setButtonHover(mpHit.button, dt);
       }
       
       // SIMPLIFIED: Immediate click on pinch (no waiting for glow)
-      if (isPinching && multiplayerPanel.canClickButton && multiplayerPanel.canClickButton(mpHit.button)) {
+      if (isPinching && this.multiplayerPanel?.canClickButton && this.multiplayerPanel.canClickButton(mpHit.button)) {
         // Pinch detected while pointing at button - immediate click
         this.mpLastClickTime = now;
-        multiplayerPanel.hideRayLine(this.app.scene);
-        multiplayerPanel.handleClick(mpHit.button).catch((error) => {
-          console.error('[FeedControls] Multiplayer panel click error:', error);
+        this.multiplayerPanel?.hideRayLine(this.app.scene);
+        this.multiplayerPanel?.handleClick(mpHit.button).catch((error) => {
+          logger.error('[FeedControls] Multiplayer panel click error:', error);
         });
         this.setRayVisible(side, false);
         this.scrollDisarmedThisPinch = true;
@@ -1113,8 +1116,8 @@ export class FeedControls {
       return true; // Handled - block 3D interaction while hovering
     } else {
       // No hit - clear hover
-      if (multiplayerPanel.setButtonHover) {
-        multiplayerPanel.setButtonHover(null, 0);
+      if (this.multiplayerPanel?.setButtonHover) {
+        this.multiplayerPanel.setButtonHover(null, 0);
       }
     }
     
@@ -1361,7 +1364,7 @@ export class FeedControls {
       const multiplayerPanel = this.multiplayerPanel;
       if (!multiplayerPanel) return;
       
-      const keypad = multiplayerPanel.getKeypad?.();
+      const keypad = this.multiplayerPanel?.getKeypad?.();
       if (!keypad || !keypad.isVisible()) return;
       
       // CRITICAL: Keyboard is active - block ALL 3D interactions immediately
@@ -1383,16 +1386,16 @@ export class FeedControls {
     // Check multiplayer panel (lower priority than keypad)
     // CRITICAL FIX: Context-aware - only check if UI is active OR far from object
     // This prevents 3D model interference when interacting with UI
-    if (multiplayerPanel?.isVisible() && (uiIsActive || farFromObject)) {
-      const mpHit = multiplayerPanel.raycastHit(ray);
+    if (this.multiplayerPanel?.isVisible() && (uiIsActive || farFromObject)) {
+      const mpHit = this.multiplayerPanel.raycastHit(ray);
       
       if (mpHit?.button) {
         // Pointing at a button - set hover and show ray line for visual feedback
-        multiplayerPanel.setButtonHover(mpHit.button);
+        this.multiplayerPanel.setButtonHover(mpHit.button);
         
         // Show visual ray line from hand to panel
         if (tip && mpHit.point) {
-          multiplayerPanel.showRayLine(tip, mpHit.point, this.app.scene);
+          this.multiplayerPanel.showRayLine(tip, mpHit.point, this.app.scene);
         }
         
         // CRITICAL FIX: Immediate pinch-to-click (same as auth/music panels)
@@ -1414,10 +1417,10 @@ export class FeedControls {
           
           // Pinch detected while pointing at button - immediate click
           this.mpLastClickTime = now; // Update debounce timer
-          multiplayerPanel.hideRayLine(this.app.scene); // Hide ray before click
+          this.multiplayerPanel?.hideRayLine(this.app.scene); // Hide ray before click
           // Fire-and-forget with error handling to prevent freeze
-          multiplayerPanel.handleClick(mpHit.button).catch((error) => {
-            console.error('[FeedControls] Multiplayer panel click error:', error);
+          this.multiplayerPanel?.handleClick(mpHit.button).catch((error) => {
+            logger.error('[FeedControls] Multiplayer panel click error:', error);
             // Error is logged but doesn't block UI
           });
           return; // Block other UI
@@ -1427,14 +1430,16 @@ export class FeedControls {
         return; // Block other UI
       } else {
         // Not pointing at button
-        multiplayerPanel.setButtonHover(null);
-        multiplayerPanel.hideRayLine(this.app.scene);
+        this.multiplayerPanel?.setButtonHover(null);
+        this.multiplayerPanel?.hideRayLine(this.app.scene);
         // Clear hover state
         this.mpHoverButton = null;
       }
-    } else if (multiplayerPanel) {
-      // Panel not visible
-      multiplayerPanel.hideRayLine(this.app.scene);
+    } else if (this.multiplayerPanel) {
+      // Panel not visible - clear any lingering state
+      if (this.multiplayerPanel) {
+        this.multiplayerPanel.hideRayLine(this.app.scene);
+      }
       this.mpHoverButton = null;
     }
 

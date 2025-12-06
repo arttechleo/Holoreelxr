@@ -689,7 +689,8 @@ export class MultiplayerManager {
     if (!this.remoteAudioEl) {
       this.remoteAudioEl = document.createElement('audio');
       this.remoteAudioEl.autoplay = true;
-      this.remoteAudioEl.playsInline = true;
+      // playsInline is a valid HTML attribute but not in TypeScript types - use setAttribute
+      this.remoteAudioEl.setAttribute('playsinline', 'true');
       this.remoteAudioEl.style.display = 'none';
       document.body.appendChild(this.remoteAudioEl);
     }

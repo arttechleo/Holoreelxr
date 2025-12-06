@@ -227,8 +227,7 @@ export class XRMultiplayerPanel {
       if (!ok) return null;
       
       // Check distance from ray origin to hit point (reject if too far)
-      const rayOrigin = new THREE.Vector3();
-      ray.origin.clone(rayOrigin);
+      const rayOrigin = ray.origin.clone();
       const distanceToHit = rayOrigin.distanceTo(hitPoint);
       if (distanceToHit > this.MAX_INTERACTION_DISTANCE) return null;
       

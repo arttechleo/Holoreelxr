@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { SplatSequence } from './loaders/SplatSequence';
 import { GLTFModelLoader } from './loaders/GLTFLoader';
 import { logError } from '../utils/errors';
+import { logger } from '../config/production';
 
 type ShapeKind = 'box' | 'sphere' | 'pyramid';
 
@@ -28,6 +29,7 @@ export class FeedStore {
   private currentGLTF?: THREE.Group;
   private onHud?: (t: string) => void;
   private parent: THREE.Object3D;
+  private isLoading = false; // Track loading state to prevent concurrent loads
 
   private effects: {
     sprite?: THREE.Sprite;
@@ -113,7 +115,7 @@ export class FeedStore {
         return item.type === 'gltf' || item.type === 'glb' || item.type === 'shape';
       });
       
-      console.log(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} items (GLTF/GLB + shapes)`);
+      logger.verbose(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} items (GLTF/GLB + shapes)`);
     } catch (error) {
       logError(error, 'FeedStore.loadFeed');
       this.toast('Failed to load feed - using empty feed');
@@ -132,6 +134,12 @@ export class FeedStore {
   }
 
   async showCurrent() {
+    // Prevent concurrent loads
+    if (this.isLoading) {
+      logger.warn('[FeedStore] Load already in progress, skipping');
+      return;
+    }
+    
     const item = this.items[this.index];
     if (!item) {
       this.toast('No items in feed');
@@ -140,6 +148,9 @@ export class FeedStore {
       });
       return;
     }
+    
+    this.isLoading = true;
+    try {
 
     if (this.seq) {
       this.seq.dispose();
@@ -156,7 +167,7 @@ export class FeedStore {
       child.name === 'content-error'
     );
     
-    console.log(`[FeedStore] Removing ${childrenToRemove.length} previous content objects`);
+    logger.verbose(`[FeedStore] Removing ${childrenToRemove.length} previous content objects`);
     
     childrenToRemove.forEach((child) => {
       // Stop and dispose animation mixer if present
@@ -201,7 +212,7 @@ export class FeedStore {
       
       // Remove from parent
       this.parent.remove(child);
-      console.log(`[FeedStore] ✅ Removed and disposed: ${child.name}`);
+      logger.verbose(`[FeedStore] ✅ Removed and disposed: ${child.name}`);
     });
     
     // CRITICAL: Clear currentGLTF reference to prevent stale references
@@ -210,15 +221,15 @@ export class FeedStore {
     // FIX #1: PRESERVE spatial placement - new models spawn where user placed the previous one
     // This is intentional behavior - user expects new models to appear at the same location
     let spawnPos: THREE.Vector3;
-    if (this.lastPlaced) {
-      // User has placed a model somewhere - spawn next model at that location
-      spawnPos = this.lastPlaced.clone();
-      console.log(`[FeedStore] Using preserved placement:`, spawnPos);
-    } else {
-      // First model or no previous placement - use default position in front of user
-      spawnPos = new THREE.Vector3(0, 1.2, -1.5); // Default position in front of user
-      console.log(`[FeedStore] Using default spawn position:`, spawnPos);
-    }
+      if (this.lastPlaced) {
+        // User has placed a model somewhere - spawn next model at that location
+        spawnPos = this.lastPlaced.clone();
+        logger.verbose(`[FeedStore] Using preserved placement:`, spawnPos);
+      } else {
+        // First model or no previous placement - use default position in front of user
+        spawnPos = new THREE.Vector3(0, 1.2, -1.5); // Default position in front of user
+        logger.verbose(`[FeedStore] Using default spawn position:`, spawnPos);
+      }
 
     try {
       if (item.type === 'shape') {
@@ -240,21 +251,16 @@ export class FeedStore {
         this.seq.setPosition(spawnPos);
       } else if (item.type === 'gltf' || item.type === 'glb') {
         // FIX #2: Load GLTF/GLB model with enhanced error handling and CORS debugging
-        console.log(`[FeedStore] 🔄 Loading GLB/GLTF: "${item.title}" from ${item.src}`);
-        console.log(`[FeedStore] Item details:`, { id: item.id, type: item.type, author: item.author });
+        logger.verbose(`[FeedStore] 🔄 Loading GLB/GLTF: "${item.title}" from ${item.src}`);
         try {
           const gltf = await this.ensureGLTFLoader().load(item.src);
-          console.log(`[FeedStore] ✅✅✅ Successfully loaded GLB/GLTF: ${item.title}`, gltf);
-          console.log(`[FeedStore] Model info:`, {
-            animations: gltf.animations?.length || 0,
-            nodes: gltf.scene.children.length
-          });
+          logger.verbose(`[FeedStore] ✅ Successfully loaded GLB/GLTF: ${item.title}`);
           
           gltf.scene.name = 'content-gltf';
           
           // AUTO-SCALE: Calculate bounding box and scale to fit Mixed Reality viewport
           const autoScale = this.calculateOptimalScale(gltf.scene);
-          console.log(`[FeedStore] Auto-scale for ${item.title}: ${autoScale.scale.toFixed(3)}x (original size: ${autoScale.originalSize.toFixed(2)}m)`);
+          logger.verbose(`[FeedStore] Auto-scale for ${item.title}: ${autoScale.scale.toFixed(3)}x (original size: ${autoScale.originalSize.toFixed(2)}m)`);
           
           gltf.scene.position.copy(spawnPos);
           gltf.scene.rotation.y = this._rotY;
@@ -269,15 +275,13 @@ export class FeedStore {
           this.parent.add(gltf.scene);
           this.currentGLTF = gltf.scene;
           
-          console.log(`[FeedStore] ✅ Added GLTF scene to parent. Total children: ${this.parent.children.length}`);
-          console.log(`[FeedStore] GLTF scene position:`, gltf.scene.position);
-          console.log(`[FeedStore] GLTF scene scale:`, gltf.scene.scale);
-          
+          // Preloading is now handled in next() for faster response on scroll
+          // Always preload here for initial loads and to ensure next items are ready
           this.preloadNextModels(3);
           
           // Play animations if available
           if (gltf.animations && gltf.animations.length > 0) {
-            console.log(`[FeedStore] Playing ${gltf.animations.length} animation(s) for ${item.title}`);
+            logger.verbose(`[FeedStore] Playing ${gltf.animations.length} animation(s) for ${item.title}`);
             const mixer = new THREE.AnimationMixer(gltf.scene);
             gltf.animations.forEach((clip) => {
               mixer.clipAction(clip).play();
@@ -286,15 +290,12 @@ export class FeedStore {
             (gltf.scene as any).mixer = mixer;
           }
         } catch (loadError: any) {
-          console.error(`[FeedStore] ❌❌❌ FAILED to load GLB/GLTF: ${item.title}`);
-          console.error(`[FeedStore] Error details:`, loadError);
-          console.error(`[FeedStore] URL: ${item.src}`);
-          console.error(`[FeedStore] Error message: ${loadError?.message || 'Unknown error'}`);
-          console.error(`[FeedStore] Error stack:`, loadError?.stack);
+          logger.error(`[FeedStore] ❌ FAILED to load GLB/GLTF: ${item.title}`, loadError);
+          logger.error(`[FeedStore] URL: ${item.src}`);
           
           // Check for CORS issues
           if (loadError?.message?.includes('CORS') || loadError?.message?.includes('fetch')) {
-            console.error(`[FeedStore] ⚠️ Possible CORS issue - check if ${item.src} allows cross-origin requests`);
+            logger.warn(`[FeedStore] ⚠️ Possible CORS issue - check if ${item.src} allows cross-origin requests`);
           }
           
           // Re-throw to trigger error placeholder
@@ -345,6 +346,9 @@ export class FeedStore {
       const author = item.author || 'Unknown';
       this.toast(`${title} — @${author}`);
     }
+    } finally {
+      this.isLoading = false;
+    }
   }
 
   next(delta: number) {
@@ -364,12 +368,21 @@ export class FeedStore {
     // Only update if index actually changed
     if (this.index !== oldIndex) {
       const item = this.items[this.index];
-      console.log(`[FeedStore] ✅ Scrolling: index ${oldIndex} → ${this.index}, item: ${item?.title || 'unknown'} (type: ${item?.type || 'unknown'})`);
+      
+      // OPTIMIZATION: Start preloading next model immediately on scroll (before cleanup delay)
+      // This makes the next model appear instantly when user scrolls again
+      if (delta > 0) {
+        // Scrolling forward - preload next items
+        this.preloadNextModels(2);
+      } else {
+        // Scrolling backward - preload previous items
+        const prevIndex = (this.index - 1 + this.items.length) % this.items.length;
+        this.preloadModelsFrom(prevIndex, 1);
+      }
       
       // FIX #1: PRESERVE spatial placement - new models spawn where user placed the previous one
       // DO NOT reset lastPlaced - this is a feature, not a bug!
       // User wants new models to appear at the same location they placed the previous model
-      console.log(`[FeedStore] Preserving spatial placement at:`, this.lastPlaced);
       
       // CRITICAL FIX: DON'T reset scale to 1 - this causes models to expand unexpectedly
       // Instead, reset rotation only but keep scale at default (1)
@@ -389,13 +402,10 @@ export class FeedStore {
         
         // CRITICAL: Always call showCurrent - don't let errors prevent scrolling
         this.showCurrent().catch(err => {
-          console.error(`[FeedStore] ❌ Error showing item at index ${this.index}:`, err);
           logError(err, 'FeedStore.next');
           // Continue anyway - don't block scrolling
         });
       }, 150); // INCREASED from 50ms to 150ms for better cleanup
-    } else {
-      console.log(`[FeedStore] ⚠️ Scroll called but index didn't change (${oldIndex} = ${this.index})`);
     }
   }
 
@@ -439,12 +449,39 @@ export class FeedStore {
     this._scale += (this.targetScale - this._scale) * k;
     this._rotY += (this.targetRotY - this._rotY) * k;
 
-    const obj = this.getObject();
-    if (obj) {
-      obj.scale.setScalar(this._scale);
-      obj.rotation.y = this._rotY;
+    // OPTIMIZATION: Only update if transform actually changed (avoid unnecessary work)
+    const scaleChanged = Math.abs(this._scale - this.targetScale) > 0.001;
+    const rotChanged = Math.abs(this._rotY - this.targetRotY) > 0.001;
+    
+    if (scaleChanged || rotChanged) {
+      const obj = this.getObject();
+      if (obj) {
+        // CRITICAL FIX: For GLTF models, apply user scale on top of base auto-scale
+        if (obj.name === 'content-gltf' && (obj as any)._baseAutoScale) {
+          const baseScale = (obj as any)._baseAutoScale;
+          obj.scale.setScalar(baseScale * this._scale);
+        } else {
+          obj.scale.setScalar(this._scale);
+        }
+        obj.rotation.y = this._rotY;
+      }
+      if (this.seq) this.seq.setTransform(this._scale, this._rotY);
+      
+      // Update GLTF separately if it exists
+      if (this.currentGLTF) {
+        // CRITICAL FIX: Apply user scale on top of base auto-scale for GLTF
+        if ((this.currentGLTF as any)._baseAutoScale) {
+          const baseScale = (this.currentGLTF as any)._baseAutoScale;
+          this.currentGLTF.scale.setScalar(baseScale * this._scale);
+        } else {
+          this.currentGLTF.scale.setScalar(this._scale);
+        }
+        this.currentGLTF.rotation.y = this._rotY;
+      }
+      
+      // Update platform pose when transform changes
+      this.updatePlatformPose();
     }
-    if (this.seq) this.seq.setTransform(this._scale, this._rotY);
 
     // update transient effects
     for (let i = this.effects.length - 1; i >= 0; --i) {
@@ -520,7 +557,7 @@ export class FeedStore {
     
     // If model is tiny or has no dimensions, use default scale
     if (maxDimension < 0.001) {
-      console.warn('[Auto-Scale] Model has no measurable size, using default scale');
+      logger.warn('[Auto-Scale] Model has no measurable size, using default scale');
       return { scale: 1.0, originalSize: 0 };
     }
     
@@ -541,8 +578,8 @@ export class FeedStore {
     // Max: 100 (allow scaling up very small models like insects)
     const clampedScale = Math.max(0.05, Math.min(100, scaleFactor));
     
-    // Log for debugging
-    console.log('[Auto-Scale]', {
+    // Log for debugging (verbose only)
+    logger.verbose('[Auto-Scale]', {
       originalSize: `${maxDimension.toFixed(3)}m`,
       targetSize: `${TARGET_SIZE}m`,
       calculatedScale: scaleFactor.toFixed(3),
@@ -622,9 +659,9 @@ export class FeedStore {
         // Force update this object's world matrix to reflect the new position
         obj.updateMatrixWorld(true);
       } else {
-        // Debug: log when object not found
-        if (Math.random() < 0.1) { // Throttle logging
-          console.warn(`[FeedStore] setPosition: Object not found! Available children:`, this.parent.children.map(c => c.name).join(', '));
+        // Debug: log when object not found (throttled)
+        if (Math.random() < 0.1) {
+          logger.warn(`[FeedStore] setPosition: Object not found! Available children:`, this.parent.children.map(c => c.name).join(', '));
         }
       }
       if (this.seq) {
@@ -636,7 +673,7 @@ export class FeedStore {
       this.updatePlatformPose();
     } catch (error) {
       logError(error, 'FeedStore.setPosition');
-      console.error('[FeedStore] setPosition error:', error);
+      logger.error('[FeedStore] setPosition error:', error);
     }
   }
 
@@ -749,14 +786,14 @@ export class FeedStore {
       // FIX #3: Ensure matrix is updated before getting world position
       obj.updateMatrixWorld(true);
       const worldPos = new THREE.Vector3().setFromMatrixPosition(obj.matrixWorld);
-      console.log(`[FeedStore] Object world pos: (${worldPos.x.toFixed(2)}, ${worldPos.y.toFixed(2)}, ${worldPos.z.toFixed(2)})`);
+      logger.verbose(`[FeedStore] Object world pos: (${worldPos.x.toFixed(2)}, ${worldPos.y.toFixed(2)}, ${worldPos.z.toFixed(2)})`);
       return worldPos;
     }
     if (this.lastPlaced) {
-      console.log(`[FeedStore] Using lastPlaced for world pos`);
+      logger.verbose(`[FeedStore] Using lastPlaced for world pos`);
       return this.lastPlaced.clone();
     }
-    console.warn(`[FeedStore] No object or lastPlaced for world pos`);
+    logger.warn(`[FeedStore] No object or lastPlaced for world pos`);
     return null;
   }
 
@@ -938,7 +975,7 @@ export class FeedStore {
           },
           undefined,
           (error) => {
-            console.warn('[FeedStore] Failed to load Earth texture', error);
+            logger.warn('[FeedStore] Failed to load Earth texture', error);
             this.earthTexture = undefined;
             this.earthTextureFailed = true;
           }
@@ -949,7 +986,7 @@ export class FeedStore {
         texture.repeat.set(1, 1);
         this.earthTexture = texture;
       } catch (error) {
-        console.warn('[FeedStore] Error initializing Earth texture', error);
+        logger.warn('[FeedStore] Error initializing Earth texture', error);
         this.earthTexture = undefined;
         this.earthTextureFailed = true;
       }
@@ -970,7 +1007,7 @@ export class FeedStore {
           },
           undefined,
           (error) => {
-            console.warn('[FeedStore] Failed to load pyramid texture', error);
+            logger.warn('[FeedStore] Failed to load pyramid texture', error);
             this.pyramidTexture = undefined;
             this.pyramidTextureFailed = true;
           }
@@ -981,7 +1018,7 @@ export class FeedStore {
         texture.repeat.set(1, 1);
         this.pyramidTexture = texture;
       } catch (error) {
-        console.warn('[FeedStore] Error initializing pyramid texture', error);
+        logger.warn('[FeedStore] Error initializing pyramid texture', error);
         this.pyramidTexture = undefined;
         this.pyramidTextureFailed = true;
       }
