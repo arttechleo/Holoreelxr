@@ -4,6 +4,7 @@ import { HandEngine } from '../gestures/HandEngine';
 import { FeedStore } from '../feed/FeedStore';
 import { logError } from '../utils/errors';
 import { CONTROLS } from '../config/constants';
+import { logger } from '../config/production';
 
 interface TutorialStep {
   id: string;
@@ -1175,22 +1176,33 @@ export class OnboardingTutorial {
     if (step.id === 'welcome') {
       this.group.visible = true;
       this.userHasInteracted = false;
+      this.isLoading = true;
       
       // Load first tutorial model
       if (this.tutorialItemIndices.length > 0) {
-        this.isLoading = true;
         try {
           this.store.index = this.tutorialItemIndices[0];
           await this.store.showCurrent();
           this.modelLoaded = true;
           this.isLoading = false;
           
-          // Start monitoring for interactions
+          // Start monitoring for interactions (auto-advance on interaction)
           this.startInteractionMonitoring();
+          
+          // CRITICAL FIX: Ensure panel is visible and Next button is enabled
+          // The Next button should allow manually starting the tutorial
+          this.updatePanel();
         } catch (error) {
-          console.error(`[Tutorial] Error loading model:`, error);
+          logger.error(`[Tutorial] Error loading model:`, error);
           this.isLoading = false;
+          // Still show panel even if model fails to load
+          this.updatePanel();
         }
+      } else {
+        // No tutorial items found - show error state
+        logger.warn('[Tutorial] No tutorial items found in feed');
+        this.isLoading = false;
+        this.updatePanel();
       }
       return;
     }
@@ -1615,19 +1627,26 @@ export class OnboardingTutorial {
     
     this.buttonRegions.prev = { x: prevX, y: buttonY, w: buttonWidth, h: buttonHeight };
     
-    // Next button
+    // Next button (or "Start Tutorial" on welcome step)
     const nextX = startX + buttonWidth + buttonSpacing;
     const nextEnabled = this.currentStepIndex < this.steps.length - 1;
     const nextHovered = this.hoveredButton === 'next';
     
-    ctx.fillStyle = nextHovered ? '#888888' : (nextEnabled ? '#666666' : '#444444');
+    // CRITICAL FIX: Always enable Next button on welcome step (step 0) to allow starting
+    const isWelcomeStep = this.currentStepIndex === 0;
+    const buttonEnabled = nextEnabled || isWelcomeStep;
+    
+    ctx.fillStyle = nextHovered ? '#888888' : (buttonEnabled ? '#666666' : '#444444');
     ctx.fillRect(nextX, buttonY, buttonWidth, buttonHeight);
-    ctx.strokeStyle = nextHovered ? '#aaaaaa' : (nextEnabled ? '#888888' : '#666666');
+    ctx.strokeStyle = nextHovered ? '#aaaaaa' : (buttonEnabled ? '#888888' : '#666666');
     ctx.lineWidth = nextHovered ? 3 : 2;
     ctx.strokeRect(nextX, buttonY, buttonWidth, buttonHeight);
     
     ctx.fillStyle = '#000000'; // Black text
-    ctx.fillText('Next ▶', nextX + buttonWidth / 2, buttonY + buttonHeight / 2 + 7);
+    // CRITICAL FIX: Show "Start Tutorial" on welcome step, "Next ▶" on other steps
+    const nextButtonText = isWelcomeStep ? 'Start Tutorial ▶' : 'Next ▶';
+    ctx.font = isWelcomeStep ? 'bold 16px sans-serif' : 'bold 18px sans-serif';
+    ctx.fillText(nextButtonText, nextX + buttonWidth / 2, buttonY + buttonHeight / 2 + 7);
     
     this.buttonRegions.next = { x: nextX, y: buttonY, w: buttonWidth, h: buttonHeight };
     
