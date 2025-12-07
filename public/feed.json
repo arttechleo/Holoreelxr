@@ -1,7 +1,5 @@
 [
   { "id": "test-gaussian-splat", "title": "Test Gaussian Splat", "author": "HoloreelXR", "type": "gaussianSplat", "src": "/assets/aigengsplat.ply" },
-  // NOTE: aigengsplat.ply (129.70 MB) is too large for GitHub. File must be added locally or via Git LFS.
-  // For testing, use the local file at public/assets/aigengsplat.ply
   { "id": "tutorial-rotate", "title": "[Tutorial] Rotate", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#4ECDC4" },
   { "id": "tutorial-scale", "title": "[Tutorial] Scale", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#95E1D3" },
   { "id": "tutorial-grab", "title": "[Tutorial] Grab & Move", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#FF6B6B" },

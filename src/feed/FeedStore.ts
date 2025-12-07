@@ -378,8 +378,25 @@ export class FeedStore {
           // Preload upcoming models
           this.preloadUpcomingModels(3);
         } catch (loadError: any) {
+          // GAUSSIAN-SPLAT: Enhanced error logging for debugging renderer issues
           logger.error(`[FeedStore] ❌ FAILED to load Gaussian Splat: ${item.title}`, loadError);
-          logger.error(`[FeedStore] URL: ${item.src}`);
+          logger.error(`[FeedStore] Gaussian Splat URL: ${item.src}`);
+          logger.error(`[FeedStore] Error details:`, {
+            message: loadError?.message || String(loadError),
+            name: loadError?.name,
+            stack: loadError?.stack,
+            url: item.src,
+            settingsUrl: item.settingsUrl
+          });
+          
+          // Check for common issues
+          if (loadError?.message?.includes('timeout')) {
+            logger.warn(`[FeedStore] ⚠️ Gaussian Splat load timeout - file may be too large or network slow`);
+          } else if (loadError?.message?.includes('CORS') || loadError?.message?.includes('fetch')) {
+            logger.warn(`[FeedStore] ⚠️ Gaussian Splat CORS/network issue - check if ${item.src} is accessible`);
+          } else if (loadError?.message?.includes('404') || loadError?.message?.includes('Not Found')) {
+            logger.warn(`[FeedStore] ⚠️ Gaussian Splat file not found - ensure ${item.src} exists locally`);
+          }
           
           // Re-throw to trigger error placeholder
           throw loadError;
