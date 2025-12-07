@@ -355,7 +355,9 @@ export class FeedStore {
           throw loadError;
         }
       } else if (item.type === 'gaussianSplat') {
-        // Load Gaussian Splat content
+        // GAUSSIAN-SPLAT: Load Gaussian Splat content using supersplat-viewer
+        // Local test asset: public/assets/aigengsplat.ply (129.70 MB - too large for GitHub, must be added locally)
+        // The file is not committed to git due to size limits - ensure it exists locally for testing
         logger.verbose(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
         try {
           const splatAsset = await this.ensureGaussianSplatLoader().load(item.src, item.settingsUrl);

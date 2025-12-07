@@ -1,4 +1,7 @@
 [
+  { "id": "test-gaussian-splat", "title": "Test Gaussian Splat", "author": "HoloreelXR", "type": "gaussianSplat", "src": "/assets/aigengsplat.ply" },
+  // NOTE: aigengsplat.ply (129.70 MB) is too large for GitHub. File must be added locally or via Git LFS.
+  // For testing, use the local file at public/assets/aigengsplat.ply
   { "id": "tutorial-rotate", "title": "[Tutorial] Rotate", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#4ECDC4" },
   { "id": "tutorial-scale", "title": "[Tutorial] Scale", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#95E1D3" },
   { "id": "tutorial-grab", "title": "[Tutorial] Grab & Move", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#FF6B6B" },
@@ -6,7 +9,6 @@
   { "id": "tutorial-like", "title": "[Tutorial] Like (Thumbs Up)", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "sphere", "color": "#F38181" },
   { "id": "tutorial-heart", "title": "[Tutorial] Heart Gesture", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#AA96DA" },
   { "id": "tutorial-repost", "title": "[Tutorial] Repost (Peace)", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "pyramid", "color": "#FFD93D" },
-  { "id": "mainfeed-22-gaussian-splat", "title": "Gaussian Splat Example", "author": "PlayCanvas", "type": "gaussianSplat", "src": "https://raw.githubusercontent.com/playcanvas/supersplat-viewer/main/public/scene.compressed.ply", "settingsUrl": "https://raw.githubusercontent.com/playcanvas/supersplat-viewer/main/public/settings.json"}, 
   { "id": "mainfeed-cube", "title": "Blue Cube", "author": "Basic Shapes", "type": "shape", "shape": "box", "color": "#0080FF" },
   { "id": "mainfeed-pyramid", "title": "Yellow Pyramid", "author": "Basic Shapes", "type": "shape", "shape": "pyramid", "color": "#FFD700" },
   { "id": "mainfeed-sphere", "title": "Red Sphere", "author": "Basic Shapes", "type": "shape", "shape": "sphere", "color": "#FF0000" },
