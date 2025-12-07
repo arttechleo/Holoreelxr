@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { retry, logError, AssetLoadError } from '../../utils/errors';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-type GLTFAsset = {
+export type GLTFAsset = {
   scene: THREE.Group;
   animations: THREE.AnimationClip[];
 };

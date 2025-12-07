@@ -29,6 +29,7 @@
   { "id": "mainfeed-18-boom-box", "title": "Boom Box", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/BoomBox/glTF-Binary/BoomBox.glb" },
   { "id": "mainfeed-19-vintage-camera", "title": "Vintage Camera", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/AntiqueCamera/glTF-Binary/AntiqueCamera.glb" },
   { "id": "mainfeed-20-barramundi", "title": "Barramundi Fish", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/BarramundiFish/glTF-Binary/BarramundiFish.glb" },
-  { "id": "mainfeed-21-corset", "title": "Corset", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Corset/glTF-Binary/Corset.glb" }
+  { "id": "mainfeed-21-corset", "title": "Corset", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Corset/glTF-Binary/Corset.glb" },
+  { "id": "mainfeed-22-gaussian-splat", "title": "Gaussian Splat Example", "author": "PlayCanvas", "type": "gaussianSplat", "src": "https://raw.githubusercontent.com/playcanvas/supersplat-viewer/main/public/scene.compressed.ply", "settingsUrl": "https://raw.githubusercontent.com/playcanvas/supersplat-viewer/main/public/settings.json" }
 ]
  

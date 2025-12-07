@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { SplatSequence } from './loaders/SplatSequence';
 import { GLTFModelLoader } from './loaders/GLTFLoader';
+import { ModelAssetManager } from './loaders/ModelAssetManager';
+import { GaussianSplatLoader } from './loaders/GaussianSplatLoader';
 import { logError } from '../utils/errors';
 import { logger } from '../config/production';
 
@@ -11,7 +13,8 @@ type Item =
   | { id: string; title: string; author: string; type: 'splat4d'; fps: number; frames: string[] }
   | { id: string; title: string; author: string; type: 'ply'; src: string }
   | { id: string; title: string; author: string; type: 'mesh'; src: string }
-  | { id: string; title: string; author: string; type: 'gltf' | 'glb'; src: string };
+  | { id: string; title: string; author: string; type: 'gltf' | 'glb'; src: string }
+  | { id: string; title: string; author: string; type: 'gaussianSplat'; src: string; settingsUrl?: string };
 
 export class FeedStore {
   items: Item[] = [];
@@ -24,9 +27,13 @@ export class FeedStore {
   private lastPlaced?: THREE.Vector3;
 
   private seq?: SplatSequence;
-  private gltfLoader?: GLTFModelLoader;
+  private gltfLoader?: GLTFModelLoader; // Kept for backward compatibility
+  private assetManager?: ModelAssetManager;
+  private gaussianSplatLoader?: GaussianSplatLoader;
   private preloadInFlight = new Set<number>();
   private currentGLTF?: THREE.Group;
+  private previousGLTF?: THREE.Object3D; // Keep previous model visible while loading
+  private currentGaussianSplat?: { asset: import('./loaders/GaussianSplatLoader').GaussianSplatAsset; dispose: () => void };
   private onHud?: (t: string) => void;
   private parent: THREE.Object3D;
   private isLoading = false; // Track loading state to prevent concurrent loads
@@ -111,8 +118,8 @@ export class FeedStore {
         if (item.id && item.id.startsWith('tutorial-')) {
           return true;
         }
-        // Main feed: GLTF/GLB models and simple shapes (exclude meshes, splat4d, ply)
-        return item.type === 'gltf' || item.type === 'glb' || item.type === 'shape';
+        // Main feed: GLTF/GLB models, Gaussian Splats, and simple shapes (exclude meshes, splat4d, ply)
+        return item.type === 'gltf' || item.type === 'glb' || item.type === 'gaussianSplat' || item.type === 'shape';
       });
       
       logger.verbose(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} items (GLTF/GLB + shapes)`);
@@ -157,17 +164,40 @@ export class FeedStore {
       this.seq = undefined;
     }
 
+    // For GLTF/GLB items: Check status before removing previous model
+    let shouldKeepPreviousModel = false;
+    if ((item.type === 'gltf' || item.type === 'glb')) {
+      const status = this.ensureAssetManager().getStatus(item.src);
+      // Keep previous model visible if new one is loading or idle (not yet ready)
+      if (status.state === 'loading' || status.state === 'idle') {
+        shouldKeepPreviousModel = true;
+        logger.verbose(`[FeedStore] Keeping previous model visible while loading: ${item.src} (status: ${status.state})`);
+      }
+    }
+
+    // Hide previous Gaussian Splat if any
+    if (this.currentGaussianSplat) {
+      this.currentGaussianSplat.asset.hide();
+      this.currentGaussianSplat.dispose();
+      this.currentGaussianSplat = undefined;
+    }
+
     // CRITICAL: Remove ALL prior content meshes to prevent overlap
-    // This includes shapes, meshes, GLTF models, and error placeholders
+    // BUT: For GLTF items, we may keep the previous GLTF model visible while loading
     // Use slice() to avoid modifying array while iterating
-    const childrenToRemove = this.parent.children.slice().filter(child => 
-      child.name === 'content-shape' || 
-      child.name === 'content-mesh' || 
-      child.name === 'content-gltf' || 
-      child.name === 'content-error'
-    );
+    const childrenToRemove = this.parent.children.slice().filter(child => {
+      // If we're keeping previous model and this is a GLTF, skip it
+      if (shouldKeepPreviousModel && child.name === 'content-gltf' && child === this.currentGLTF) {
+        this.previousGLTF = child; // Store as previous
+        return false; // Don't remove it yet
+      }
+      return child.name === 'content-shape' || 
+             child.name === 'content-mesh' || 
+             child.name === 'content-gltf' || 
+             child.name === 'content-error';
+    });
     
-    logger.verbose(`[FeedStore] Removing ${childrenToRemove.length} previous content objects`);
+    logger.verbose(`[FeedStore] Removing ${childrenToRemove.length} previous content objects${shouldKeepPreviousModel ? ' (keeping previous GLTF visible)' : ''}`);
     
     childrenToRemove.forEach((child) => {
       // Stop and dispose animation mixer if present
@@ -215,8 +245,11 @@ export class FeedStore {
       logger.verbose(`[FeedStore] ✅ Removed and disposed: ${child.name}`);
     });
     
-    // CRITICAL: Clear currentGLTF reference to prevent stale references
-    this.currentGLTF = undefined;
+    // CRITICAL: Clear currentGLTF reference (but keep previousGLTF if we're keeping it visible)
+    if (!shouldKeepPreviousModel) {
+      this.currentGLTF = undefined;
+      this.previousGLTF = undefined;
+    }
 
     // FIX #1: PRESERVE spatial placement - new models spawn where user placed the previous one
     // This is intentional behavior - user expects new models to appear at the same location
@@ -250,10 +283,24 @@ export class FeedStore {
         this.seq.setTransform(this._scale, this._rotY);
         this.seq.setPosition(spawnPos);
       } else if (item.type === 'gltf' || item.type === 'glb') {
-        // FIX #2: Load GLTF/GLB model with enhanced error handling and CORS debugging
-        logger.verbose(`[FeedStore] 🔄 Loading GLB/GLTF: "${item.title}" from ${item.src}`);
+        // NEW: Use ModelAssetManager for structured loading with status tracking
+        const manager = this.ensureAssetManager();
+        const status = manager.getStatus(item.src);
+        
+        logger.verbose(`[FeedStore] 🔄 Loading GLB/GLTF: "${item.title}" from ${item.src} (status: ${status.state})`);
+        
         try {
-          const gltf = await this.ensureGLTFLoader().load(item.src);
+          // If already loaded, show immediately
+          // If loading/idle, wait for it (or start loading if idle)
+          const gltf = await manager.loadNow(item.src);
+          
+          // Now remove previous model if we kept it visible
+          if (this.previousGLTF) {
+            logger.verbose(`[FeedStore] Removing previous model now that new one is ready`);
+            this.removeModel(this.previousGLTF);
+            this.previousGLTF = undefined;
+          }
+          
           logger.verbose(`[FeedStore] ✅ Successfully loaded GLB/GLTF: ${item.title}`);
           
           gltf.scene.name = 'content-gltf';
@@ -277,7 +324,7 @@ export class FeedStore {
           
           // Preloading is now handled in next() for faster response on scroll
           // Always preload here for initial loads and to ensure next items are ready
-          this.preloadNextModels(3);
+          this.preloadUpcomingModels(3);
           
           // Play animations if available
           if (gltf.animations && gltf.animations.length > 0) {
@@ -297,6 +344,40 @@ export class FeedStore {
           if (loadError?.message?.includes('CORS') || loadError?.message?.includes('fetch')) {
             logger.warn(`[FeedStore] ⚠️ Possible CORS issue - check if ${item.src} allows cross-origin requests`);
           }
+          
+          // Remove previous model if we kept it visible (since we're showing error now)
+          if (this.previousGLTF) {
+            this.removeModel(this.previousGLTF);
+            this.previousGLTF = undefined;
+          }
+          
+          // Only show error placeholder on actual error (not just "loading")
+          throw loadError;
+        }
+      } else if (item.type === 'gaussianSplat') {
+        // Load Gaussian Splat content
+        logger.verbose(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
+        try {
+          const splatAsset = await this.ensureGaussianSplatLoader().load(item.src, item.settingsUrl);
+          logger.verbose(`[FeedStore] ✅ Successfully loaded Gaussian Splat: ${item.title}`);
+          
+          // Show the splat viewer
+          splatAsset.show();
+          
+          // Store reference for cleanup
+          this.currentGaussianSplat = {
+            asset: splatAsset,
+            dispose: () => {
+              splatAsset.hide();
+              splatAsset.dispose();
+            },
+          };
+          
+          // Preload upcoming models
+          this.preloadUpcomingModels(3);
+        } catch (loadError: any) {
+          logger.error(`[FeedStore] ❌ FAILED to load Gaussian Splat: ${item.title}`, loadError);
+          logger.error(`[FeedStore] URL: ${item.src}`);
           
           // Re-throw to trigger error placeholder
           throw loadError;
@@ -371,13 +452,30 @@ export class FeedStore {
       
       // OPTIMIZATION: Start preloading next model immediately on scroll (before cleanup delay)
       // This makes the next model appear instantly when user scrolls again
+      // Use the new asset manager for efficient preloading
       if (delta > 0) {
         // Scrolling forward - preload next items
-        this.preloadNextModels(2);
+        this.preloadUpcomingModels(3);
+        // Also schedule preloads for individual items (handles both GLTF and Gaussian Splats)
+        for (let offset = 1; offset <= 3; offset++) {
+          const idx = (this.index + offset) % this.items.length;
+          this.schedulePreload(idx);
+        }
       } else {
         // Scrolling backward - preload previous items
-        const prevIndex = (this.index - 1 + this.items.length) % this.items.length;
-        this.preloadModelsFrom(prevIndex, 1);
+        const urls: string[] = [];
+        for (let offset = 1; offset <= 2; offset++) {
+          const idx = (this.index - offset + this.items.length) % this.items.length;
+          const item = this.items[idx];
+          if (item && (item.type === 'gltf' || item.type === 'glb')) {
+            urls.push(item.src);
+          }
+          // Also schedule preload for Gaussian Splats
+          this.schedulePreload(idx);
+        }
+        if (urls.length > 0) {
+          this.ensureAssetManager().preloadMany(urls);
+        }
       }
       
       // FIX #1: PRESERVE spatial placement - new models spawn where user placed the previous one
@@ -541,6 +639,95 @@ export class FeedStore {
     return this.gltfLoader;
   }
 
+  private ensureAssetManager(): ModelAssetManager {
+    if (!this.assetManager) {
+      this.assetManager = new ModelAssetManager(3); // Max 3 concurrent loads
+    }
+    return this.assetManager;
+  }
+
+  private ensureGaussianSplatLoader(): GaussianSplatLoader {
+    if (!this.gaussianSplatLoader) {
+      this.gaussianSplatLoader = new GaussianSplatLoader();
+    }
+    return this.gaussianSplatLoader;
+  }
+
+  /**
+   * Dispose resources (called when FeedStore is no longer needed)
+   */
+  dispose(): void {
+    if (this.currentGaussianSplat) {
+      this.currentGaussianSplat.dispose();
+      this.currentGaussianSplat = undefined;
+    }
+    if (this.assetManager) {
+      this.assetManager.dispose();
+      this.assetManager = undefined;
+    }
+    if (this.gltfLoader) {
+      this.gltfLoader.dispose();
+      this.gltfLoader = undefined;
+    }
+    if (this.gaussianSplatLoader) {
+      this.gaussianSplatLoader.dispose();
+      this.gaussianSplatLoader = undefined;
+    }
+    if (this.seq) {
+      this.seq.dispose();
+      this.seq = undefined;
+    }
+  }
+
+  /**
+   * Helper to remove and dispose a model cleanly
+   */
+  private removeModel(model: THREE.Object3D): void {
+    // Stop and dispose animation mixer if present
+    if ((model as any).mixer) {
+      (model as any).mixer.stopAllAction();
+      (model as any).mixer = null;
+    }
+    
+    // RECURSIVE disposal for GLTF models with children
+    model.traverse((node: THREE.Object3D) => {
+      // Dispose geometry
+      if ((node as any).geometry) {
+        (node as any).geometry.dispose();
+      }
+      
+      // Dispose material(s)
+      const mat = (node as any).material;
+      if (mat) {
+        if (Array.isArray(mat)) {
+          mat.forEach(m => {
+            // Dispose textures
+            if (m.map) m.map.dispose();
+            if (m.lightMap) m.lightMap.dispose();
+            if (m.bumpMap) m.bumpMap.dispose();
+            if (m.normalMap) m.normalMap.dispose();
+            if (m.specularMap) m.specularMap.dispose();
+            if (m.envMap) m.envMap.dispose();
+            m.dispose();
+          });
+        } else {
+          // Dispose textures
+          if (mat.map) mat.map.dispose();
+          if (mat.lightMap) mat.lightMap.dispose();
+          if (mat.bumpMap) mat.bumpMap.dispose();
+          if (mat.normalMap) mat.normalMap.dispose();
+          if (mat.specularMap) mat.specularMap.dispose();
+          if (mat.envMap) mat.envMap.dispose();
+          mat.dispose();
+        }
+      }
+    });
+    
+    // Remove from parent
+    this.parent.remove(model);
+    logger.verbose(`[FeedStore] ✅ Removed and disposed model: ${model.name}`);
+  }
+
   /**
    * AUTO-SCALE SYSTEM for GLTF/GLB models
    * FIX #2: Improved scaling to better fit user's POV
@@ -615,20 +802,58 @@ export class FeedStore {
 
   private schedulePreload(index: number) {
     const item = this.items[index];
-    if (!item || (item.type !== 'glb' && item.type !== 'gltf')) {
+    if (!item) {
       return;
     }
-    if (this.preloadInFlight.has(index)) {
-      return;
+    
+    // Preload GLTF/GLB models
+    if (item.type === 'glb' || item.type === 'gltf') {
+      if (this.preloadInFlight.has(index)) {
+        return;
+      }
+      this.preloadInFlight.add(index);
+      this.ensureAssetManager()
+        .preload(item.src)
+        .catch((err) => {
+          logError(err, `FeedStore.preload:${item.id}`);
+        })
+        .finally(() => this.preloadInFlight.delete(index));
     }
+    
+    // Preload Gaussian Splats
+    if (item.type === 'gaussianSplat') {
+      if (this.preloadInFlight.has(index)) {
+        return;
+      }
+      this.preloadInFlight.add(index);
+      this.ensureGaussianSplatLoader()
+        .preload(item.src, item.settingsUrl)
+        .catch((err) => {
+          logError(err, `FeedStore.preload:${item.id}`);
+        })
+        .finally(() => this.preloadInFlight.delete(index));
+    }
+  }
 
-    this.preloadInFlight.add(index);
-    this.ensureGLTFLoader()
-      .preload(item.src)
-      .catch((err) => {
-        logError(err, `FeedStore.preload:${item.id}`);
-      })
-      .finally(() => this.preloadInFlight.delete(index));
+  /**
+   * Preload upcoming GLTF/GLB models and Gaussian Splats based on current index and scroll direction
+   */
+  private preloadUpcomingModels(count = 3) {
+    if (!this.items.length) return;
+    
+    const gltfUrls: string[] = [];
+    for (let offset = 1; offset <= count; offset++) {
+      const idx = (this.index + offset) % this.items.length;
+      const item = this.items[idx];
+      if (item && (item.type === 'gltf' || item.type === 'glb')) {
+        gltfUrls.push(item.src);
+      }
+      // Gaussian Splats are preloaded via schedulePreload which is called separately
+    }
+    
+    if (gltfUrls.length > 0) {
+      this.ensureAssetManager().preloadMany(gltfUrls);
+    }
   }
 
   setPosition(worldPos: THREE.Vector3) {

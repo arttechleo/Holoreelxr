@@ -17,6 +17,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@playcanvas/supersplat-viewer": "^1.7.1",
     "peerjs": "^1.5.5",
     "three": "^0.181.0",
     "three-mesh-ui": "^6.5.4",
