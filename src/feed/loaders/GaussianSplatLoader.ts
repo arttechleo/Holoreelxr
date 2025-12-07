@@ -2,7 +2,6 @@
 import * as THREE from 'three';
 import { retry, logError, AssetLoadError } from '../../utils/errors';
 import { logger } from '../../config/production';
-import { html, css, js } from '@playcanvas/supersplat-viewer';
 
 /**
  * Gaussian Splat asset representation.
@@ -30,12 +29,13 @@ export type GaussianSplatAsset = {
  * 
  * Architecture Decision:
  * The supersplat-viewer is a PlayCanvas-based standalone app. For integration into our
- * Three.js/WebXR feed, we create a container that holds the viewer HTML/CSS/JS.
+ * Three.js/WebXR feed, we use a static viewer served from the same origin.
  * 
- * Current Implementation:
- * - Uses an iframe with a blob URL containing the viewer HTML
- * - This ensures isolation and doesn't interfere with our Three.js scene
+ * Implementation:
+ * - Uses an iframe pointing to a static viewer at /supersplat/index.html
+ * - This avoids blob URL security issues in production environments
  * - The viewer renders to its own canvas within the iframe
+ * - URL parameters are used to pass the content URL and settings
  * 
  * Future Enhancement:
  * - Full XR integration would require syncing PlayCanvas camera with XR session
@@ -139,70 +139,20 @@ export class GaussianSplatLoader {
         iframe.style.border = 'none';
         iframe.style.background = 'transparent';
         
-        // Create blob URL with the viewer HTML
-        // Modify the HTML to use our URLs
-        let viewerHtml = html;
-        
-        // Replace the script that sets up URLs
-        const scriptMatch = viewerHtml.match(/<script type="module">([\s\S]*?)<\/script>/);
-        if (scriptMatch) {
-          const newScript = `
-            <script type="module">
-              const url = new URL(location.href);
-              const settingsUrl = url.searchParams.get('settings') || '${settingsUrl || './settings.json'}';
-              const contentUrl = url.searchParams.get('content') || '${url}';
-              const params = {};
-              
-              // Apply URL parameter overrides
-              if (url.searchParams.has('noui')) params.noui = true;
-              if (url.searchParams.has('noanim')) params.noanim = true;
-              if (url.searchParams.has('poster')) params.posterUrl = url.searchParams.get('poster');
-              if (url.searchParams.has('skybox')) params.skyboxUrl = url.searchParams.get('skybox');
-              if (url.searchParams.has('ministats')) params.ministats = true;
-              
-              const createImage = (url) => {
-                const img = new Image();
-                img.src = url;
-                return img;
-              };
-              
-              window.sse = {
-                poster: params.posterUrl && createImage(params.posterUrl),
-                settings: fetch(settingsUrl).then(response => response.json()),
-                contentUrl,
-                contents: fetch(contentUrl),
-                params: { ...params, noui: true } // Always hide UI for embedded use
-              };
-            </script>
-          `;
-          viewerHtml = viewerHtml.replace(/<script type="module">[\s\S]*?<\/script>/, newScript);
-        }
-        
-        // Inject CSS
-        viewerHtml = viewerHtml.replace('</head>', `<style>${css}</style></head>`);
-        
-        // Inject main JS before closing body
-        viewerHtml = viewerHtml.replace('</body>', `<script type="module">${js}</script></body>`);
-        
-        // Create blob URL
-        const blob = new Blob([viewerHtml], { type: 'text/html' });
-        const blobUrl = URL.createObjectURL(blob);
-        
-        // Set iframe src with URL parameters
-        const iframeUrl = new URL(blobUrl);
-        iframeUrl.searchParams.set('content', url);
+        // Use static viewer URL instead of blob URL to avoid SecurityError in production
+        // The viewer is served from /supersplat/index.html (same origin, CSP-friendly)
+        const viewerBaseUrl = '/supersplat/index.html';
+        const viewerUrl = new URL(viewerBaseUrl, window.location.origin);
+        viewerUrl.searchParams.set('content', url);
         if (settingsUrl) {
-          iframeUrl.searchParams.set('settings', settingsUrl);
+          viewerUrl.searchParams.set('settings', settingsUrl);
         }
-        iframeUrl.searchParams.set('noui', 'true');
+        viewerUrl.searchParams.set('noui', 'true');
         
-        iframe.src = iframeUrl.toString();
+        iframe.src = viewerUrl.toString();
+        iframe.allow = 'fullscreen; xr-spatial-tracking; vr; webxr;';
+        
         container.appendChild(iframe);
-        
-        // Clean up blob URL after iframe loads
-        iframe.onload = () => {
-          URL.revokeObjectURL(blobUrl);
-        };
         
         const asset: GaussianSplatAsset = {
           container,
@@ -213,7 +163,6 @@ export class GaussianSplatLoader {
             if (container.parentNode) {
               container.parentNode.removeChild(container);
             }
-            URL.revokeObjectURL(blobUrl);
           },
           show: () => {
             container.style.visibility = 'visible';
@@ -230,15 +179,14 @@ export class GaussianSplatLoader {
         // Wait for iframe to load
         iframe.onload = () => {
           clearTimeout(timeoutId);
-          URL.revokeObjectURL(blobUrl);
           logger.verbose(`[GaussianSplatLoader] ✅ Load successful: ${url}`);
           resolve(asset);
         };
 
         iframe.onerror = (err) => {
           clearTimeout(timeoutId);
-          URL.revokeObjectURL(blobUrl);
           logger.error(`[GaussianSplatLoader] ❌ Load error: ${url}`, err);
+          logger.error(`[GaussianSplatLoader] Viewer URL: ${viewerUrl.toString()}`);
           reject(new AssetLoadError('Failed to load Gaussian Splat viewer', url, err));
         };
 
@@ -249,7 +197,6 @@ export class GaussianSplatLoader {
         setTimeout(() => {
           if (iframe.contentDocument || iframe.contentWindow) {
             clearTimeout(timeoutId);
-            URL.revokeObjectURL(blobUrl);
             logger.verbose(`[GaussianSplatLoader] ✅ Load successful (fallback): ${url}`);
             resolve(asset);
           }

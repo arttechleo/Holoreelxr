@@ -106,7 +106,16 @@ export class FeedStore {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
-      const allItems = await res.json();
+      const text = await res.text();
+      let allItems;
+      try {
+        allItems = JSON.parse(text);
+      } catch (parseError: any) {
+        logger.error(`[FeedStore.loadFeed] JSON.parse error for ${url}:`, parseError);
+        logger.error(`[FeedStore.loadFeed] Error at line ${parseError.message.match(/line (\d+)/)?.[1] || 'unknown'}, column ${parseError.message.match(/column (\d+)/)?.[1] || 'unknown'}`);
+        logger.error(`[FeedStore.loadFeed] First 500 chars of response:`, text.substring(0, 500));
+        throw new Error(`Failed to parse feed JSON: ${parseError.message}`);
+      }
       if (!Array.isArray(allItems)) {
         throw new Error('Feed JSON is not an array');
       }
@@ -125,6 +134,7 @@ export class FeedStore {
       logger.verbose(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} items (GLTF/GLB + shapes)`);
     } catch (error) {
       logError(error, 'FeedStore.loadFeed');
+      logger.error(`[FeedStore.loadFeed] Failed to load feed from ${url} - using empty feed`);
       this.toast('Failed to load feed - using empty feed');
       this.items = [];
     }
