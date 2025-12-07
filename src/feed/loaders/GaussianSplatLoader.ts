@@ -64,7 +64,7 @@ export class GaussianSplatLoader {
       // Try to dynamically import the library
       // @ts-ignore - Library may not be installed yet
       const module = await import('@sparkjsdev/spark');
-      this.SplatMeshClass = module.SplatMesh || module.default?.SplatMesh;
+      this.SplatMeshClass = module.SplatMesh;
       if (!this.SplatMeshClass) {
         throw new Error('SplatMesh not found in @sparkjsdev/spark');
       }

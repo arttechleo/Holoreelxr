@@ -197,7 +197,7 @@ export class ThreeXRApp {
     try {
       // @ts-ignore - Library may not be installed yet
       const module = await import('@sparkjsdev/spark');
-      const SparkRenderer = module.SparkRenderer || module.default?.SparkRenderer;
+      const SparkRenderer = module.SparkRenderer;
       
       if (!SparkRenderer) {
         console.warn('[ThreeXRApp] SparkRenderer not found in @sparkjsdev/spark - Gaussian Splats may not render');
