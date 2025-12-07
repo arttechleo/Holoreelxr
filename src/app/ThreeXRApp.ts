@@ -10,6 +10,7 @@ export class ThreeXRApp {
   public camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 100);
   public contentRoot = new THREE.Group();
   public overlayRoot: HTMLElement;
+  public sparkRenderer: any; // SparkRenderer from @sparkjsdev/spark
 
   private onFrameCbs: Array<(info: XRFrameInfo) => void> = [];
   private refSpace: XRReferenceSpace | null = null;
@@ -36,6 +37,10 @@ export class ThreeXRApp {
     this.scene.background = null;
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x222233, 0.9));
     this.scene.add(this.contentRoot);
+
+    // Initialize SparkRenderer for Gaussian Splatting
+    // SparkJS requires SparkRenderer to be added to the scene for proper rendering
+    this.initializeSparkRenderer();
 
     // Overlay root (for lightweight DOM UI if needed)
     this.overlayRoot = document.createElement('div');
@@ -98,6 +103,12 @@ export class ThreeXRApp {
     this.loopFn = (_t: number, frame?: XRFrame) => {
       const refSpace = this.refSpace ?? (this.renderer.xr as any).getReferenceSpace?.();
       for (const cb of this.onFrameCbs) cb({ frame: frame ?? null, refSpace });
+      
+      // Update SparkRenderer if initialized (required for Gaussian Splat rendering)
+      if (this.sparkRenderer && this.sparkRenderer.update) {
+        this.sparkRenderer.update({ scene: this.scene });
+      }
+      
       this.renderer.render(this.scene, this.camera);
     };
     this.renderer.setAnimationLoop(this.loopFn);
@@ -175,5 +186,37 @@ export class ThreeXRApp {
     h0.add(this.handFactory.createHandModel(h0, 'mesh'));
     h1.add(this.handFactory.createHandModel(h1, 'mesh'));
     this.handsAdded = true;
+  }
+
+  /**
+   * Initialize SparkRenderer for Gaussian Splatting support.
+   * SparkJS requires SparkRenderer to be added to the scene for proper rendering.
+   * This is done lazily to handle cases where the library might not be installed.
+   */
+  private async initializeSparkRenderer() {
+    try {
+      // @ts-ignore - Library may not be installed yet
+      const module = await import('@sparkjsdev/spark');
+      const SparkRenderer = module.SparkRenderer || module.default?.SparkRenderer;
+      
+      if (!SparkRenderer) {
+        console.warn('[ThreeXRApp] SparkRenderer not found in @sparkjsdev/spark - Gaussian Splats may not render');
+        return;
+      }
+
+      // Create SparkRenderer instance
+      // Note: SparkJS docs recommend antialias: false, but we use true for other content
+      // This should still work, but may have minor performance impact
+      this.sparkRenderer = new SparkRenderer({ renderer: this.renderer });
+      
+      // Add SparkRenderer to the scene (required for proper rendering)
+      this.scene.add(this.sparkRenderer);
+      
+      console.log('[ThreeXRApp] SparkRenderer initialized successfully');
+    } catch (e: any) {
+      // Library not installed or failed to load - this is OK, app will still work
+      // Gaussian Splats just won't render until the library is installed
+      console.warn('[ThreeXRApp] Failed to initialize SparkRenderer. Install with: npm install @sparkjsdev/spark', e);
+    }
   }
 }

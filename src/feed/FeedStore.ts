@@ -33,7 +33,7 @@ export class FeedStore {
   private preloadInFlight = new Set<number>();
   private currentGLTF?: THREE.Group;
   private previousGLTF?: THREE.Object3D; // Keep previous model visible while loading
-  private currentGaussianSplat?: { asset: import('./loaders/GaussianSplatLoader').GaussianSplatAsset; dispose: () => void };
+  private currentGaussianSplat?: THREE.Group;
   private onHud?: (t: string) => void;
   private parent: THREE.Object3D;
   private isLoading = false; // Track loading state to prevent concurrent loads
@@ -187,8 +187,7 @@ export class FeedStore {
 
     // Hide previous Gaussian Splat if any
     if (this.currentGaussianSplat) {
-      this.currentGaussianSplat.asset.hide();
-      this.currentGaussianSplat.dispose();
+      this.removeModel(this.currentGaussianSplat);
       this.currentGaussianSplat = undefined;
     }
 
@@ -204,6 +203,7 @@ export class FeedStore {
       return child.name === 'content-shape' || 
              child.name === 'content-mesh' || 
              child.name === 'content-gltf' || 
+             child.name === 'content-gaussian-splat' ||
              child.name === 'content-error';
     });
     
@@ -365,25 +365,30 @@ export class FeedStore {
           throw loadError;
         }
       } else if (item.type === 'gaussianSplat') {
-        // GAUSSIAN-SPLAT: Load Gaussian Splat content using supersplat-viewer
-        // Local test asset: public/assets/aigengsplat.ply (129.70 MB - too large for GitHub, must be added locally)
-        // The file is not committed to git due to size limits - ensure it exists locally for testing
+        // GAUSSIAN-SPLAT: Load Gaussian Splat content using native Three.js integration
+        // Local test asset: public/assets/aigengsplat.ply (129.70 MB - stored in Git LFS)
         logger.verbose(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
         try {
           const splatAsset = await this.ensureGaussianSplatLoader().load(item.src, item.settingsUrl);
           logger.verbose(`[FeedStore] ✅ Successfully loaded Gaussian Splat: ${item.title}`);
           
-          // Show the splat viewer
-          splatAsset.show();
+          // Add to scene like GLTF models
+          splatAsset.scene.name = 'content-gaussian-splat';
           
-          // Store reference for cleanup
-          this.currentGaussianSplat = {
-            asset: splatAsset,
-            dispose: () => {
-              splatAsset.hide();
-              splatAsset.dispose();
-            },
-          };
+          const autoScale = this.calculateOptimalScale(splatAsset.scene);
+          splatAsset.scene.position.copy(spawnPos);
+          splatAsset.scene.rotation.y = this._rotY;
+          splatAsset.scene.scale.setScalar(autoScale.scale);
+          (splatAsset.scene as any)._baseAutoScale = autoScale.scale;
+          
+          this.parent.add(splatAsset.scene);
+          this.currentGaussianSplat = splatAsset.scene;
+          
+          logger.verbose(`[FeedStore] Attaching Gaussian Splat object to scene:`, {
+            position: spawnPos,
+            scale: autoScale.scale,
+            originalSize: autoScale.originalSize
+          });
           
           // Preload upcoming models
           this.preloadUpcomingModels(3);
@@ -406,6 +411,8 @@ export class FeedStore {
             logger.warn(`[FeedStore] ⚠️ Gaussian Splat CORS/network issue - check if ${item.src} is accessible`);
           } else if (loadError?.message?.includes('404') || loadError?.message?.includes('Not Found')) {
             logger.warn(`[FeedStore] ⚠️ Gaussian Splat file not found - ensure ${item.src} exists locally`);
+          } else if (loadError?.message?.includes('not available') || loadError?.message?.includes('library')) {
+            logger.warn(`[FeedStore] ⚠️ Gaussian Splat library not installed - run: npm install @mkkellogg/gaussian-splats-3d`);
           }
           
           // Re-throw to trigger error placeholder
@@ -548,8 +555,8 @@ export class FeedStore {
     this._rotY = rotY;
     const obj = this.getObject();
     if (obj) {
-      // CRITICAL FIX: For GLTF models, apply user scale on top of base auto-scale
-      if (obj.name === 'content-gltf' && (obj as any)._baseAutoScale) {
+      // CRITICAL FIX: For GLTF models and Gaussian Splats, apply user scale on top of base auto-scale
+      if ((obj.name === 'content-gltf' || obj.name === 'content-gaussian-splat') && (obj as any)._baseAutoScale) {
         const baseScale = (obj as any)._baseAutoScale;
         obj.scale.setScalar(baseScale * this._scale);
       } else {
@@ -567,6 +574,16 @@ export class FeedStore {
         this.currentGLTF.scale.setScalar(this._scale);
       }
       this.currentGLTF.rotation.y = this._rotY;
+    }
+    if (this.currentGaussianSplat) {
+      // Apply user scale on top of base auto-scale for Gaussian Splats
+      if ((this.currentGaussianSplat as any)._baseAutoScale) {
+        const baseScale = (this.currentGaussianSplat as any)._baseAutoScale;
+        this.currentGaussianSplat.scale.setScalar(baseScale * this._scale);
+      } else {
+        this.currentGaussianSplat.scale.setScalar(this._scale);
+      }
+      this.currentGaussianSplat.rotation.y = this._rotY;
     }
     this.updatePlatformPose();
   }
@@ -687,7 +704,7 @@ export class FeedStore {
    */
   dispose(): void {
     if (this.currentGaussianSplat) {
-      this.currentGaussianSplat.dispose();
+      this.removeModel(this.currentGaussianSplat);
       this.currentGaussianSplat = undefined;
     }
     if (this.assetManager) {
