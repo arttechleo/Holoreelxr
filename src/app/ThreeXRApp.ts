@@ -105,6 +105,7 @@ export class ThreeXRApp {
       for (const cb of this.onFrameCbs) cb({ frame: frame ?? null, refSpace });
       
       // Update SparkRenderer if initialized (required for Gaussian Splat rendering)
+      // SparkJS update() requires { scene, viewToWorld? } - viewToWorld is optional
       if (this.sparkRenderer && this.sparkRenderer.update) {
         this.sparkRenderer.update({ scene: this.scene });
       }

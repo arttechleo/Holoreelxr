@@ -132,81 +132,25 @@ export class GaussianSplatLoader {
   private async loadSplat(url: string, settingsUrl?: string): Promise<GaussianSplatAsset> {
     logger.verbose(`[GaussianSplatLoader] 🔄 Starting load: ${url}`);
 
-    return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        logger.error(`[GaussianSplatLoader] ❌ Load timeout after 30s: ${url}`);
-        reject(new AssetLoadError(`Load timeout after 30s`, url));
-      }, 30000);
-
-      try {
-        // Create SplatMesh using SparkJS API
-        // According to SparkJS docs: new SplatMesh({ url: 'path_to_splat_file' })
-        const splatMesh = new this.SplatMeshClass({ url });
-        
-        // Wrap in a Group for consistency with GLTF assets
-        const group = new THREE.Group();
-        group.add(splatMesh);
-        group.name = 'gaussian-splat';
-
-        // Wait for the mesh to load (SparkJS loads asynchronously)
-        // Check if there's a ready promise or event
-        if (splatMesh.ready) {
-          splatMesh.ready.then(() => {
-            clearTimeout(timeoutId);
-            this.normalizeAndResolve(group, url, settingsUrl, resolve, reject);
-          }).catch((err: any) => {
-            clearTimeout(timeoutId);
-            logger.error(`[GaussianSplatLoader] ❌ Load error: ${url}`, err);
-            reject(new AssetLoadError('Gaussian Splat load error', url, err));
-          });
-        } else {
-          // If no ready promise, assume synchronous load and proceed
-          // Add a small delay to allow async loading to start
-          setTimeout(() => {
-            clearTimeout(timeoutId);
-            this.normalizeAndResolve(group, url, settingsUrl, resolve, reject);
-          }, 100);
-        }
-      } catch (e) {
-        clearTimeout(timeoutId);
-        logger.error(`[GaussianSplatLoader] ❌ Failed to create splat mesh: ${url}`, e);
-        reject(new AssetLoadError('Failed to initialize Gaussian Splat mesh', url, e));
-      }
-    });
-  }
-
-  private normalizeAndResolve(
-    group: THREE.Group,
-    url: string,
-    settingsUrl: string | undefined,
-    resolve: (asset: GaussianSplatAsset) => void,
-    reject: (error: Error) => void
-  ) {
     try {
-      // Normalize scale and position (similar to GLTFModelLoader)
-      const box = new THREE.Box3().setFromObject(group);
-      const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
-
-      logger.verbose(`[GaussianSplatLoader] Original size: ${maxDim.toFixed(3)}m`);
-
-      if (maxDim > 0) {
-        const scale = 1.0 / maxDim; // Normalize to 1 unit
-        group.scale.multiplyScalar(scale);
-        logger.verbose(`[GaussianSplatLoader] Normalized scale: ${scale.toFixed(3)}x`);
-      }
-
-      // Center model
-      const center = box.getCenter(new THREE.Vector3());
-      group.position.sub(center);
-      logger.verbose(`[GaussianSplatLoader] Centered at: (${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)})`);
+      // Create SplatMesh using SparkJS API
+      // SplatMesh constructor takes options: { url, onLoad, ... }
+      // It has an `initialized` promise that resolves when loading is complete
+      const splatMesh = new this.SplatMeshClass({ url });
       
-      // Log bounds for debugging
-      logger.verbose(`[GaussianSplatLoader] Loaded splat bounds:`, {
-        size: { x: size.x.toFixed(2), y: size.y.toFixed(2), z: size.z.toFixed(2) },
-        center: { x: center.x.toFixed(2), y: center.y.toFixed(2), z: center.z.toFixed(2) },
-        maxDim: maxDim.toFixed(2)
-      });
+      // Wait for the mesh to initialize (SparkJS loads asynchronously)
+      // The `initialized` property is a Promise<SplatMesh>
+      await splatMesh.initialized;
+      
+      logger.verbose(`[GaussianSplatLoader] ✅ SplatMesh initialized: ${url}`);
+      
+      // Wrap in a Group for consistency with GLTF assets and easier manipulation
+      const group = new THREE.Group();
+      group.add(splatMesh);
+      group.name = 'gaussian-splat';
+
+      // Normalize scale and position (similar to GLTFModelLoader)
+      this.normalizeSplat(group);
 
       const asset: GaussianSplatAsset = {
         scene: group,
@@ -215,37 +159,99 @@ export class GaussianSplatLoader {
       };
 
       logger.verbose(`[GaussianSplatLoader] ✅ Load successful: ${url}`);
-      resolve(asset);
-    } catch (e) {
-      logger.error(`[GaussianSplatLoader] ❌ Failed to process splat: ${url}`, e);
-      reject(new AssetLoadError('Failed to process Gaussian Splat', url, e));
+      return asset;
+    } catch (e: any) {
+      logger.error(`[GaussianSplatLoader] ❌ Failed to load splat: ${url}`, e);
+      
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      if (errorMsg.includes('CORS') || errorMsg.includes('fetch') || errorMsg.includes('Failed to fetch')) {
+        logger.error(`[GaussianSplatLoader] ⚠️ CORS/Network issue detected for ${url}`);
+      }
+      
+      throw new AssetLoadError('Gaussian Splat load error', url, e);
     }
+  }
+
+  private normalizeSplat(group: THREE.Group) {
+    // Normalize scale and position (similar to GLTFModelLoader)
+    // For SparkJS SplatMesh, we can use getBoundingBox() method if available
+    // Otherwise fall back to setFromObject
+    const splatMesh = group.children[0] as any;
+    let box: THREE.Box3;
+    
+    if (splatMesh && typeof splatMesh.getBoundingBox === 'function') {
+      // Use SparkJS's built-in bounding box method (more accurate)
+      // getBoundingBox() can take a boolean parameter: getBoundingBox(centers_only?: boolean)
+      try {
+        box = splatMesh.getBoundingBox(false); // false = include full splat bounds, not just centers
+        logger.verbose(`[GaussianSplatLoader] Using SplatMesh.getBoundingBox()`);
+      } catch (e) {
+        // Fallback if getBoundingBox fails
+        box = new THREE.Box3().setFromObject(group);
+        logger.verbose(`[GaussianSplatLoader] getBoundingBox() failed, using setFromObject fallback`);
+      }
+    } else {
+      // Fallback to Three.js bounding box calculation
+      box = new THREE.Box3().setFromObject(group);
+      logger.verbose(`[GaussianSplatLoader] Using setFromObject for bounding box`);
+    }
+    
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    logger.verbose(`[GaussianSplatLoader] Original size: ${maxDim.toFixed(3)}m`);
+
+    if (maxDim > 0 && maxDim < 1000) { // Only normalize if size is reasonable
+      const scale = 1.0 / maxDim; // Normalize to 1 unit
+      group.scale.multiplyScalar(scale);
+      logger.verbose(`[GaussianSplatLoader] Normalized scale: ${scale.toFixed(3)}x`);
+    } else if (maxDim >= 1000) {
+      logger.warn(`[GaussianSplatLoader] Splat size very large (${maxDim.toFixed(2)}m), skipping normalization`);
+    }
+
+    // Center model
+    const center = box.getCenter(new THREE.Vector3());
+    group.position.sub(center);
+    logger.verbose(`[GaussianSplatLoader] Centered at: (${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)})`);
+    
+    // Log bounds for debugging
+    logger.verbose(`[GaussianSplatLoader] Loaded splat bounds:`, {
+      size: { x: size.x.toFixed(2), y: size.y.toFixed(2), z: size.z.toFixed(2) },
+      center: { x: center.x.toFixed(2), y: center.y.toFixed(2), z: center.z.toFixed(2) },
+      maxDim: maxDim.toFixed(2)
+    });
   }
 
   /**
    * Clone a Gaussian Splat asset for multiple instances.
    * Similar to GLTFModelLoader.cloneAsset()
+   * 
+   * Note: SparkJS SplatMesh may not support standard Three.js cloning.
+   * For now, we return the same asset (shared instance) since SplatMesh
+   * is designed to be reused efficiently. If true cloning is needed later,
+   * we would need to create a new SplatMesh instance with the same URL.
    */
   private cloneAsset(asset: GaussianSplatAsset): GaussianSplatAsset {
-    const scene = asset.scene.clone(true);
+    // For SparkJS, SplatMesh instances are designed to be shared efficiently
+    // Creating a new instance would require re-loading the file, which is expensive
+    // Instead, we create a new Group wrapper but reuse the same SplatMesh
+    const newGroup = new THREE.Group();
+    const originalSplatMesh = asset.scene.children[0];
     
-    // Deep clone materials and geometries
-    scene.traverse((child: any) => {
-      if (child.isMesh || child.isPoints || child.type === 'SplatMesh') {
-        // For SparkJS SplatMesh, cloning may need special handling
-        // If the library doesn't support cloning, we may need to create a new instance
-        // For now, try standard Three.js clone
-        if (child.material) {
-          child.material = child.material.clone();
-        }
-        if (child.geometry) {
-          child.geometry = child.geometry.clone();
-        }
-      }
-    });
+    if (originalSplatMesh) {
+      // Add the same SplatMesh instance to a new group
+      // This allows multiple groups to reference the same splat data efficiently
+      newGroup.add(originalSplatMesh);
+      newGroup.name = 'gaussian-splat';
+      
+      // Copy transform properties from original group
+      newGroup.position.copy(asset.scene.position);
+      newGroup.rotation.copy(asset.scene.rotation);
+      newGroup.scale.copy(asset.scene.scale);
+    }
 
     return {
-      scene,
+      scene: newGroup,
       url: asset.url,
       settingsUrl: asset.settingsUrl,
     };

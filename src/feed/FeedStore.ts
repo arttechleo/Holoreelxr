@@ -365,7 +365,7 @@ export class FeedStore {
           throw loadError;
         }
       } else if (item.type === 'gaussianSplat') {
-        // GAUSSIAN-SPLAT: Load Gaussian Splat content using native Three.js integration
+        // GAUSSIAN-SPLAT: Load Gaussian Splat content using SparkJS (native Three.js integration)
         // Local test asset: public/assets/aigengsplat.ply (129.70 MB - stored in Git LFS)
         logger.verbose(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
         try {
@@ -381,13 +381,33 @@ export class FeedStore {
           splatAsset.scene.scale.setScalar(autoScale.scale);
           (splatAsset.scene as any)._baseAutoScale = autoScale.scale;
           
+          // Ensure visibility
+          splatAsset.scene.visible = true;
+          splatAsset.scene.traverse((child: any) => {
+            child.visible = true;
+          });
+          
           this.parent.add(splatAsset.scene);
           this.currentGaussianSplat = splatAsset.scene;
           
+          // Debug: Add axes helper for visibility testing (can be removed later)
+          try {
+            const axesHelper = new THREE.AxesHelper(0.5);
+            axesHelper.name = 'gaussian-splat-debug-axes';
+            splatAsset.scene.add(axesHelper);
+            logger.verbose(`[FeedStore] Added debug axes helper for Gaussian Splat visibility testing`);
+          } catch (helperError) {
+            // Helper not critical - just log and continue
+            logger.verbose(`[FeedStore] Could not add debug helper (non-critical):`, helperError);
+          }
+          
           logger.verbose(`[FeedStore] Attaching Gaussian Splat object to scene:`, {
-            position: spawnPos,
+            position: spawnPos.toArray(),
             scale: autoScale.scale,
-            originalSize: autoScale.originalSize
+            originalSize: autoScale.originalSize,
+            visible: splatAsset.scene.visible,
+            parent: this.parent.name || 'contentRoot',
+            childrenCount: splatAsset.scene.children.length
           });
           
           // Preload upcoming models
