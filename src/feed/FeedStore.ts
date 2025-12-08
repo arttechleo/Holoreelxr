@@ -432,7 +432,7 @@ export class FeedStore {
           } else if (loadError?.message?.includes('404') || loadError?.message?.includes('Not Found')) {
             logger.warn(`[FeedStore] ⚠️ Gaussian Splat file not found - ensure ${item.src} exists locally`);
           } else if (loadError?.message?.includes('not available') || loadError?.message?.includes('library')) {
-            logger.warn(`[FeedStore] ⚠️ Gaussian Splat library not installed - run: npm install @mkkellogg/gaussian-splats-3d`);
+            logger.warn(`[FeedStore] ⚠️ Gaussian Splat library not installed - run: npm install @sparkjsdev/spark`);
           }
           
           // Re-throw to trigger error placeholder

@@ -104,12 +104,20 @@ export class ThreeXRApp {
       const refSpace = this.refSpace ?? (this.renderer.xr as any).getReferenceSpace?.();
       for (const cb of this.onFrameCbs) cb({ frame: frame ?? null, refSpace });
       
-      // Update SparkRenderer if initialized (required for Gaussian Splat rendering)
-      // SparkJS update() requires { scene, viewToWorld? } - viewToWorld is optional
+      // CRITICAL FIX: Update SparkRenderer with camera information for proper XR support
+      // In XR mode, Three.js automatically updates this.camera to be the XR camera
+      // SparkRenderer needs the camera to correctly render Gaussian Splats in XR space
       if (this.sparkRenderer && this.sparkRenderer.update) {
-        this.sparkRenderer.update({ scene: this.scene });
+        // SparkJS update() accepts { scene, camera?, viewToWorld? }
+        // Pass this.camera which is automatically updated by Three.js for XR mode
+        // This ensures Gaussian Splats render correctly in both desktop and XR modes
+        this.sparkRenderer.update({ 
+          scene: this.scene,
+          camera: this.camera
+        });
       }
       
+      // Render the scene with the camera (Three.js handles XR camera updates automatically)
       this.renderer.render(this.scene, this.camera);
     };
     this.renderer.setAnimationLoop(this.loopFn);
