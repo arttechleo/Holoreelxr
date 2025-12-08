@@ -6,9 +6,10 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "vite",
-    "build": "vite build",
-    "build:prod": "vite build --mode production",
+    "generate:splats": "tsx scripts/generate-splat-manifest.ts",
+    "dev": "npm run generate:splats && vite",
+    "build": "npm run generate:splats && vite build",
+    "build:prod": "npm run generate:splats && vite build --mode production",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "analyze": "vite build --mode production && vite-bundle-visualizer"
@@ -29,6 +30,7 @@
     "@types/peerjs": "^0.0.30",
     "@types/three": "^0.181.0",
     "terser": "^5.44.1",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite-plugin-mkcert": "^1.17.9"
   }

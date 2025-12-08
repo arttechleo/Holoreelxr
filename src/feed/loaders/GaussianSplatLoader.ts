@@ -47,6 +47,13 @@ function hasSupportedSplatExtension(url: string): boolean {
   return SUPPORTED_SPLAT_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
+// Path to the splat manifest generated at build/dev time
+const SPLAT_MANIFEST_URL = '/assets/splats-manifest.json';
+
+type SplatManifest = {
+  splats: string[];
+};
+
 /**
  * Gaussian Splat asset representation.
  * Returns a Three.js object that can be added directly to the scene.
@@ -68,6 +75,16 @@ export type GaussianSplatAsset = {
  * - No iframes - integrates directly with our WebXR/Three.js pipeline
  * - Caching and normalization similar to GLTFModelLoader
  * - Returns shared instances (no re-parenting bugs)
+ * 
+ * Supported formats:
+ * - .ply  – uncompressed Gaussian splat
+ * - .spz  – compressed Spark splat (recommended for performance, especially on Quest 3)
+ * 
+ * Auto-discovery:
+ * - Use load('auto') or loadFirstFromManifest() to load the first .spz from the manifest
+ * - Manifest is generated at build/dev time by running `npm run generate:splats`
+ * - The manifest lists all .spz files found in public/assets/
+ * - Cannot discover files dynamically in the browser (must use manifest)
  * 
  * Note: SparkRenderer must be initialized in ThreeXRApp and added to the scene.
  * This loader only handles loading SplatMesh objects.
@@ -102,13 +119,22 @@ export class GaussianSplatLoader {
   }
 
   /**
-   * Load a Gaussian Splat asset from a URL.
-   * Returns a deep-cloned scene so it can be safely added to the world
-   * without mutating cached assets. Subsequent loads reuse the cached
-   * payload and only pay the cost of cloning.
+   * Load a Gaussian Splat asset from a URL (.ply or .spz).
+   * 
+   * Special mode: If url is "auto", loads the first splat from the manifest.
+   * This is useful for quickly testing whatever .spz files are present
+   * without hardcoding a specific URL.
+   * 
+   * Returns a scene that can be safely added to the world.
    */
   async load(url: string, settingsUrl?: string): Promise<GaussianSplatAsset> {
     await this.initializeLoader();
+
+    // Special dev/testing mode: "auto" means "pick first from manifest"
+    if (url === 'auto') {
+      return this.loadFirstFromManifest(settingsUrl);
+    }
+
     const base = await this.fetchOrCache(url, settingsUrl);
     return this.cloneAsset(base);
   }
@@ -404,6 +430,66 @@ export class GaussianSplatLoader {
   private cloneAsset(asset: GaussianSplatAsset): GaussianSplatAsset {
     // For now, we just share the same asset instance (no re-parenting).
     return asset;
+  }
+
+  /**
+   * Load the splat manifest (if available) and return the list of URLs.
+   * Used for "auto" loading of .spz files for testing/dev.
+   * 
+   * Note: The manifest is generated at build/dev time and cannot be discovered
+   * dynamically in the browser. Run `npm run generate:splats` to regenerate it.
+   */
+  private async loadSplatManifest(): Promise<string[]> {
+    try {
+      const res = await fetch(SPLAT_MANIFEST_URL, { method: 'GET' });
+      if (!res.ok) {
+        logger.warn(
+          `[GaussianSplatLoader] Splat manifest not accessible: ${SPLAT_MANIFEST_URL} (${res.status})`
+        );
+        return [];
+      }
+      const json = (await res.json()) as SplatManifest;
+      if (!json || !Array.isArray(json.splats)) {
+        logger.warn(
+          `[GaussianSplatLoader] Splat manifest has invalid shape: ${SPLAT_MANIFEST_URL}`
+        );
+        return [];
+      }
+      return json.splats;
+    } catch (err) {
+      logger.warn(
+        `[GaussianSplatLoader] Failed to load splat manifest: ${SPLAT_MANIFEST_URL}`,
+        err
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Convenience helper: load the first available splat from the manifest.
+   * This is useful for quickly testing whatever .spz files are present
+   * without hardcoding a specific URL.
+   * 
+   * The manifest is generated at build/dev time by running `npm run generate:splats`.
+   * It lists all .spz files found in public/assets/.
+   */
+  async loadFirstFromManifest(settingsUrl?: string): Promise<GaussianSplatAsset> {
+    await this.initializeLoader();
+    const splats = await this.loadSplatManifest();
+
+    if (!splats.length) {
+      throw new AssetLoadError(
+        'No splats found in splats-manifest.json. Add .spz files and regenerate the manifest.',
+        SPLAT_MANIFEST_URL
+      );
+    }
+
+    // For now: just take the first one
+    const first = splats[0];
+    logger.verbose(
+      `[GaussianSplatLoader] Loading first splat from manifest: ${first}`
+    );
+    return this.load(first, settingsUrl);
   }
 
   dispose() {
