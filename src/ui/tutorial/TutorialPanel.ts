@@ -56,11 +56,12 @@ export class TutorialPanel {
     hoveredButton: 'prev' | 'next' | 'skip' | null;
     currentStepIndex: number;
     totalSteps: number;
+    isTutorialVisible?: boolean; // CRITICAL: Only play videos when tutorial is visible
   }): void {
     const ctx = this.canvas.getContext('2d')!;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    const { step, progressPercentage, hoveredButton, currentStepIndex, totalSteps } = options;
+    const { step, progressPercentage, hoveredButton, currentStepIndex, totalSteps, isTutorialVisible = false } = options;
     
     // Background - grey/dark grey gradient (matching multiplayer UI theme)
     const bgGradient = ctx.createLinearGradient(0, 0, 0, this.canvas.height);
@@ -76,17 +77,23 @@ export class TutorialPanel {
     ctx.fillText(step.title, this.canvas.width / 2, 50);
     
     // Handle video for steps that have one
+    // CRITICAL: Only switch/play videos when tutorial is visible
     if (step.id !== this.currentStepId) {
       // Step changed - pause previous video
       if (this.currentVideoUrl) {
+        console.log(`[TutorialPanel] Step changed, pausing previous video: ${this.currentVideoUrl}`);
         this.videoManager.pauseVideo(this.currentVideoUrl);
       }
       
-      // Switch to new video if step has one
-      if (step.videoSrc) {
-        this.switchVideo(step.videoSrc);
+      // Switch to new video if step has one AND tutorial is visible
+      if (step.videoSrc && isTutorialVisible) {
+        console.log(`[TutorialPanel] Switching to video for step: ${step.id}, video: ${step.videoSrc}, visible: ${isTutorialVisible}`);
+        this.switchVideo(step.videoSrc, isTutorialVisible);
       } else {
-        // No video for this step
+        // No video for this step OR tutorial not visible
+        if (step.videoSrc && !isTutorialVisible) {
+          console.log(`[TutorialPanel] ⚠️ Tutorial not visible - NOT playing video for step: ${step.id}`);
+        }
         this.currentVideoTexture = null;
         this.currentVideoUrl = null;
         if (this.videoAnimationFrame) {
@@ -95,6 +102,16 @@ export class TutorialPanel {
         }
       }
       this.currentStepId = step.id;
+    }
+    
+    // CRITICAL: If tutorial becomes invisible, pause all videos
+    if (!isTutorialVisible && this.currentVideoUrl) {
+      console.log(`[TutorialPanel] ⚠️ Tutorial became invisible - pausing video: ${this.currentVideoUrl}`);
+      this.videoManager.pauseVideo(this.currentVideoUrl);
+      if (this.videoAnimationFrame) {
+        cancelAnimationFrame(this.videoAnimationFrame);
+        this.videoAnimationFrame = null;
+      }
     }
     
     // Draw video if available and ready
@@ -156,7 +173,19 @@ export class TutorialPanel {
     this.lastRenderOptions = { step, progressPercentage, hoveredButton, currentStepIndex, totalSteps };
   }
   
-  private switchVideo(videoSrc: string): void {
+  private switchVideo(videoSrc: string, isTutorialVisible: boolean): void {
+    // CRITICAL: Only play videos when tutorial is visible
+    if (!isTutorialVisible) {
+      console.log(`[TutorialPanel] ⚠️ switchVideo called but tutorial not visible - NOT playing: ${videoSrc}`);
+      // Still set up the texture for when tutorial becomes visible, but don't play
+      const texture = this.videoManager.getTexture(videoSrc);
+      if (texture) {
+        this.currentVideoTexture = texture;
+        this.currentVideoUrl = videoSrc;
+      }
+      return;
+    }
+    
     // Stop previous video update loop
     if (this.videoAnimationFrame) {
       cancelAnimationFrame(this.videoAnimationFrame);
@@ -169,8 +198,9 @@ export class TutorialPanel {
       this.currentVideoTexture = texture;
       this.currentVideoUrl = videoSrc;
       
-      // Play the video if it's ready
-      if (this.videoManager.isReady(videoSrc)) {
+      // Play the video if it's ready AND tutorial is visible
+      if (this.videoManager.isReady(videoSrc) && isTutorialVisible) {
+        console.log(`[TutorialPanel] ✅ Playing video for step: ${videoSrc} (tutorial visible: ${isTutorialVisible})`);
         this.videoManager.playVideo(videoSrc);
         // Start update loop for smooth playback
         this.startVideoUpdateLoop();
@@ -289,6 +319,22 @@ export class TutorialPanel {
     });
     if (line) {
       ctx.fillText(line, this.canvas.width / 2, y);
+    }
+  }
+  
+  /**
+   * Pause all videos - called when tutorial becomes invisible
+   */
+  pauseAllVideos(): void {
+    if (this.currentVideoUrl) {
+      console.log(`[TutorialPanel] pauseAllVideos - pausing: ${this.currentVideoUrl}`);
+      this.videoManager.pauseVideo(this.currentVideoUrl);
+    }
+    
+    // Stop update loop
+    if (this.videoAnimationFrame) {
+      cancelAnimationFrame(this.videoAnimationFrame);
+      this.videoAnimationFrame = null;
     }
   }
   

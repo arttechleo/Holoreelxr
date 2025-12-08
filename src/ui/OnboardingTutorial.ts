@@ -1457,12 +1457,15 @@ export class OnboardingTutorial {
     if (!step) return;
     
     // Use TutorialPanel to render
+    // CRITICAL: Pass visibility state to prevent video playback when tutorial is hidden
+    const isTutorialVisible = this.group.visible && !this.isLoading && !this.tutorialCompleted;
     this.panelRenderer.render({
       step,
       progressPercentage: this.progressPercentage,
       hoveredButton: this.hoveredButton,
       currentStepIndex: this.currentStepIndex,
-      totalSteps: this.steps.length
+      totalSteps: this.steps.length,
+      isTutorialVisible // CRITICAL: Only play videos when tutorial is actually visible
     });
     
     // Update buttonRegions reference
@@ -1502,6 +1505,9 @@ export class OnboardingTutorial {
     this.completionTimeout = window.setTimeout(() => {
       // CRITICAL: Mark tutorial as completed FIRST - this disables all tutorial handlers
       this.tutorialCompleted = true;
+      
+      // CRITICAL: Pause all videos when tutorial completes
+      this.panelRenderer.pauseAllVideos();
       
       // CRITICAL: Hide tutorial and mark as inactive BEFORE navigating
       // This ensures isTutorialActive() returns false immediately
@@ -1703,6 +1709,8 @@ export class OnboardingTutorial {
   }
 
   hide() {
+    // CRITICAL: Pause all videos when tutorial is hidden
+    this.panelRenderer.pauseAllVideos();
     this.group.visible = false;
   }
 

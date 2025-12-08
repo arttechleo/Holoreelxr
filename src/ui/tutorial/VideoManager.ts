@@ -117,8 +117,11 @@ export class VideoManager {
 
   /**
    * Play a video by URL. Pauses all other videos first.
+   * CRITICAL: Only call this when tutorial is visible and step is current.
    */
   playVideo(url: string): void {
+    console.log(`[VideoManager] playVideo called for: ${url}`);
+    
     // Pause all other videos
     this.videos.forEach((video, videoUrl) => {
       if (videoUrl !== url) {
@@ -134,6 +137,9 @@ export class VideoManager {
       video.play().catch(err => {
         console.warn(`[VideoManager] Failed to play video ${url}:`, err);
       });
+      console.log(`[VideoManager] ✅ Video playing: ${url}`);
+    } else {
+      console.warn(`[VideoManager] ⚠️ Cannot play video ${url} - video: ${!!video}, ready: ${this.isReady(url)}`);
     }
   }
 
