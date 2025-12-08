@@ -14,31 +14,19 @@ export class Hud {
   constructor() {
     // ===== Root =====
     this.el = document.createElement('div');
-    this.el.style.position = 'fixed';
-    this.el.style.top = '12px';
-    this.el.style.left = '12px';
-    this.el.style.zIndex = '10';
-    this.el.style.display = 'flex';
-    this.el.style.flexDirection = 'column';
-    this.el.style.gap = '8px';
+    this.el.classList.add('hud-root');
     document.body.appendChild(this.el);
 
     // ===== Toast =====
     this.toastEl = document.createElement('div');
-    this.toastEl.style.background = 'rgba(0,0,0,.45)';
-    this.toastEl.style.color = '#fff';
-    this.toastEl.style.padding = '6px 10px';
-    this.toastEl.style.borderRadius = '8px';
-    this.toastEl.style.transition = 'opacity 0.3s ease';
+    this.toastEl.classList.add('hud-toast');
     this.toastEl.textContent = 'Ready';
     this.el.appendChild(this.toastEl);
 
     // ===== Player =====
+    // Hide player panel in main feed (music UI is disabled in main feed)
     this.playerEl = document.createElement('div');
-    this.playerEl.style.background = 'rgba(0,0,0,.45)';
-    this.playerEl.style.color = '#fff';
-    this.playerEl.style.padding = '6px 10px';
-    this.playerEl.style.borderRadius = '8px';
+    this.playerEl.classList.add('hud-player-panel', 'is-hidden-in-main-feed');
     this.playerEl.innerHTML = `
       <button id="mvp-play">▶︎</button>
       <button id="mvp-pause">⏸</button>
@@ -48,34 +36,17 @@ export class Hud {
 
     // ===== Reaction HUD =====
     this.reactionEl = document.createElement('div');
-    this.reactionEl.style.position = 'absolute';
-    this.reactionEl.style.top = '80px';
-    this.reactionEl.style.left = '50%';
-    this.reactionEl.style.transform = 'translateX(-50%)';
-    this.reactionEl.style.background = 'rgba(20,20,30,0.8)';
-    this.reactionEl.style.backdropFilter = 'blur(8px)';
-    this.reactionEl.style.color = '#fff';
-    this.reactionEl.style.padding = '12px 18px';
-    this.reactionEl.style.borderRadius = '12px';
-    this.reactionEl.style.boxShadow = '0 6px 18px rgba(0,0,0,0.35)';
-    this.reactionEl.style.fontFamily = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-    this.reactionEl.style.textAlign = 'center';
-    this.reactionEl.style.opacity = '0';
-    this.reactionEl.style.transition = 'opacity 0.25s ease';
-    this.reactionEl.style.pointerEvents = 'none';
+    this.reactionEl.classList.add('hud-reaction', 'is-hidden');
+    // Dynamic opacity is handled via classes (is-visible/is-hidden)
 
     // Reaction content
     const title = document.createElement('div');
+    title.classList.add('hud-reaction-title');
     title.textContent = 'Reactions';
-    title.style.fontWeight = '700';
-    title.style.marginBottom = '6px';
     this.reactionEl.appendChild(title);
 
     const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.gap = '12px';
-    row.style.justifyContent = 'center';
-    row.style.marginBottom = '8px';
+    row.classList.add('hud-reaction-row');
     this.reactionEl.appendChild(row);
 
     const like = document.createElement('div');
@@ -89,13 +60,10 @@ export class Hud {
 
     // Comments
     this.commentsEl = document.createElement('div');
-    this.commentsEl.style.maxWidth = '280px';
-    this.commentsEl.style.fontSize = '13px';
-    this.commentsEl.style.lineHeight = '1.35';
-    this.commentsEl.style.opacity = '0.95';
+    this.commentsEl.classList.add('hud-reaction-comments');
     this.commentsEl.innerHTML = `
-      <p style="margin:4px 0;">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-      <p style="margin:4px 0;">Integer faucibus magna non tincidunt mattis, nec viverra nibh enim eget velit.</p>
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+      <p>Integer faucibus magna non tincidunt mattis, nec viverra nibh enim eget velit.</p>
     `;
     this.reactionEl.appendChild(this.commentsEl);
 
@@ -105,8 +73,13 @@ export class Hud {
   // === Toast logic ===
   toast(msg: string) {
     this.toastEl.textContent = msg;
-    this.toastEl.style.opacity = '1';
-    setTimeout(() => (this.toastEl.style.opacity = '0.8'), 800);
+    // Use classes for opacity transitions (CSS handles the transition)
+    this.toastEl.classList.remove('is-fading');
+    this.toastEl.classList.add('is-visible');
+    setTimeout(() => {
+      this.toastEl.classList.remove('is-visible');
+      this.toastEl.classList.add('is-fading');
+    }, 800);
   }
 
   mountPlayer(onPlay: () => void, onPause: () => void) {
@@ -124,11 +97,14 @@ export class Hud {
       this.heartCountEl.textContent = String(this.heartCount);
     }
 
-    this.reactionEl.style.opacity = '1';
+    // Use classes for visibility (CSS handles the transition)
+    this.reactionEl.classList.remove('is-hidden');
+    this.reactionEl.classList.add('is-visible');
 
     if (this.fadeTimer) clearTimeout(this.fadeTimer);
     this.fadeTimer = window.setTimeout(() => {
-      this.reactionEl.style.opacity = '0';
+      this.reactionEl.classList.remove('is-visible');
+      this.reactionEl.classList.add('is-hidden');
     }, 1500);
   }
 }

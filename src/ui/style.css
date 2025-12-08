@@ -1,0 +1,459 @@
+/* ============================================
+   HoloreelXR - Centralized UI Stylesheet
+   Location: src/ui/style.css
+   ============================================
+   
+   This file contains all DOM-based UI styling for the HoloreelXR application.
+   Three.js canvas-based UI (e.g., ReactionHud, TutorialPanel) is NOT styled here.
+   ============================================ */
+
+/* ============================================
+   HUD Root and General Layout
+   ============================================ */
+
+.hud-root {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ============================================
+   Toasts and Notifications
+   ============================================ */
+
+.hud-toast {
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transition: opacity 0.3s ease;
+}
+
+.hud-toast.is-visible {
+  opacity: 1;
+}
+
+.hud-toast.is-fading {
+  opacity: 0.8;
+}
+
+/* ============================================
+   Music / Player Panel
+   ============================================ */
+
+.hud-player-panel {
+  background: rgba(0, 0,0, 0.45);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.hud-player-panel button {
+  background: transparent;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-right: 4px;
+  font-size: 16px;
+}
+
+.hud-player-panel button:hover {
+  opacity: 0.8;
+}
+
+.hud-player-panel span {
+  margin-left: 4px;
+}
+
+/* Hide player panel in main feed */
+.hud-player-panel.is-hidden-in-main-feed {
+  display: none !important;
+}
+
+/* ============================================
+   Reaction HUD (DOM overlay)
+   ============================================ */
+
+.hud-reaction {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20, 20, 30, 0.8);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  text-align: center;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.hud-reaction.is-visible {
+  opacity: 1;
+}
+
+.hud-reaction.is-hidden {
+  opacity: 0;
+}
+
+.hud-reaction-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.hud-reaction-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.hud-reaction-comments {
+  max-width: 280px;
+  font-size: 13px;
+  line-height: 1.35;
+  opacity: 0.95;
+}
+
+.hud-reaction-comments p {
+  margin: 4px 0;
+}
+
+/* ============================================
+   Music UI Panel (2D DOM)
+   ============================================ */
+
+.music-ui-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 20px;
+  border-radius: 8px;
+  z-index: 10000;
+  font-family: sans-serif;
+  min-width: 300px;
+}
+
+.music-ui-container.is-hidden-in-main-feed {
+  display: none !important;
+}
+
+.music-ui-title {
+  margin: 0 0 15px 0;
+}
+
+.music-ui-auth-buttons {
+  margin-bottom: 15px;
+}
+
+.music-ui-button {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: opacity 0.2s ease;
+}
+
+.music-ui-button:hover {
+  opacity: 0.9;
+}
+
+.music-ui-button:last-child {
+  margin-bottom: 0;
+}
+
+.music-ui-button--spotify {
+  background: #1DB954;
+  color: white;
+}
+
+.music-ui-button--soundcloud {
+  background: #FF5500;
+  color: white;
+}
+
+.music-ui-track-info {
+  margin-bottom: 15px;
+}
+
+.music-ui-track-title {
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.music-ui-track-artist {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.music-ui-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.music-ui-control-button {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: opacity 0.2s ease;
+}
+
+.music-ui-control-button:hover {
+  opacity: 0.9;
+}
+
+.music-ui-control-button--play {
+  background: #4CAF50;
+  color: white;
+}
+
+.music-ui-control-button--stop {
+  background: #f44336;
+  color: white;
+}
+
+.music-ui-empty-state {
+  color: #888;
+  font-size: 12px;
+}
+
+/* ============================================
+   Auth UI Panel (2D DOM)
+   ============================================ */
+
+.auth-ui-container {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 20px;
+  border-radius: 8px;
+  z-index: 10000;
+  font-family: sans-serif;
+  min-width: 250px;
+}
+
+.auth-ui-container.is-hidden-in-main-feed {
+  display: none !important;
+}
+
+.auth-ui-title {
+  margin: 0 0 15px 0;
+}
+
+.auth-ui-user-info {
+  margin-bottom: 15px;
+}
+
+.auth-ui-user-name {
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.auth-ui-user-provider {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.auth-ui-user-email {
+  font-size: 11px;
+  color: #888;
+}
+
+.auth-ui-button {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: opacity 0.2s ease;
+}
+
+.auth-ui-button:hover {
+  opacity: 0.9;
+}
+
+.auth-ui-button:last-child {
+  margin-bottom: 0;
+}
+
+.auth-ui-button--google {
+  background: #4285F4;
+  color: white;
+}
+
+.auth-ui-button--meta {
+  background: #0081FB;
+  color: white;
+}
+
+.auth-ui-button--guest {
+  background: #666;
+  color: white;
+}
+
+.auth-ui-button--signout {
+  background: #f44336;
+  color: white;
+}
+
+/* ============================================
+   Asset Link UI Panel (2D DOM)
+   ============================================ */
+
+.asset-link-ui-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 400px;
+  z-index: 10000;
+  font-family: sans-serif;
+}
+
+.asset-link-ui-title {
+  margin: 0 0 15px 0;
+}
+
+.asset-link-ui-form {
+  margin-bottom: 15px;
+}
+
+.asset-link-ui-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #555;
+  background: #222;
+  color: white;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-family: sans-serif;
+}
+
+.asset-link-ui-input:focus {
+  outline: none;
+  border-color: #4CAF50;
+}
+
+.asset-link-ui-button {
+  width: 100%;
+  padding: 10px;
+  background: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: opacity 0.2s ease;
+}
+
+.asset-link-ui-button:hover {
+  opacity: 0.9;
+}
+
+.asset-link-ui-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.asset-link-ui-item {
+  padding: 10px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.asset-link-ui-item-content {
+  flex: 1;
+}
+
+.asset-link-ui-item-title {
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.asset-link-ui-item-meta {
+  font-size: 11px;
+  color: #aaa;
+}
+
+.asset-link-ui-item-url {
+  font-size: 10px;
+  color: #666;
+  word-break: break-all;
+}
+
+.asset-link-ui-remove-button {
+  padding: 5px 10px;
+  background: #f44336;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 10px;
+  font-size: 12px;
+  transition: opacity 0.2s ease;
+}
+
+.asset-link-ui-remove-button:hover {
+  opacity: 0.9;
+}
+
+.asset-link-ui-empty-state {
+  color: #888;
+  font-size: 12px;
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+
+.is-hidden {
+  display: none !important;
+}
+
+.is-visible {
+  display: block;
+}
+
+.is-active {
+  opacity: 1;
+}
+
+.is-inactive {
+  opacity: 0.5;
+}
+
+/* Hide elements in main feed context */
+.is-hidden-in-main-feed {
+  display: none !important;
+}
+

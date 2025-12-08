@@ -28,10 +28,10 @@ export class AuthUI {
   }
 
   private render() {
+    // Hide auth UI in main feed (disabled in main.ts)
+    this.container.classList.add('auth-ui-container', 'is-hidden-in-main-feed');
     this.container.innerHTML = `
-      <div style="position: fixed; top: 20px; left: 20px; background: rgba(0,0,0,0.9); color: white; padding: 20px; border-radius: 8px; z-index: 10000; font-family: sans-serif; min-width: 250px;">
-        <div id="auth-content"></div>
-      </div>
+      <div id="auth-content"></div>
     `;
     this.updateUI();
   }
@@ -44,13 +44,12 @@ export class AuthUI {
     
     if (user) {
       content.innerHTML = `
-        <div style="margin-bottom: 15px;">
-          <div style="font-weight: bold; margin-bottom: 5px;">${user.name}</div>
-          <div style="font-size: 12px; color: #aaa;">${user.provider === 'guest' ? 'Guest' : user.provider}</div>
-          ${user.email ? `<div style="font-size: 11px; color: #888;">${user.email}</div>` : ''}
+        <div class="auth-ui-user-info">
+          <div class="auth-ui-user-name">${user.name}</div>
+          <div class="auth-ui-user-provider">${user.provider === 'guest' ? 'Guest' : user.provider}</div>
+          ${user.email ? `<div class="auth-ui-user-email">${user.email}</div>` : ''}
         </div>
-        <button id="sign-out-btn" 
-                style="width: 100%; padding: 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        <button id="sign-out-btn" class="auth-ui-button auth-ui-button--signout">
           Sign Out
         </button>
       `;
@@ -59,17 +58,14 @@ export class AuthUI {
       });
     } else {
       content.innerHTML = `
-        <h3 style="margin: 0 0 15px 0;">Sign In</h3>
-        <button id="sign-in-google" 
-                style="width: 100%; padding: 10px; background: #4285F4; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 8px;">
+        <h3 class="auth-ui-title">Sign In</h3>
+        <button id="sign-in-google" class="auth-ui-button auth-ui-button--google">
           Sign in with Google
         </button>
-        <button id="sign-in-meta" 
-                style="width: 100%; padding: 10px; background: #0081FB; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 8px;">
+        <button id="sign-in-meta" class="auth-ui-button auth-ui-button--meta">
           Sign in with Meta
         </button>
-        <button id="sign-in-guest" 
-                style="width: 100%; padding: 10px; background: #666; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        <button id="sign-in-guest" class="auth-ui-button auth-ui-button--guest">
           Continue as Guest
         </button>
       `;
@@ -86,11 +82,11 @@ export class AuthUI {
   }
 
   show() {
-    this.container.style.display = 'block';
+    this.container.classList.remove('is-hidden');
   }
 
   hide() {
-    this.container.style.display = 'none';
+    this.container.classList.add('is-hidden');
   }
 }
 

@@ -24,23 +24,18 @@ export class AssetLinkUI {
   }
 
   private render() {
+    this.container.classList.add('asset-link-ui-container');
     this.container.innerHTML = `
-      <div style="position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.9); color: white; padding: 20px; border-radius: 8px; max-width: 400px; z-index: 10000; font-family: sans-serif;">
-        <h3 style="margin: 0 0 15px 0;">3D Asset Links</h3>
-        <div style="margin-bottom: 15px;">
-          <input type="text" id="asset-url-input" placeholder="Paste Sketchfab/Animated/Stale URL..." 
-                 style="width: 100%; padding: 8px; border: 1px solid #555; background: #222; color: white; border-radius: 4px; margin-bottom: 8px;">
-          <input type="text" id="asset-title-input" placeholder="Title (optional)" 
-                 style="width: 100%; padding: 8px; border: 1px solid #555; background: #222; color: white; border-radius: 4px; margin-bottom: 8px;">
-          <input type="text" id="asset-author-input" placeholder="Author (optional)" 
-                 style="width: 100%; padding: 8px; border: 1px solid #555; background: #222; color: white; border-radius: 4px; margin-bottom: 8px;">
-          <button id="add-asset-btn" 
-                  style="width: 100%; padding: 10px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">
-            Add Asset
-          </button>
-        </div>
-        <div id="asset-links-list" style="max-height: 300px; overflow-y: auto;">
-        </div>
+      <h3 class="asset-link-ui-title">3D Asset Links</h3>
+      <div class="asset-link-ui-form">
+        <input type="text" id="asset-url-input" class="asset-link-ui-input" placeholder="Paste Sketchfab/Animated/Stale URL...">
+        <input type="text" id="asset-title-input" class="asset-link-ui-input" placeholder="Title (optional)">
+        <input type="text" id="asset-author-input" class="asset-link-ui-input" placeholder="Author (optional)">
+        <button id="add-asset-btn" class="asset-link-ui-button">
+          Add Asset
+        </button>
+      </div>
+      <div id="asset-links-list" class="asset-link-ui-list">
       </div>
     `;
 
@@ -78,19 +73,18 @@ export class AssetLinkUI {
 
     const links = this.manager.getAllLinks();
     if (links.length === 0) {
-      listEl.innerHTML = '<p style="color: #888; font-size: 12px;">No assets added yet</p>';
+      listEl.innerHTML = '<p class="asset-link-ui-empty-state">No assets added yet</p>';
       return;
     }
 
     listEl.innerHTML = links.map(link => `
-      <div style="padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center;">
-        <div style="flex: 1;">
-          <div style="font-weight: bold; margin-bottom: 4px;">${link.title}</div>
-          <div style="font-size: 11px; color: #aaa;">${link.source} • ${link.author}</div>
-          <div style="font-size: 10px; color: #666; word-break: break-all;">${link.url}</div>
+      <div class="asset-link-ui-item">
+        <div class="asset-link-ui-item-content">
+          <div class="asset-link-ui-item-title">${link.title}</div>
+          <div class="asset-link-ui-item-meta">${link.source} • ${link.author}</div>
+          <div class="asset-link-ui-item-url">${link.url}</div>
         </div>
-        <button data-link-id="${link.id}" 
-                style="padding: 5px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px;">
+        <button data-link-id="${link.id}" class="asset-link-ui-remove-button">
           Remove
         </button>
       </div>
@@ -107,11 +101,11 @@ export class AssetLinkUI {
   }
 
   show() {
-    this.container.style.display = 'block';
+    this.container.classList.remove('is-hidden');
   }
 
   hide() {
-    this.container.style.display = 'none';
+    this.container.classList.add('is-hidden');
   }
 }
 

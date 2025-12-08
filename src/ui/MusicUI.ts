@@ -22,21 +22,19 @@ export class MusicUI {
   }
 
   private render() {
+    // Hide music UI in main feed (disabled in main.ts)
+    this.container.classList.add('music-ui-container', 'is-hidden-in-main-feed');
     this.container.innerHTML = `
-      <div style="position: fixed; bottom: 20px; right: 20px; background: rgba(0,0,0,0.9); color: white; padding: 20px; border-radius: 8px; z-index: 10000; font-family: sans-serif; min-width: 300px;">
-        <h3 style="margin: 0 0 15px 0;">Music Player</h3>
-        <div style="margin-bottom: 15px;">
-          <button id="sign-in-spotify" 
-                  style="width: 100%; padding: 10px; background: #1DB954; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 8px;">
-            Sign in with Spotify
-          </button>
-          <button id="sign-in-soundcloud" 
-                  style="width: 100%; padding: 10px; background: #FF5500; color: white; border: none; border-radius: 4px; cursor: pointer;">
-            Sign in with SoundCloud
-          </button>
-        </div>
-        <div id="music-player-content"></div>
+      <h3 class="music-ui-title">Music Player</h3>
+      <div class="music-ui-auth-buttons">
+        <button id="sign-in-spotify" class="music-ui-button music-ui-button--spotify">
+          Sign in with Spotify
+        </button>
+        <button id="sign-in-soundcloud" class="music-ui-button music-ui-button--soundcloud">
+          Sign in with SoundCloud
+        </button>
       </div>
+      <div id="music-player-content"></div>
     `;
     
     (this.container.querySelector('#sign-in-spotify') as HTMLButtonElement)?.addEventListener('click', () => {
@@ -58,17 +56,15 @@ export class MusicUI {
 
     if (track) {
       content.innerHTML = `
-        <div style="margin-bottom: 15px;">
-          <div style="font-weight: bold; margin-bottom: 5px;">${track.title}</div>
-          <div style="font-size: 12px; color: #aaa;">${track.artist}</div>
+        <div class="music-ui-track-info">
+          <div class="music-ui-track-title">${track.title}</div>
+          <div class="music-ui-track-artist">${track.artist}</div>
         </div>
-        <div style="display: flex; gap: 8px;">
-          <button id="play-pause-btn" 
-                  style="flex: 1; padding: 10px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        <div class="music-ui-controls">
+          <button id="play-pause-btn" class="music-ui-control-button music-ui-control-button--play">
             ${playing ? 'Pause' : 'Play'}
           </button>
-          <button id="stop-btn" 
-                  style="flex: 1; padding: 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          <button id="stop-btn" class="music-ui-control-button music-ui-control-button--stop">
             Stop
           </button>
         </div>
@@ -80,16 +76,16 @@ export class MusicUI {
         this.manager.stop();
       });
     } else {
-      content.innerHTML = '<p style="color: #888; font-size: 12px;">No track playing</p>';
+      content.innerHTML = '<p class="music-ui-empty-state">No track playing</p>';
     }
   }
 
   show() {
-    this.container.style.display = 'block';
+    this.container.classList.remove('is-hidden');
   }
 
   hide() {
-    this.container.style.display = 'none';
+    this.container.classList.add('is-hidden');
   }
 }
 

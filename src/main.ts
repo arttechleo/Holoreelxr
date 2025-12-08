@@ -21,6 +21,9 @@ import { RemoteHands } from './multiplayer/RemoteHands';
 import { XRMultiplayerPanel } from './ui/XRMultiplayerPanelCanvas';
 import * as THREE from 'three';
 
+// Import centralized UI stylesheet
+import './ui/style.css';
+
 // ========== INITIALIZATION ==========
 const app = new ThreeXRApp();
 const hands = new HandEngine(app.renderer);
