@@ -1,557 +1,1127 @@
 /* ============================================
-   HoloreelXR - Centralized UI Stylesheet
-   Location: src/ui/style.css
-   ============================================
-   
-   This file contains all DOM-based UI styling for the HoloreelXR application.
-   Three.js canvas-based UI (e.g., ReactionHud, TutorialPanel) is NOT styled here.
-   
-   Design Language: Dark, semi-transparent "Horizon-style" optimized for mixed reality.
+   HoloreelXR - UI Guidelines & Design System
+   (Dark frosted “Horizon-style” refresh)
    ============================================ */
 
 /* ============================================
-   Design Tokens (Horizon-style)
+   1. DESIGN TOKENS
    ============================================ */
 
-:root {
-  /* Dark, semi-transparent surfaces */
-  --bg-panel: rgba(20, 20, 24, 0.60);        /* main frosted panel */
-  --bg-panel-strong: rgba(18, 18, 22, 0.90); /* more solid variant */
-  --bg-chip: rgba(255, 255, 255, 0.06);
-  --bg-chip-hover: rgba(255, 255, 255, 0.16);
-
-  --border-subtle: rgba(255, 255, 255, 0.10);
-
-  /* Text */
-  --text-primary: #f9fafb;
-  --text-secondary: rgba(249, 250, 251, 0.65);
-  --text-dim: rgba(249, 250, 251, 0.40);
-
-  /* Accent colors */
-  --accent: #9b87ff;
-  --accent-soft: rgba(155, 135, 255, 0.32);
-  --cta: #ff6f61;
-  --cta-soft: rgba(255, 111, 97, 0.26);
-
-  /* Radii */
-  --radius-panel: 28px;
-  --radius-chip: 999px;
-  --radius-card: 20px;
-
-  /* Shadows */
-  --shadow-lg: 0 22px 48px rgba(0,0,0,0.45);
-  --shadow-sm: 0 8px 18px rgba(0,0,0,0.30);
-
-  /* Spacing */
-  --space-xs: 6px;
-  --space-sm: 10px;
-  --space-md: 16px;
-  --space-lg: 24px;
-  --space-xl: 32px;
-
-  font-family: -apple-system, system-ui, BlinkMacSystemFont, "SF Pro Text", sans-serif;
-}
-
-/* ============================================
-   HUD Root and General Layout
-   ============================================ */
-
-.hud-root {
-  position: fixed;
-  top: 12px;
-  left: 12px;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* ============================================
-   Toasts and Notifications
-   ============================================ */
-
-.hud-toast {
-  background: var(--bg-panel);
-  color: var(--text-primary);
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-card);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(14px) saturate(135%);
-  -webkit-backdrop-filter: blur(14px) saturate(135%);
-  transition: opacity 0.3s ease;
-}
-
-.hud-toast.is-visible {
-  opacity: 1;
-}
-
-.hud-toast.is-fading {
-  opacity: 0.8;
-}
-
-/* ============================================
-   Music / Player Panel
-   ============================================ */
-
-.hud-player-panel {
-  background: var(--bg-panel);
-  color: var(--text-primary);
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-card);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(14px) saturate(135%);
-  -webkit-backdrop-filter: blur(14px) saturate(135%);
-}
-
-.hud-player-panel button {
-  background: var(--bg-chip);
-  border: none;
-  color: var(--text-primary);
-  cursor: pointer;
-  padding: 4px 8px;
-  margin-right: 4px;
-  font-size: 16px;
-  border-radius: var(--radius-chip);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
-}
-
-.hud-player-panel button:hover {
-  background: var(--bg-chip-hover);
-  transform: scale(1.05);
-}
-
-.hud-player-panel span {
-  margin-left: 4px;
-}
-
-/* Hide player panel in main feed */
-.hud-player-panel.is-hidden-in-main-feed {
-  display: none !important;
-}
-
-/* ============================================
-   Reaction HUD (DOM overlay)
-   ============================================ */
-
-.hud-reaction {
-  position: absolute;
-  top: 80px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-panel);
-  backdrop-filter: blur(18px) saturate(135%);
-  -webkit-backdrop-filter: blur(18px) saturate(135%);
-  color: var(--text-primary);
-  padding: var(--space-md) var(--space-lg);
-  border-radius: var(--radius-panel);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-lg);
-  text-align: center;
-  transition: opacity 0.25s ease;
-  pointer-events: none;
-}
-
-.hud-reaction.is-visible {
-  opacity: 1;
-}
-
-.hud-reaction.is-hidden {
-  opacity: 0;
-}
-
-.hud-reaction-title {
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-
-.hud-reaction-row {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  margin-bottom: 8px;
-}
-
-.hud-reaction-comments {
-  max-width: 280px;
-  font-size: 13px;
-  line-height: 1.35;
-  color: var(--text-secondary);
-}
-
-.hud-reaction-comments p {
-  margin: 4px 0;
-}
-
-/* ============================================
-   Music UI Panel (2D DOM)
-   ============================================ */
-
-.music-ui-container {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  background: var(--bg-panel-strong);
-  color: var(--text-primary);
-  padding: var(--space-lg);
-  border-radius: var(--radius-panel);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(18px) saturate(135%);
-  -webkit-backdrop-filter: blur(18px) saturate(135%);
-  z-index: 10000;
-  min-width: 300px;
-}
-
-.music-ui-container.is-hidden-in-main-feed {
-  display: none !important;
-}
-
-.music-ui-title {
-  margin: 0 0 15px 0;
-}
-
-.music-ui-auth-buttons {
-  margin-bottom: 15px;
-}
-
-.music-ui-button {
-  width: 100%;
-  padding: var(--space-sm);
-  border: none;
-  border-radius: var(--radius-chip);
-  cursor: pointer;
-  margin-bottom: var(--space-xs);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
-}
-
-.music-ui-button:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-.music-ui-button:active {
-  transform: translateY(0);
-}
-
-.music-ui-button:last-child {
-  margin-bottom: 0;
-}
-
-.music-ui-button--spotify {
-  background: #1DB954;
-  color: white;
-}
-
-.music-ui-button--soundcloud {
-  background: #FF5500;
-  color: white;
-}
-
-.music-ui-track-info {
-  margin-bottom: 15px;
-}
-
-.music-ui-track-title {
-  font-weight: bold;
-  margin-bottom: 5px;
-}
-
-.music-ui-track-artist {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.music-ui-controls {
-  display: flex;
-  gap: 8px;
-}
-
-.music-ui-control-button {
-  flex: 1;
-  padding: var(--space-sm);
-  border: none;
-  border-radius: var(--radius-chip);
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
-}
-
-.music-ui-control-button:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-.music-ui-control-button:active {
-  transform: translateY(0);
-}
-
-.music-ui-control-button--play {
-  background: var(--cta);
-  color: white;
-}
-
-.music-ui-control-button--stop {
-  background: var(--cta);
-  color: white;
-}
-
-.music-ui-empty-state {
-  color: var(--text-dim);
-  font-size: 12px;
-}
-
-/* ============================================
-   Auth UI Panel (2D DOM)
-   ============================================ */
-
-.auth-ui-container {
-  position: fixed;
-  top: 20px;
-  left: 20px;
-  background: var(--bg-panel-strong);
-  color: var(--text-primary);
-  padding: var(--space-lg);
-  border-radius: var(--radius-panel);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(18px) saturate(135%);
-  -webkit-backdrop-filter: blur(18px) saturate(135%);
-  z-index: 10000;
-  min-width: 250px;
-}
-
-.auth-ui-container.is-hidden-in-main-feed {
-  display: none !important;
-}
-
-.auth-ui-title {
-  margin: 0 0 15px 0;
-}
-
-.auth-ui-user-info {
-  margin-bottom: 15px;
-}
-
-.auth-ui-user-name {
-  font-weight: bold;
-  margin-bottom: 5px;
-}
-
-.auth-ui-user-provider {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.auth-ui-user-email {
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.auth-ui-button {
-  width: 100%;
-  padding: var(--space-sm);
-  border: none;
-  border-radius: var(--radius-chip);
-  cursor: pointer;
-  margin-bottom: var(--space-xs);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
-}
-
-.auth-ui-button:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-.auth-ui-button:active {
-  transform: translateY(0);
-}
-
-.auth-ui-button:last-child {
-  margin-bottom: 0;
-}
-
-.auth-ui-button--google {
-  background: #4285F4;
-  color: white;
-}
-
-.auth-ui-button--meta {
-  background: #0081FB;
-  color: white;
-}
-
-.auth-ui-button--guest {
-  background: var(--bg-chip);
-  color: var(--text-primary);
-}
-
-.auth-ui-button--guest:hover {
-  background: var(--bg-chip-hover);
-}
-
-.auth-ui-button--signout {
-  background: var(--cta);
-  color: white;
-}
-
-/* ============================================
-   Asset Link UI Panel (2D DOM)
-   ============================================ */
-
-.asset-link-ui-container {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  background: var(--bg-panel-strong);
-  color: var(--text-primary);
-  padding: var(--space-lg);
-  border-radius: var(--radius-panel);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(18px) saturate(135%);
-  -webkit-backdrop-filter: blur(18px) saturate(135%);
-  max-width: 400px;
-  z-index: 10000;
-}
-
-.asset-link-ui-title {
-  margin: 0 0 15px 0;
-}
-
-.asset-link-ui-form {
-  margin-bottom: 15px;
-}
-
-.asset-link-ui-input {
-  width: 100%;
-  padding: var(--space-xs);
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-panel-strong);
-  color: var(--text-primary);
-  border-radius: var(--radius-card);
-  margin-bottom: var(--space-xs);
-  font-size: 14px;
-  transition: border-color 0.2s ease;
-}
-
-.asset-link-ui-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.asset-link-ui-button {
-  width: 100%;
-  padding: var(--space-sm);
-  background: var(--cta);
-  color: white;
-  border: none;
-  border-radius: var(--radius-chip);
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
-}
-
-.asset-link-ui-button:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-.asset-link-ui-button:active {
-  transform: translateY(0);
-}
-
-.asset-link-ui-list {
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.asset-link-ui-item {
-  padding: var(--space-sm);
-  border-bottom: 1px solid var(--border-subtle);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.asset-link-ui-item-content {
-  flex: 1;
-}
-
-.asset-link-ui-item-title {
-  font-weight: bold;
-  margin-bottom: 4px;
-}
-
-.asset-link-ui-item-meta {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.asset-link-ui-item-url {
-  font-size: 10px;
-  color: var(--text-dim);
-  word-break: break-all;
-}
-
-.asset-link-ui-remove-button {
-  padding: 5px var(--space-sm);
-  background: var(--cta);
-  color: white;
-  border: none;
-  border-radius: var(--radius-chip);
-  cursor: pointer;
-  margin-left: var(--space-sm);
-  font-size: 12px;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
-}
-
-.asset-link-ui-remove-button:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-.asset-link-ui-remove-button:active {
-  transform: translateY(0);
-}
-
-.asset-link-ui-empty-state {
-  color: var(--text-dim);
-  font-size: 12px;
-}
-
-/* ============================================
-   Utility Classes
-   ============================================ */
-
-.is-hidden {
-  display: none !important;
-}
-
-.is-visible {
-  display: block;
-}
-
-.is-active {
-  opacity: 1;
-}
-
-.is-inactive {
-  opacity: 0.5;
-}
-
-/* Hide elements in main feed context */
-.is-hidden-in-main-feed {
-  display: none !important;
-}
-
+   :root {
+    /* ========== Core Palette (from new design) ========== */
+  
+    /* Dark, semi-transparent surfaces */
+    --bg-page: #05060a;
+    --bg-panel: rgba(20, 20, 24, 0.60);        /* main frosted panel */
+    --bg-panel-strong: rgba(26, 26, 32, 0.78); /* elevated panel */
+    --bg-panel-elevated: rgba(26, 26, 32, 0.78);
+    --bg-chip: rgba(255, 255, 255, 0.06);
+    --bg-chip-hover: rgba(255, 255, 255, 0.16);
+    --bg-xr-bar: rgba(12, 14, 20, 0.95);
+  
+    /* Canvas UI Background Gradients */
+    --canvas-bg-gradient-top: #30303a;
+    --canvas-bg-gradient-bottom: #111118;
+  
+    /* Borders */
+    --border-subtle: rgba(255, 255, 255, 0.10);
+    --border-white: #ffffff;
+    --border-grey: #6f7280;
+    --border-dark: #3a3d4a;
+    --border-dashed: #5a5d6b;
+  
+    /* Text on dark */
+    --text-primary: #f9fafb;
+    --text-secondary: rgba(249, 250, 251, 0.65);
+    --text-dim: rgba(249, 250, 251, 0.40);
+    --text-white: #ffffff;
+    --text-black: #000000;
+    --text-grey: #9ca3af;
+    --text-light-grey: #e5e7eb;
+  
+    /* Accents (purple + coral) */
+    --accent: #9b87ff;
+    --accent-soft: rgba(155, 135, 255, 0.32);
+    --cta: #ff6f61;
+    --cta-soft: rgba(255, 111, 97, 0.26);
+  
+    /* Brand Colors (Connect Page) */
+    --brand-primary: #667eea;
+    --brand-secondary: #764ba2;
+    --brand-primary-hover: #5568d3;
+  
+    /* Service Colors */
+    --spotify-green: #1DB954;
+    --soundcloud-orange: #FF5500;
+    --google-blue: #4285F4;
+    --meta-blue: #0081FB;
+    --success-green: #4caf50;
+    --success-green-hover: #45a049;
+    --error-red: #FF3355;
+    --warning-orange: #FFAF50;
+  
+    /* Status Colors – tuned for dark backgrounds */
+    --success-bg: rgba(46, 125, 50, 0.18);
+    --success-text: #a5e3a8;
+    --error-bg: rgba(198, 40, 40, 0.20);
+    --error-text: #ffb1be;
+    --info-bg: rgba(25, 118, 210, 0.20);
+    --info-text: #9cc9ff;
+    --warning-bg: rgba(255, 179, 71, 0.20);
+  
+    /* Multiplayer Hand Colors */
+    --hand-color-base: #4a9eff;
+    --hand-color-glow: #6bb5ff;
+    --hand-color-pinch: #ffd93d;
+  
+    /* ========== Typography ========== */
+  
+    --font-family-base: -apple-system, system-ui, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    --font-family-system: system-ui, Arial, sans-serif;
+    --font-family-monospace: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    --font-family-emoji: system-ui, emoji, sans-serif;
+  
+    /* Font Sizes (DOM UI) – slightly larger, XR-friendly */
+    --font-size-xs: 0.75rem;   /* 12px */
+    --font-size-sm: 0.875rem;  /* 14px */
+    --font-size-md: 1rem;      /* 16px */
+    --font-size-lg: 1.125rem;  /* 18px */
+    --font-size-xl: 1.5rem;    /* 24px */
+    --font-size-2xl: 1.75rem;  /* 28px */
+  
+    /* Font Sizes (Canvas UI - in pixels) */
+    --canvas-font-xs: 12px;
+    --canvas-font-sm: 14px;
+    --canvas-font-md: 18px;
+    --canvas-font-lg: 20px;
+    --canvas-font-xl: 24px;
+    --canvas-font-2xl: 28px;
+    --canvas-font-3xl: 32px;
+    --canvas-font-4xl: 36px;
+    --canvas-font-5xl: 40px;
+    --canvas-font-6xl: 42px;
+    --canvas-font-7xl: 44px;
+    --canvas-font-8xl: 48px;
+    --canvas-font-9xl: 56px;
+    --canvas-font-10xl: 60px;
+    --canvas-font-11xl: 68px;
+    --canvas-font-12xl: 70px;
+    --canvas-font-13xl: 72px;
+    --canvas-font-14xl: 80px;
+    --canvas-font-15xl: 96px;
+    --canvas-font-16xl: 120px;
+    --canvas-font-17xl: 200px;
+  
+    /* Font Weights */
+    --font-weight-normal: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+    --font-weight-black: 900;
+  
+    /* Line Heights */
+    --line-height-tight: 1.2;
+    --line-height-normal: 1.4;
+    --line-height-relaxed: 1.5;
+    --line-height-loose: 1.8;
+  
+    /* ========== Spacing (mapped to new scale) ========== */
+  
+    --space-xxs: 2px;
+    --space-xs: 6px;
+    --space-sm: 12px;
+    --space-md: 18px;
+    --space-lg: 28px;
+    --space-xl: 40px;
+    --space-2xl: 52px;
+    --space-3xl: 64px;
+    --space-4xl: 80px;
+    --space-5xl: 96px;
+    --space-6xl: 120px;
+    --space-7xl: 160px;
+  
+    /* Canvas UI Spacing */
+    --canvas-space-xs: 4px;
+    --canvas-space-sm: 8px;
+    --canvas-space-md: 12px;
+    --canvas-space-lg: 16px;
+    --canvas-space-xl: 24px;
+    --canvas-space-2xl: 32px;
+    --canvas-space-3xl: 40px;
+    --canvas-space-4xl: 52px;
+    --canvas-space-5xl: 64px;
+    --canvas-space-6xl: 80px;
+    --canvas-space-7xl: 96px;
+    --canvas-space-8xl: 120px;
+    --canvas-space-9xl: 160px;
+    --canvas-space-10xl: 200px;
+  
+    /* ========== Border Radius (mapped to new geometry) ========== */
+  
+    --radius-xs: 6px;
+    --radius-sm: 10px;
+    --radius-md: 18px;
+    --radius-lg: 24px;
+    --radius-xl: 32px;
+    --radius-2xl: 40px;
+    --radius-3xl: 48px;
+    --radius-4xl: 56px;
+    --radius-full: 999px;
+  
+    /* Aliases matching your new design snippet */
+    --radius-outer: 32px;
+    --radius-inner: 24px;
+    --radius-button: 999px;
+  
+    /* Used in components below */
+    --radius-panel: var(--radius-outer);
+    --radius-card: var(--radius-inner);
+  
+    /* Canvas UI Border Radius */
+    --canvas-radius-sm: 6px;
+    --canvas-radius-md: 12px;
+    --canvas-radius-lg: 24px;
+    --canvas-radius-xl: 32px;
+  
+    /* ========== Shadows ========== */
+  
+    --shadow-sm: 0 8px 18px rgba(0,0,0,0.35);
+    --shadow-md: 0 12px 28px rgba(0,0,0,0.45);
+    --shadow-lg: 0 22px 48px rgba(0,0,0,0.55);
+    --shadow-xl: 0 28px 80px rgba(0,0,0,0.70);
+    --shadow-brand: 0 10px 30px rgba(102, 126, 234, 0.55);
+    --shadow-text: 0 0 8px rgba(0, 0, 0, 0.6);
+  
+    /* Canvas UI Shadows */
+    --canvas-shadow-sm: 10px;
+    --canvas-shadow-md: 15px;
+    --canvas-shadow-lg: 20px;
+  
+    /* ========== Transitions & Animations ========== */
+  
+    --transition-fast: 0.1s ease-in-out;
+    --transition-base: 0.12s ease;
+    --transition-normal: 0.2s ease;
+    --transition-slow: 0.25s ease;
+    --transition-slower: 0.3s ease;
+    --transition-slowest: 0.5s ease;
+  
+    /* Canvas UI Transitions */
+    --canvas-transition-fast: 0.1s;
+    --canvas-transition-base: 0.12s;
+    --canvas-transition-normal: 0.2s;
+    --canvas-transition-slow: 0.25s;
+    --canvas-transition-slower: 0.3s;
+    --canvas-transition-slowest: 0.5s;
+  
+    /* ========== Z-Index Layers ========== */
+  
+    --z-base: 10;
+    --z-overlay: 100;
+    --z-modal: 10000;
+  
+    /* ========== Opacity Values ========== */
+  
+    --opacity-disabled: 0.45;
+    --opacity-dim: 0.4;
+    --opacity-muted: 0.65;
+    --opacity-subtle: 0.08;
+    --opacity-hover: 0.16;
+    --opacity-panel: 0.60;
+    --opacity-panel-strong: 0.78;
+    --opacity-backdrop: 0.4;
+    --opacity-backdrop-blur: 0.8;
+  
+    /* ========== Backdrop Filters ========== */
+  
+    --backdrop-blur: blur(14px) saturate(135%);
+    --backdrop-blur-strong: blur(18px) saturate(135%);
+    --backdrop-blur-weak: blur(4px);
+  }
+  
+  /* ============================================
+     2. BASE / RESET
+     ============================================ */
+  
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background:
+      radial-gradient(circle at top left, #141827 0, #05060a 52%, #020308 100%);
+    color: var(--text-white);
+    font-family: var(--font-family-base);
+    -webkit-font-smoothing: antialiased;
+  }
+  
+  canvas {
+    display: block;
+  }
+  
+  /* ============================================
+     3. TYPOGRAPHY STYLES
+     ============================================ */
+  
+  h1, .heading-xl {
+    font-size: var(--font-size-2xl);
+    font-weight: var(--font-weight-semibold);
+    margin: 0 0 var(--space-md) 0;
+    color: var(--text-primary);
+    letter-spacing: 0.01em;
+  }
+  
+  h2, .heading-lg {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-semibold);
+    margin: 0 0 var(--space-sm) 0;
+    color: var(--text-primary);
+  }
+  
+  h3, .heading-md {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-medium);
+    margin: 0 0 var(--space-xs) 0;
+    color: var(--text-primary);
+  }
+  
+  p {
+    margin: var(--space-xs) 0;
+    line-height: var(--line-height-relaxed);
+    color: var(--text-secondary);
+  }
+  
+  a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: var(--font-weight-medium);
+    transition: color var(--transition-base);
+  }
+  
+  a:hover {
+    color: var(--cta);
+  }
+  
+  code {
+    font-family: var(--font-family-monospace);
+    font-size: var(--font-size-sm);
+    background: rgba(15, 23, 42, 0.9);
+    padding: 3px 8px;
+    border-radius: var(--radius-xs);
+    border: 1px solid rgba(148, 163, 184, 0.5);
+  }
+  
+  /* ============================================
+     4. LAYOUT & SPACING UTILITIES
+     ============================================ */
+  
+  .container {
+    max-width: 600px;
+    width: 100%;
+    margin: 0 auto;
+    padding: var(--space-3xl);
+  }
+  
+  .section {
+    margin-bottom: var(--space-2xl);
+    padding: var(--space-lg);
+    background: var(--bg-panel);
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--border-subtle);
+    backdrop-filter: var(--backdrop-blur);
+    -webkit-backdrop-filter: var(--backdrop-blur);
+    box-shadow: var(--shadow-md);
+  }
+  
+  .flex {
+    display: flex;
+  }
+  
+  .flex-col {
+    flex-direction: column;
+  }
+  
+  .flex-row {
+    flex-direction: row;
+  }
+  
+  .gap-xs { gap: var(--space-xs); }
+  .gap-sm { gap: var(--space-sm); }
+  .gap-md { gap: var(--space-md); }
+  .gap-lg { gap: var(--space-lg); }
+  .gap-xl { gap: var(--space-xl); }
+  
+  /* ============================================
+     5. COMPONENTS
+     ============================================ */
+  
+  /* ========== Buttons ========== */
+  
+  /* Base Button – pill-shaped, frosted */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 22px;
+    border-radius: var(--radius-button);
+    font-weight: var(--font-weight-semibold);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition:
+      transform var(--transition-base),
+      box-shadow var(--transition-base),
+      background-color var(--transition-base),
+      border-color var(--transition-base);
+    font-size: var(--font-size-md);
+    letter-spacing: 0.01em;
+  }
+  
+  .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+  }
+  
+  .btn:active {
+    transform: scale(0.96);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.7);
+  }
+  
+  .btn:disabled {
+    opacity: var(--opacity-disabled);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+  
+  /* Primary CTA */
+  .btn-primary {
+    background: var(--cta);
+    color: var(--text-white);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+  }
+  
+  .btn-primary:hover {
+    background: #ff7f6f;
+  }
+  
+  .btn-secondary {
+    background: var(--bg-chip);
+    color: var(--text-primary);
+    border-color: var(--border-subtle);
+  }
+  
+  .btn-secondary:hover {
+    background: var(--bg-chip-hover);
+  }
+  
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+  }
+  
+  /* Brand Buttons */
+  .btn-spotify {
+    background: var(--spotify-green);
+    color: var(--text-white);
+  }
+  
+  .btn-soundcloud {
+    background: var(--soundcloud-orange);
+    color: var(--text-white);
+  }
+  
+  .btn-google {
+    background: var(--google-blue);
+    color: var(--text-white);
+  }
+  
+  .btn-meta {
+    background: var(--meta-blue);
+    color: var(--text-white);
+  }
+  
+  .btn-success {
+    background: var(--success-green);
+    color: var(--text-white);
+  }
+  
+  .btn-success:hover {
+    background: var(--success-green-hover);
+  }
+  
+  /* XR Bar Button */
+  #xr-bar button {
+    padding: 10px 22px;
+    border-radius: var(--radius-button);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-panel-strong);
+    color: var(--text-primary);
+    font-weight: var(--font-weight-semibold);
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    font-size: var(--font-size-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  #xr-bar button:hover {
+    background: rgba(35, 39, 52, 0.95);
+  }
+  
+  #xr-bar button[disabled] {
+    opacity: var(--opacity-disabled);
+    cursor: not-allowed;
+  }
+  
+  /* ========== Inputs ========== */
+  
+  .input {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(148, 163, 184, 0.6);
+    font-family: var(--font-family-monospace);
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-sm);
+    transition: border-color var(--transition-normal), background-color var(--transition-normal), box-shadow var(--transition-normal);
+    background: rgba(15, 23, 42, 0.85);
+    color: var(--text-primary);
+  }
+  
+  .input::placeholder {
+    color: rgba(148, 163, 184, 0.7);
+  }
+  
+  .input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(155, 135, 255, 0.4);
+    background: rgba(15, 23, 42, 0.98);
+  }
+  
+  textarea.input {
+    resize: vertical;
+    min-height: 100px;
+  }
+  
+  /* ========== Cards / Panels (xr-panel style) ========== */
+  
+  .card {
+    background: var(--bg-panel);
+    color: var(--text-primary);
+    padding: var(--space-md);
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: var(--backdrop-blur-strong);
+    -webkit-backdrop-filter: var(--backdrop-blur-strong);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+  
+  .card-strong {
+    background: var(--bg-panel-strong);
+  }
+  
+  /* ============================================
+     HUD / PANELS
+     ============================================ */
+  
+  .hud-toast {
+    background: var(--bg-panel);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: var(--backdrop-blur);
+    -webkit-backdrop-filter: var(--backdrop-blur);
+    transition: opacity var(--transition-slower), transform var(--transition-slow);
+    transform: translateY(4px);
+    opacity: 0;
+  }
+  
+  .hud-toast.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  
+  .hud-toast.is-fading {
+    opacity: 0.8;
+  }
+  
+  /* Status Messages */
+  
+  .output {
+    background: var(--success-bg);
+    padding: var(--space-md);
+    border-radius: var(--radius-sm);
+    margin-top: var(--space-sm);
+    word-break: break-all;
+    font-family: var(--font-family-monospace);
+    font-size: var(--font-size-sm);
+    display: none;
+  }
+  
+  .output.show {
+    display: block;
+  }
+  
+  .error {
+    background: var(--error-bg);
+    color: var(--error-text);
+    padding: var(--space-md);
+    border-radius: var(--radius-sm);
+    margin-top: var(--space-sm);
+    display: none;
+  }
+  
+  .error.show {
+    display: block;
+  }
+  
+  .success {
+    background: var(--success-bg);
+    color: var(--success-text);
+    padding: var(--space-md);
+    border-radius: var(--radius-sm);
+    margin-top: var(--space-sm);
+    display: none;
+  }
+  
+  .success.show {
+    display: block;
+  }
+  
+  .info {
+    background: var(--info-bg);
+    padding: var(--space-md);
+    border-radius: var(--radius-sm);
+    margin-top: var(--space-sm);
+    font-size: var(--font-size-sm);
+    color: var(--info-text);
+  }
+  
+  /* HUD Root */
+  
+  .hud-root {
+    position: fixed;
+    top: var(--space-md);
+    left: var(--space-md);
+    z-index: var(--z-base);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+  
+  #xr-bar {
+    position: fixed;
+    left: var(--space-md);
+    bottom: var(--space-md);
+    z-index: var(--z-overlay);
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+  }
+  
+  .xr-overlay * {
+    pointer-events: auto;
+  }
+  
+  /* ========== Music / Player Panel ========== */
+  
+  .hud-player-panel {
+    background: var(--bg-panel);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: var(--backdrop-blur);
+    -webkit-backdrop-filter: var(--backdrop-blur);
+  }
+  
+  .hud-player-panel button {
+    background: var(--bg-chip);
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    padding: 6px 16px;
+    margin-right: var(--space-xs);
+    font-size: var(--font-size-sm);
+    border-radius: var(--radius-button);
+    transition:
+      transform var(--transition-base),
+      box-shadow var(--transition-base),
+      background var(--transition-base);
+  }
+  
+  .hud-player-panel button:hover {
+    background: var(--bg-chip-hover);
+    transform: scale(1.05);
+  }
+  
+  .hud-player-panel span {
+    margin-left: var(--space-xs);
+  }
+  
+  .hud-player-panel.is-hidden-in-main-feed {
+    display: none !important;
+  }
+  
+  /* ========== Reaction HUD ========== */
+  
+  .hud-reaction {
+    position: absolute;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-panel);
+    backdrop-filter: var(--backdrop-blur-strong);
+    -webkit-backdrop-filter: var(--backdrop-blur-strong);
+    color: var(--text-primary);
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+    text-align: center;
+    transition: opacity var(--transition-slow), transform var(--transition-slow);
+    pointer-events: none;
+    opacity: 0;
+  }
+  
+  .hud-reaction.is-visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  
+  .hud-reaction.is-hidden {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  
+  .hud-reaction-title {
+    font-weight: var(--font-weight-bold);
+    margin-bottom: var(--space-xs);
+  }
+  
+  .hud-reaction-row {
+    display: flex;
+    gap: var(--space-md);
+    justify-content: center;
+    margin-bottom: var(--space-sm);
+  }
+  
+  .hud-reaction-comments {
+    max-width: 280px;
+    font-size: var(--font-size-xs);
+    line-height: var(--line-height-normal);
+    color: var(--text-secondary);
+  }
+  
+  .hud-reaction-comments p {
+    margin: var(--space-xxs) 0;
+  }
+  
+  /* ========== Music UI Panel (2D DOM) ========== */
+  
+  .music-ui-container {
+    position: fixed;
+    bottom: var(--space-3xl);
+    right: var(--space-3xl);
+    background: var(--bg-panel-strong);
+    color: var(--text-primary);
+    padding: var(--space-md);
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: var(--backdrop-blur-strong);
+    -webkit-backdrop-filter: var(--backdrop-blur-strong);
+    z-index: var(--z-modal);
+    min-width: 300px;
+  }
+  
+  .music-ui-container.is-hidden-in-main-feed {
+    display: none !important;
+  }
+  
+  .music-ui-title {
+    margin: 0 0 var(--space-sm) 0;
+  }
+  
+  .music-ui-auth-buttons {
+    margin-bottom: var(--space-md);
+  }
+  
+  .music-ui-button {
+    width: 100%;
+    padding: 10px 16px;
+    border: none;
+    border-radius: var(--radius-button);
+    cursor: pointer;
+    margin-bottom: var(--space-xs);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--text-primary);
+    transition:
+      transform var(--transition-base),
+      box-shadow var(--transition-base),
+      background var(--transition-base);
+  }
+  
+  .music-ui-button:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+  }
+  
+  .music-ui-button:active {
+    transform: scale(0.97);
+  }
+  
+  .music-ui-button:last-child {
+    margin-bottom: 0;
+  }
+  
+  .music-ui-button--spotify {
+    background: var(--spotify-green);
+    color: var(--text-white);
+  }
+  
+  .music-ui-button--soundcloud {
+    background: var(--soundcloud-orange);
+    color: var(--text-white);
+  }
+  
+  .music-ui-track-info {
+    margin-bottom: var(--space-md);
+  }
+  
+  .music-ui-track-title {
+    font-weight: var(--font-weight-bold);
+    margin-bottom: var(--space-xs);
+  }
+  
+  .music-ui-track-artist {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+  }
+  
+  .music-ui-controls {
+    display: flex;
+    gap: var(--space-sm);
+  }
+  
+  .music-ui-control-button {
+    flex: 1;
+    padding: 10px 0;
+    border: none;
+    border-radius: var(--radius-button);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--text-primary);
+    transition:
+      transform var(--transition-base),
+      box-shadow var(--transition-base),
+      background var(--transition-base);
+    background: var(--bg-chip);
+  }
+  
+  .music-ui-control-button:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+  }
+  
+  .music-ui-control-button:active {
+    transform: scale(0.97);
+  }
+  
+  .music-ui-control-button--play,
+  .music-ui-control-button--stop {
+    background: var(--cta);
+    color: var(--text-white);
+  }
+  
+  .music-ui-empty-state {
+    color: var(--text-dim);
+    font-size: var(--font-size-xs);
+  }
+  
+  /* ========== Auth UI Panel (2D DOM) ========== */
+  
+  .auth-ui-container {
+    position: fixed;
+    top: var(--space-3xl);
+    left: var(--space-3xl);
+    background: var(--bg-panel-strong);
+    color: var(--text-primary);
+    padding: var(--space-md);
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: var(--backdrop-blur-strong);
+    -webkit-backdrop-filter: var(--backdrop-blur-strong);
+    z-index: var(--z-modal);
+    min-width: 260px;
+  }
+  
+  .auth-ui-container.is-hidden-in-main-feed {
+    display: none !important;
+  }
+  
+  .auth-ui-title {
+    margin: 0 0 var(--space-sm) 0;
+  }
+  
+  .auth-ui-user-info {
+    margin-bottom: var(--space-md);
+  }
+  
+  .auth-ui-user-name {
+    font-weight: var(--font-weight-bold);
+    margin-bottom: var(--space-xs);
+  }
+  
+  .auth-ui-user-provider {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+  }
+  
+  .auth-ui-user-email {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  
+  .auth-ui-button {
+    width: 100%;
+    padding: 10px 16px;
+    border: none;
+    border-radius: var(--radius-button);
+    cursor: pointer;
+    margin-bottom: var(--space-xs);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--text-primary);
+    transition:
+      transform var(--transition-base),
+      box-shadow var(--transition-base),
+      background var(--transition-base);
+    background: var(--bg-chip);
+  }
+  
+  .auth-ui-button:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+  }
+  
+  .auth-ui-button:active {
+    transform: scale(0.97);
+  }
+  
+  .auth-ui-button:last-child {
+    margin-bottom: 0;
+  }
+  
+  .auth-ui-button--google {
+    background: var(--google-blue);
+    color: var(--text-white);
+  }
+  
+  .auth-ui-button--meta {
+    background: var(--meta-blue);
+    color: var(--text-white);
+  }
+  
+  .auth-ui-button--guest {
+    background: var(--bg-chip);
+    color: var(--text-primary);
+  }
+  
+  .auth-ui-button--guest:hover {
+    background: var(--bg-chip-hover);
+  }
+  
+  .auth-ui-button--signout {
+    background: var(--cta);
+    color: var(--text-white);
+  }
+  
+  /* ========== Asset Link UI Panel (2D DOM) ========== */
+  
+  .asset-link-ui-container {
+    position: fixed;
+    top: var(--space-3xl);
+    right: var(--space-3xl);
+    background: var(--bg-panel-strong);
+    color: var(--text-primary);
+    padding: var(--space-md);
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: var(--backdrop-blur-strong);
+    -webkit-backdrop-filter: var(--backdrop-blur-strong);
+    max-width: 400px;
+    z-index: var(--z-modal);
+  }
+  
+  .asset-link-ui-title {
+    margin: 0 0 var(--space-sm) 0;
+  }
+  
+  .asset-link-ui-form {
+    margin-bottom: var(--space-md);
+  }
+  
+  .asset-link-ui-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-subtle);
+    background: rgba(15, 23, 42, 0.85);
+    color: var(--text-primary);
+    border-radius: var(--radius-card);
+    margin-bottom: var(--space-xs);
+    font-size: var(--font-size-sm);
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal), background var(--transition-normal);
+  }
+  
+  .asset-link-ui-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(155, 135, 255, 0.4);
+    background: rgba(15, 23, 42, 0.98);
+  }
+  
+  .asset-link-ui-button {
+    width: 100%;
+    padding: 10px 16px;
+    background: var(--cta);
+    color: var(--text-white);
+    border: none;
+    border-radius: var(--radius-button);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    transition:
+      transform var(--transition-base),
+      box-shadow var(--transition-base),
+      background var(--transition-base);
+  }
+  
+  .asset-link-ui-button:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+  }
+  
+  .asset-link-ui-button:active {
+    transform: scale(0.97);
+  }
+  
+  .asset-link-ui-list {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  
+  .asset-link-ui-item {
+    padding: var(--space-xs);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .asset-link-ui-item-content {
+    flex: 1;
+  }
+  
+  .asset-link-ui-item-title {
+    font-weight: var(--font-weight-bold);
+    margin-bottom: var(--space-xxs);
+  }
+  
+  .asset-link-ui-item-meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  
+  .asset-link-ui-item-url {
+    font-size: 10px;
+    color: var(--text-dim);
+    word-break: break-all;
+  }
+  
+  .asset-link-ui-remove-button {
+    padding: 6px 10px;
+    background: var(--cta);
+    color: var(--text-white);
+    border: none;
+    border-radius: var(--radius-button);
+    cursor: pointer;
+    margin-left: var(--space-xs);
+    font-size: var(--font-size-xs);
+    transition:
+      transform var(--transition-base),
+      box-shadow var(--transition-base),
+      background var(--transition-base);
+  }
+  
+  .asset-link-ui-remove-button:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+  }
+  
+  .asset-link-ui-remove-button:active {
+    transform: scale(0.97);
+  }
+  
+  .asset-link-ui-empty-state {
+    color: var(--text-dim);
+    font-size: var(--font-size-xs);
+  }
+  
+  /* ============================================
+     6. UTILITIES
+     ============================================ */
+  
+  .is-hidden {
+    display: none !important;
+  }
+  
+  .is-visible {
+    display: block;
+  }
+  
+  .is-active {
+    opacity: 1;
+  }
+  
+  .is-inactive {
+    opacity: var(--opacity-disabled);
+  }
+  
+  .is-hidden-in-main-feed {
+    display: none !important;
+  }
+  
+  .hidden {
+    display: none !important;
+  }
+  
+  .spacer {
+    flex-grow: 1;
+  }
+  
+  /* ============================================
+     7. CANVAS UI GUIDELINES (Reference Only)
+     ============================================ */
+  /* (kept as in your original, but aligned with new tokens) */
+  /* ... */
+  
