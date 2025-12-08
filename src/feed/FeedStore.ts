@@ -366,10 +366,25 @@ export class FeedStore {
         }
       } else if (item.type === 'gaussianSplat') {
         // GAUSSIAN-SPLAT: Load Gaussian Splat content using SparkJS (native Three.js integration)
+        // 
+        // IMPORTANT: How to add a new .ply splat asset:
+        // 1. Place the .ply file in public/assets/ directory
+        // 2. Reference it in feed.json as "/assets/filename.ply" (not "./public/assets/...")
+        // 3. Ensure the .ply is a valid 3D Gaussian Splat format (not a regular mesh PLY)
+        //    - Test by loading in SuperSplat editor (superspl.at) to verify format
+        // 
+        // If loading fails, check:
+        // - Network tab: HTTP status should be 200, not 404
+        // - Console: Look for detailed error messages from GaussianSplatLoader
+        // - File format: Ensure it's a Gaussian splat, not a regular PLY mesh
+        //
         // Local test asset: public/assets/aigengsplat.ply (129.70 MB - stored in Git LFS)
+        console.log(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
         logger.verbose(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
         try {
+          console.log(`[FeedStore] 📦 Calling GaussianSplatLoader.load("${item.src}")...`);
           const splatAsset = await this.ensureGaussianSplatLoader().load(item.src, item.settingsUrl);
+          console.log(`[FeedStore] ✅ Successfully loaded Gaussian Splat: ${item.title}`);
           logger.verbose(`[FeedStore] ✅ Successfully loaded Gaussian Splat: ${item.title}`);
           
           // Add to scene like GLTF models
@@ -391,16 +406,27 @@ export class FeedStore {
           this.currentGaussianSplat = splatAsset.scene;
           
           // Debug: Add axes helper for visibility testing (can be removed later)
+          // NOTE: If you see the axes but no splat, the file loaded but may not be rendering
+          // Check: 1) Is SparkRenderer initialized? 2) Is camera passed to SparkRenderer.update()?
           try {
             const axesHelper = new THREE.AxesHelper(0.5);
             axesHelper.name = 'gaussian-splat-debug-axes';
             splatAsset.scene.add(axesHelper);
+            console.log(`[FeedStore] ✅ Added debug axes helper (if you see axes but no splat, check SparkRenderer)`);
             logger.verbose(`[FeedStore] Added debug axes helper for Gaussian Splat visibility testing`);
           } catch (helperError) {
             // Helper not critical - just log and continue
             logger.verbose(`[FeedStore] Could not add debug helper (non-critical):`, helperError);
           }
           
+          console.log(`[FeedStore] ✅ Gaussian Splat attached to scene:`, {
+            position: spawnPos.toArray(),
+            scale: autoScale.scale,
+            originalSize: autoScale.originalSize,
+            visible: splatAsset.scene.visible,
+            parent: this.parent.name || 'contentRoot',
+            childrenCount: splatAsset.scene.children.length
+          });
           logger.verbose(`[FeedStore] Attaching Gaussian Splat object to scene:`, {
             position: spawnPos.toArray(),
             scale: autoScale.scale,
@@ -414,6 +440,14 @@ export class FeedStore {
           this.preloadUpcomingModels(3);
         } catch (loadError: any) {
           // GAUSSIAN-SPLAT: Enhanced error logging for debugging renderer issues
+          // 
+          // What happens if the file fails to load:
+          // - A red error placeholder box appears in the scene
+          // - Error details are logged to console (check DevTools)
+          // - A toast notification shows "❌ Failed to load content"
+          // - The error is also logged via logger.error() for production debugging
+          console.error(`[FeedStore] ❌ FAILED to load Gaussian Splat: ${item.title}`, loadError);
+          console.error(`[FeedStore] URL: ${item.src}`);
           logger.error(`[FeedStore] ❌ FAILED to load Gaussian Splat: ${item.title}`, loadError);
           logger.error(`[FeedStore] Gaussian Splat URL: ${item.src}`);
           logger.error(`[FeedStore] Error details:`, {
@@ -424,15 +458,24 @@ export class FeedStore {
             settingsUrl: item.settingsUrl
           });
           
-          // Check for common issues
+          // Check for common issues and provide helpful messages
           if (loadError?.message?.includes('timeout')) {
+            console.warn(`[FeedStore] ⚠️ Load timeout - file may be too large or network slow`);
             logger.warn(`[FeedStore] ⚠️ Gaussian Splat load timeout - file may be too large or network slow`);
           } else if (loadError?.message?.includes('CORS') || loadError?.message?.includes('fetch')) {
+            console.warn(`[FeedStore] ⚠️ CORS/Network issue - check if ${item.src} is accessible`);
+            console.warn(`[FeedStore] 💡 Ensure file is in public/assets/ and URL is "/assets/filename.ply"`);
             logger.warn(`[FeedStore] ⚠️ Gaussian Splat CORS/network issue - check if ${item.src} is accessible`);
           } else if (loadError?.message?.includes('404') || loadError?.message?.includes('Not Found')) {
+            console.warn(`[FeedStore] ⚠️ File not found (404) - ensure ${item.src} exists in public/assets/`);
             logger.warn(`[FeedStore] ⚠️ Gaussian Splat file not found - ensure ${item.src} exists locally`);
           } else if (loadError?.message?.includes('not available') || loadError?.message?.includes('library')) {
+            console.warn(`[FeedStore] ⚠️ Library not installed - run: npm install @sparkjsdev/spark`);
             logger.warn(`[FeedStore] ⚠️ Gaussian Splat library not installed - run: npm install @sparkjsdev/spark`);
+          } else if (loadError?.message?.includes('parse') || loadError?.message?.includes('format')) {
+            console.warn(`[FeedStore] ⚠️ File format issue - may not be a valid Gaussian splat PLY`);
+            console.warn(`[FeedStore] 💡 Try loading the file in SuperSplat editor (superspl.at) to verify format`);
+            logger.warn(`[FeedStore] ⚠️ File format issue - may not be a valid Gaussian splat`);
           }
           
           // Re-throw to trigger error placeholder

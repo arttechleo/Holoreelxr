@@ -129,27 +129,74 @@ export class GaussianSplatLoader {
     return cached;
   }
 
+  /**
+   * Load a Gaussian Splat from a URL.
+   * 
+   * IMPORTANT: The .ply file must be:
+   * 1. Placed in public/assets/ directory (for Vite dev server)
+   * 2. Referenced as "/assets/filename.ply" (not "./public/assets/...")
+   * 3. A valid 3D Gaussian Splat format (not a regular mesh PLY)
+   * 
+   * If loading fails, check:
+   * - Network tab for HTTP status (should be 200, not 404)
+   * - Console for detailed error messages
+   * - That the file is actually a Gaussian splat (try loading in SuperSplat editor)
+   */
   private async loadSplat(url: string, settingsUrl?: string): Promise<GaussianSplatAsset> {
+    console.log(`[GaussianSplatLoader] 🔄 Starting load: ${url}`);
     logger.verbose(`[GaussianSplatLoader] 🔄 Starting load: ${url}`);
 
+    // Step 1: Verify URL is accessible before attempting to load
     try {
+      console.log(`[GaussianSplatLoader] 📡 Checking URL accessibility: ${url}`);
+      const response = await fetch(url, { method: 'HEAD' });
+      if (!response.ok) {
+        const errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+        console.error(`[GaussianSplatLoader] ❌ URL not accessible: ${errorMsg}`);
+        logger.error(`[GaussianSplatLoader] ❌ URL not accessible: ${errorMsg}`);
+        throw new AssetLoadError(`Failed to access PLY file: ${errorMsg}`, url);
+      }
+      const contentLength = response.headers.get('content-length');
+      console.log(`[GaussianSplatLoader] ✅ URL accessible (${response.status}), size: ${contentLength ? `${(parseInt(contentLength) / 1024 / 1024).toFixed(2)} MB` : 'unknown'}`);
+      logger.verbose(`[GaussianSplatLoader] ✅ URL accessible, content-length: ${contentLength}`);
+    } catch (fetchError: any) {
+      const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+      if (errorMsg.includes('CORS') || errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+        console.error(`[GaussianSplatLoader] ❌ CORS/Network error: ${errorMsg}`);
+        console.error(`[GaussianSplatLoader] 💡 Tip: Ensure the file is in public/assets/ and referenced as "/assets/filename.ply"`);
+        logger.error(`[GaussianSplatLoader] ⚠️ CORS/Network issue detected for ${url}`);
+      }
+      throw new AssetLoadError(`Network error accessing PLY file: ${errorMsg}`, url, fetchError);
+    }
+
+    // Step 2: Create SplatMesh and wait for initialization
+    try {
+      console.log(`[GaussianSplatLoader] 🎨 Creating SplatMesh from: ${url}`);
+      logger.verbose(`[GaussianSplatLoader] Creating SplatMesh from: ${url}`);
+      
       // Create SplatMesh using SparkJS API
       // SplatMesh constructor takes options: { url, onLoad, ... }
       // It has an `initialized` promise that resolves when loading is complete
       const splatMesh = new this.SplatMeshClass({ url });
       
+      console.log(`[GaussianSplatLoader] ⏳ Waiting for SplatMesh initialization...`);
+      logger.verbose(`[GaussianSplatLoader] Waiting for SplatMesh.initialized promise...`);
+      
       // Wait for the mesh to initialize (SparkJS loads asynchronously)
       // The `initialized` property is a Promise<SplatMesh>
       await splatMesh.initialized;
       
+      console.log(`[GaussianSplatLoader] ✅ SplatMesh initialized successfully`);
       logger.verbose(`[GaussianSplatLoader] ✅ SplatMesh initialized: ${url}`);
       
-      // Wrap in a Group for consistency with GLTF assets and easier manipulation
+      // Step 3: Wrap in a Group for consistency with GLTF assets
       const group = new THREE.Group();
       group.add(splatMesh);
       group.name = 'gaussian-splat';
 
-      // Normalize scale and position (similar to GLTFModelLoader)
+      // Step 4: Normalize scale and position (similar to GLTFModelLoader)
+      console.log(`[GaussianSplatLoader] 📐 Normalizing splat scale and position...`);
+      logger.verbose(`[GaussianSplatLoader] Normalizing splat...`);
       this.normalizeSplat(group);
 
       const asset: GaussianSplatAsset = {
@@ -158,14 +205,28 @@ export class GaussianSplatLoader {
         settingsUrl,
       };
 
+      console.log(`[GaussianSplatLoader] ✅ Load successful: ${url}`);
       logger.verbose(`[GaussianSplatLoader] ✅ Load successful: ${url}`);
       return asset;
     } catch (e: any) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.error(`[GaussianSplatLoader] ❌ Failed to load splat: ${url}`, e);
+      console.error(`[GaussianSplatLoader] Error details:`, {
+        message: errorMsg,
+        name: e?.name,
+        stack: e?.stack
+      });
       logger.error(`[GaussianSplatLoader] ❌ Failed to load splat: ${url}`, e);
       
-      const errorMsg = e instanceof Error ? e.message : String(e);
+      // Provide helpful error messages
       if (errorMsg.includes('CORS') || errorMsg.includes('fetch') || errorMsg.includes('Failed to fetch')) {
+        console.error(`[GaussianSplatLoader] ⚠️ CORS/Network issue detected`);
+        console.error(`[GaussianSplatLoader] 💡 Ensure file is in public/assets/ and URL is "/assets/filename.ply"`);
         logger.error(`[GaussianSplatLoader] ⚠️ CORS/Network issue detected for ${url}`);
+      } else if (errorMsg.includes('parse') || errorMsg.includes('format') || errorMsg.includes('invalid')) {
+        console.error(`[GaussianSplatLoader] ⚠️ File format issue - may not be a valid Gaussian splat PLY`);
+        console.error(`[GaussianSplatLoader] 💡 Try loading the file in SuperSplat editor to verify format`);
+        logger.error(`[GaussianSplatLoader] ⚠️ File format issue for ${url}`);
       }
       
       throw new AssetLoadError('Gaussian Splat load error', url, e);

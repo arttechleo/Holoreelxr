@@ -107,6 +107,11 @@ export class ThreeXRApp {
       // CRITICAL FIX: Update SparkRenderer with camera information for proper XR support
       // In XR mode, Three.js automatically updates this.camera to be the XR camera
       // SparkRenderer needs the camera to correctly render Gaussian Splats in XR space
+      // 
+      // NOTE: If you see axes but no splat, check:
+      // 1. Is SparkRenderer initialized? (check console for initialization message)
+      // 2. Is this code running? (SparkRenderer.update should be called every frame)
+      // 3. Are SplatMesh objects in the scene? (check scene.children)
       if (this.sparkRenderer && this.sparkRenderer.update) {
         // SparkJS update() accepts { scene, camera?, viewToWorld? }
         // Pass this.camera which is automatically updated by Three.js for XR mode
@@ -115,6 +120,12 @@ export class ThreeXRApp {
           scene: this.scene,
           camera: this.camera
         });
+      } else if (!this.sparkRenderer) {
+        // Only log once to avoid spam
+        if (!(this as any)._sparkRendererWarningLogged) {
+          console.warn('[ThreeXRApp] ⚠️ SparkRenderer not initialized - Gaussian Splats will not render');
+          (this as any)._sparkRendererWarningLogged = true;
+        }
       }
       
       // Render the scene with the camera (Three.js handles XR camera updates automatically)
@@ -201,18 +212,27 @@ export class ThreeXRApp {
    * Initialize SparkRenderer for Gaussian Splatting support.
    * SparkJS requires SparkRenderer to be added to the scene for proper rendering.
    * This is done lazily to handle cases where the library might not be installed.
+   * 
+   * IMPORTANT: If you see axes but no splat content:
+   * 1. Check that SparkRenderer initialized (look for success message in console)
+   * 2. Verify camera is passed to sparkRenderer.update() in render loop
+   * 3. Ensure SplatMesh objects are added to the scene
+   * 4. Check that the .ply file is a valid Gaussian splat format
    */
   private async initializeSparkRenderer() {
+    console.log('[ThreeXRApp] 🔄 Initializing SparkRenderer for Gaussian Splatting...');
     try {
       // @ts-ignore - Library may not be installed yet
       const module = await import('@sparkjsdev/spark');
       const SparkRenderer = module.SparkRenderer;
       
       if (!SparkRenderer) {
-        console.warn('[ThreeXRApp] SparkRenderer not found in @sparkjsdev/spark - Gaussian Splats may not render');
+        console.error('[ThreeXRApp] ❌ SparkRenderer not found in @sparkjsdev/spark - Gaussian Splats will not render');
+        console.error('[ThreeXRApp] 💡 Install with: npm install @sparkjsdev/spark');
         return;
       }
 
+      console.log('[ThreeXRApp] ✅ SparkRenderer class found, creating instance...');
       // Create SparkRenderer instance
       // Note: SparkJS docs recommend antialias: false, but we use true for other content
       // This should still work, but may have minor performance impact
@@ -221,11 +241,14 @@ export class ThreeXRApp {
       // Add SparkRenderer to the scene (required for proper rendering)
       this.scene.add(this.sparkRenderer);
       
-      console.log('[ThreeXRApp] SparkRenderer initialized successfully');
+      console.log('[ThreeXRApp] ✅ SparkRenderer initialized successfully and added to scene');
+      console.log('[ThreeXRApp] 💡 SparkRenderer will be updated every frame with camera info for XR support');
     } catch (e: any) {
       // Library not installed or failed to load - this is OK, app will still work
       // Gaussian Splats just won't render until the library is installed
-      console.warn('[ThreeXRApp] Failed to initialize SparkRenderer. Install with: npm install @sparkjsdev/spark', e);
+      console.error('[ThreeXRApp] ❌ Failed to initialize SparkRenderer', e);
+      console.error('[ThreeXRApp] 💡 Install with: npm install @sparkjsdev/spark');
+      console.warn('[ThreeXRApp] App will continue without Gaussian Splat support');
     }
   }
 }
