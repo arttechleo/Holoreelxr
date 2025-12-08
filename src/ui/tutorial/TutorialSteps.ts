@@ -9,6 +9,7 @@ export interface TutorialStep {
   color: string;
   gesture?: string;
   completed: boolean;
+  videoSrc?: string; // Path to gesture demo video
 }
 
 /**
@@ -24,6 +25,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       shape: 'box',
       color: '#667eea',
       completed: false,
+      // No video for welcome step
     },
     {
       id: 'rotate',
@@ -34,6 +36,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#4ECDC4',
       gesture: 'twohandrotate',
       completed: false,
+      videoSrc: '/gestuivideo/Rotate.mp4',
     },
     {
       id: 'scale',
@@ -44,6 +47,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#95E1D3',
       gesture: 'twohandscale',
       completed: false,
+      videoSrc: '/gestuivideo/Scale.mp4',
     },
     {
       id: 'grab',
@@ -54,6 +58,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#FF6B6B',
       gesture: 'grab',
       completed: false,
+      videoSrc: '/gestuivideo/Grab.mp4',
     },
     {
       id: 'scroll',
@@ -64,6 +69,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#6BCF7F',
       gesture: 'scroll',
       completed: false,
+      videoSrc: '/gestuivideo/Scroll.mp4',
     },
     {
       id: 'like',
@@ -74,6 +80,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#F38181',
       gesture: 'thumbsup',
       completed: false,
+      videoSrc: '/gestuivideo/ThumsUp.mp4',
     },
     {
       id: 'heart',
@@ -84,6 +91,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#AA96DA',
       gesture: 'heart',
       completed: false,
+      videoSrc: '/gestuivideo/Heart.mp4',
     },
     {
       id: 'repost',
@@ -94,6 +102,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#FFD93D',
       gesture: 'peace',
       completed: false,
+      videoSrc: '/gestuivideo/Repost.mp4',
     },
   ];
 }

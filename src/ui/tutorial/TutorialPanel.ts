@@ -19,6 +19,9 @@ export class TutorialPanel {
   readonly canvas: HTMLCanvasElement;
   readonly texture: THREE.CanvasTexture;
   readonly buttonRegions: ButtonRegions;
+  private currentVideo: HTMLVideoElement | null = null;
+  private videoAnimationFrame: number | null = null;
+  private currentStepId: string | null = null;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -62,34 +65,57 @@ export class TutorialPanel {
     ctx.textAlign = 'center';
     ctx.fillText(step.title, this.canvas.width / 2, 50);
     
-    // Description - black text
-    ctx.font = '20px sans-serif';
-    ctx.fillStyle = '#000000';
-    ctx.fillText(step.description, this.canvas.width / 2, 85);
-    
-    // Detailed instructions - black text
-    ctx.font = '16px sans-serif';
-    ctx.fillStyle = '#000000';
-    const maxWidth = this.canvas.width - 80;
-    const words = step.detailedInstructions.split(' ');
-    let line = '';
-    let y = 120;
-    const lineHeight = 22;
-    
-    words.forEach((word) => {
-      const testLine = line + (line ? ' ' : '') + word;
-      const metrics = ctx.measureText(testLine);
-      
-      if (metrics.width > maxWidth && line !== '') {
-        ctx.fillText(line, this.canvas.width / 2, y);
-        line = word;
-        y += lineHeight;
+    // Handle video for steps that have one
+    if (step.id !== this.currentStepId) {
+      // Step changed
+      if (step.videoSrc) {
+        // Switch to new video
+        this.switchVideo(step.videoSrc);
       } else {
-        line = testLine;
+        // No video for this step, cleanup previous video
+        if (this.currentVideo) {
+          this.currentVideo.pause();
+          this.currentVideo.src = '';
+          this.currentVideo.load();
+          this.currentVideo = null;
+        }
+        if (this.videoAnimationFrame) {
+          cancelAnimationFrame(this.videoAnimationFrame);
+          this.videoAnimationFrame = null;
+        }
       }
-    });
-    if (line) {
-      ctx.fillText(line, this.canvas.width / 2, y);
+      this.currentStepId = step.id;
+    }
+    
+    // Draw video if available
+    if (step.videoSrc && this.currentVideo) {
+      this.drawVideoFrame(ctx);
+    } else {
+      // Fallback: show description for welcome step (no video)
+      ctx.font = '20px sans-serif';
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'center';
+      const maxWidth = this.canvas.width - 80;
+      const words = step.description.split(' ');
+      let line = '';
+      let y = 120;
+      const lineHeight = 24;
+      
+      words.forEach((word) => {
+        const testLine = line + (line ? ' ' : '') + word;
+        const metrics = ctx.measureText(testLine);
+        
+        if (metrics.width > maxWidth && line !== '') {
+          ctx.fillText(line, this.canvas.width / 2, y);
+          line = word;
+          y += lineHeight;
+        } else {
+          line = testLine;
+        }
+      });
+      if (line) {
+        ctx.fillText(line, this.canvas.width / 2, y);
+      }
     }
     
     // Progress bar for rotation/scale
@@ -115,7 +141,8 @@ export class TutorialPanel {
     if (step.completed) {
       ctx.font = 'bold 24px sans-serif';
       ctx.fillStyle = '#000000';
-      ctx.fillText('✅ Step Complete!', this.canvas.width / 2, y + 40);
+      ctx.textAlign = 'center';
+      ctx.fillText('✅ Step Complete!', this.canvas.width / 2, this.canvas.height / 2 + 100);
     }
     
     // Navigation buttons
@@ -129,6 +156,113 @@ export class TutorialPanel {
     this.texture.needsUpdate = true;
   }
   
+  private switchVideo(videoSrc: string): void {
+    // Stop and cleanup previous video
+    if (this.currentVideo) {
+      this.currentVideo.pause();
+      this.currentVideo.src = '';
+      this.currentVideo.load();
+    }
+    
+    if (this.videoAnimationFrame) {
+      cancelAnimationFrame(this.videoAnimationFrame);
+      this.videoAnimationFrame = null;
+    }
+    
+    // Create new video element
+    const video = document.createElement('video');
+    video.src = videoSrc;
+    video.loop = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.controls = false; // No video controls - just loop automatically
+    
+    // Start playing when loaded
+    video.addEventListener('loadeddata', () => {
+      video.play().catch(err => {
+        console.warn('Video autoplay failed:', err);
+      });
+      // Start animation frame loop to continuously update texture
+      this.startVideoUpdateLoop();
+    });
+    
+    // Handle video errors
+    video.addEventListener('error', (e) => {
+      console.error('Video load error:', e, videoSrc);
+    });
+    
+    this.currentVideo = video;
+  }
+  
+  private startVideoUpdateLoop(): void {
+    if (!this.currentVideo) return;
+    
+    const update = () => {
+      if (this.currentVideo && this.currentVideo.readyState >= 2) {
+        // Just trigger texture update - the actual drawing happens in render()
+        this.texture.needsUpdate = true;
+      }
+      
+      if (this.currentVideo) {
+        this.videoAnimationFrame = requestAnimationFrame(update);
+      }
+    };
+    
+    this.videoAnimationFrame = requestAnimationFrame(update);
+  }
+  
+  private drawVideoFrame(ctx: CanvasRenderingContext2D): void {
+    if (!this.currentVideo || this.currentVideo.readyState < 2) {
+      return; // Video not ready
+    }
+    
+    // Video area: below title, above buttons
+    const videoY = 100;
+    const videoHeight = this.canvas.height - videoY - 140; // Leave space for buttons and hint
+    const videoWidth = this.canvas.width - 80; // Margins
+    const videoX = 40;
+    
+    // Calculate aspect ratio to maintain video proportions
+    const videoAspect = this.currentVideo.videoWidth / this.currentVideo.videoHeight;
+    const targetAspect = videoWidth / videoHeight;
+    
+    let drawWidth = videoWidth;
+    let drawHeight = videoHeight;
+    let drawX = videoX;
+    let drawY = videoY;
+    
+    if (videoAspect > targetAspect) {
+      // Video is wider, fit to width
+      drawHeight = videoWidth / videoAspect;
+      drawY = videoY + (videoHeight - drawHeight) / 2;
+    } else {
+      // Video is taller, fit to height
+      drawWidth = videoHeight * videoAspect;
+      drawX = videoX + (videoWidth - drawWidth) / 2;
+    }
+    
+    // Draw video frame
+    ctx.drawImage(this.currentVideo, drawX, drawY, drawWidth, drawHeight);
+  }
+  
+  dispose(): void {
+    // Cleanup video when panel is disposed
+    if (this.currentVideo) {
+      this.currentVideo.pause();
+      this.currentVideo.src = '';
+      this.currentVideo.load();
+      this.currentVideo = null;
+    }
+    
+    if (this.videoAnimationFrame) {
+      cancelAnimationFrame(this.videoAnimationFrame);
+      this.videoAnimationFrame = null;
+    }
+    
+    this.currentStepId = null;
+  }
+  
   private drawNavigationButtons(
     ctx: CanvasRenderingContext2D,
     hoveredButton: 'prev' | 'next' | 'skip' | null,
@@ -139,7 +273,8 @@ export class TutorialPanel {
     const buttonHeight = 45;
     const buttonY = this.canvas.height - 80;
     const buttonSpacing = 20;
-    const skipButtonWidth = 180; // Wider for "Skip Tutorial"
+    const skipButtonWidth = 120; // Smaller skip button
+    const skipButtonHeight = 35; // Smaller height for skip button
     const totalWidth = buttonWidth * 2 + buttonSpacing;
     const startX = (this.canvas.width - totalWidth) / 2;
     
@@ -190,16 +325,16 @@ export class TutorialPanel {
     const skipHovered = hoveredButton === 'skip';
     
     ctx.fillStyle = skipHovered ? '#888888' : '#666666';
-    ctx.fillRect(skipX, skipY, skipButtonWidth, buttonHeight);
+    ctx.fillRect(skipX, skipY, skipButtonWidth, skipButtonHeight);
     ctx.strokeStyle = skipHovered ? '#aaaaaa' : '#888888';
     ctx.lineWidth = skipHovered ? 3 : 2;
-    ctx.strokeRect(skipX, skipY, skipButtonWidth, buttonHeight);
+    ctx.strokeRect(skipX, skipY, skipButtonWidth, skipButtonHeight);
     
     ctx.fillStyle = '#000000'; // Black text
-    ctx.font = 'bold 16px sans-serif';
-    ctx.fillText('⏭ Skip Tutorial', skipX + skipButtonWidth / 2, skipY + buttonHeight / 2 + 6);
+    ctx.font = 'bold 14px sans-serif'; // Smaller font
+    ctx.fillText('⏭ Skip', skipX + skipButtonWidth / 2, skipY + skipButtonHeight / 2 + 5);
     
-    this.buttonRegions.skip = { x: skipX, y: skipY, w: skipButtonWidth, h: buttonHeight };
+    this.buttonRegions.skip = { x: skipX, y: skipY, w: skipButtonWidth, h: skipButtonHeight };
   }
 }
 
