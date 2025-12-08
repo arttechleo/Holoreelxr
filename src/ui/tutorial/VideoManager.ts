@@ -56,29 +56,49 @@ export class VideoManager {
       // Create video element
       const video = document.createElement('video');
       video.src = url;
-      video.preload = 'auto';
+      video.preload = 'metadata'; // just enough for first frame + metadata
       video.loop = true;
       video.muted = true;
       video.playsInline = true;
       video.controls = false;
       video.crossOrigin = 'anonymous';
 
-      // Mark as ready when can play through
-      video.addEventListener('canplaythrough', () => {
+      // We want fast "ready enough" behavior:
+      // - loadeddata fires when the first frame is available
+      // - plus a timeout fallback so we never hang forever
+      const onLoadedData = () => {
+        clearTimeout(timeoutId);
         this.readyStates.set(url, true);
-        console.log(`[VideoManager] ✅ canplaythrough for ${video.src || url}`);
+        console.log(`[VideoManager] ✅ loadeddata for ${video.src || url}`);
         resolve();
-      }, { once: true });
+      };
 
-      // Handle errors
-      video.addEventListener('error', (e) => {
+      const onError = (e: Event) => {
+        clearTimeout(timeoutId);
         const error = video.error;
         const errorMsg = error ? `code ${error.code}: ${error.message}` : 'unknown error';
         console.error(`[VideoManager] ❌ ERROR loading video ${video.src || url}:`, errorMsg, e);
         this.readyStates.set(url, false);
         this.errorStates.set(url, true); // Mark as failed
         reject(new Error(`Failed to load video: ${url} - ${errorMsg}`));
-      }, { once: true });
+      };
+
+      const timeoutId = window.setTimeout(() => {
+        // Fallback: if we never got loadeddata, but the browser has some data,
+        // consider it "ready enough" for streaming playback.
+        if (!this.readyStates.get(url)) {
+          const readyState = video.readyState;
+          console.warn(
+            `[VideoManager] ⏱️ Timeout waiting for loadeddata on ${video.src || url}, ` +
+            `readyState=${readyState} (marking as ready for streaming)`
+          );
+          this.readyStates.set(url, true);
+        }
+        resolve();
+      }, 2000); // 2s fallback
+
+      video.addEventListener('loadeddata', onLoadedData, { once: true });
+      video.addEventListener('error', onError, { once: true });
 
       // Start loading
       video.load();
@@ -126,7 +146,15 @@ export class VideoManager {
    * Check if a video is ready to play.
    */
   isReady(url: string): boolean {
-    return this.readyStates.get(url) === true;
+    if (this.readyStates.get(url) === true) {
+      return true;
+    }
+    const video = this.videos.get(url);
+    if (!video) return false;
+
+    // If the browser already has enough data to play the current position,
+    // treat it as ready even if our explicit flag hasn't flipped yet.
+    return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
   }
 
   /**
@@ -153,14 +181,28 @@ export class VideoManager {
 
     // Play the requested video
     const video = this.getVideo(url);
-    if (video && this.isReady(url)) {
-      video.currentTime = 0; // Reset to start
-      video.play().catch(err => {
+    if (video) {
+      // If we think it's ready, great; otherwise still try to play and let the
+      // browser stream/buffer on the fly.
+      const ready = this.isReady(url);
+      console.log(`[VideoManager] playVideo for ${url} (ready=${ready}, readyState=${video.readyState})`);
+
+      try {
+        video.currentTime = 0; // Reset to start
+        const playPromise = video.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise.catch(err => {
+            console.warn(`[VideoManager] Failed to play video ${url}:`, err);
+          });
+        }
+        console.log(`[VideoManager] ✅ Video playing (or attempting to): ${url}`);
+      } catch (err) {
         console.warn(`[VideoManager] Failed to play video ${url}:`, err);
-      });
-      console.log(`[VideoManager] ✅ Video playing: ${url}`);
+      }
     } else {
-      console.warn(`[VideoManager] ⚠️ Cannot play video ${url} - video: ${!!video}, ready: ${this.isReady(url)}`);
+      console.warn(
+        `[VideoManager] ⚠️ Cannot play video ${url} - no video element in cache (did preloadAll run?)`
+      );
     }
   }
 
