@@ -212,11 +212,12 @@ export class GaussianSplatLoader {
       // It has an `initialized` promise that resolves when loading is complete
       const splatMesh = new this.SplatMeshClass({ url });
       
-      // ✅ ORIENTATION FIX – Spark docs use this for correct "upright" splats
-      // This prevents upside-down splats by setting identity quaternion
+      // ✅ ORIENTATION FIX – 180° around X (Spark samples use this)
+      // NOTE: This is NOT the identity quaternion; identity is (0,0,0,1)
+      // This prevents upside-down splats by rotating 180° around X axis
       if (splatMesh.quaternion) {
         splatMesh.quaternion.set(1, 0, 0, 0);
-        logger.verbose(`[GaussianSplatLoader] Applied orientation fix (quaternion identity)`);
+        logger.verbose(`[GaussianSplatLoader] Applied orientation fix (180deg around X)`);
       }
       
       if (DEBUG_SPLATS) {
@@ -243,6 +244,16 @@ export class GaussianSplatLoader {
       splatMesh.visible = true;
       // Don't set castShadow/receiveShadow unless we know Spark supports them
       // Spark's SplatMesh may not respect these Three.js properties
+      
+      // ✅ IMPORTANT: Disable frustum culling – bad bounds can cause XR flicker
+      // Spark's own bounds vs Three's Box3 might not line up perfectly, especially after
+      // quaternion/scale math. In XR (stereo cameras, differing FOVs), if the bounding box
+      // is slightly off or tiny, Three.js may think the object is out of view in one eye
+      // or in both for a frame – you see this as "flicker" or "shimmer".
+      // For a single hero GS in your scene, the cost of turning off frustum culling is
+      // tiny and absolutely worth it to kill this class of bug.
+      splatMesh.frustumCulled = false;
+      group.frustumCulled = false;
       
       group.add(splatMesh);
       group.name = 'gaussian-splat';
