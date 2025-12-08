@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { XRHandModelFactory } from 'three/examples/jsm/webxr/XRHandModelFactory.js';
 import { logError } from '../utils/errors';
 import { GAUSSIAN_SPLAT } from '../config/constants';
+import { logger } from '../config/production';
 
 export type XRFrameInfo = { frame: XRFrame | null; refSpace: XRReferenceSpace | null };
 
@@ -31,14 +32,41 @@ export class ThreeXRApp {
   private onResumeCbs: Array<() => void> = [];
 
   constructor() {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    this.renderer.setSize(innerWidth, innerHeight);
+    // ✅ Quest 3 Performance Optimization
+    // Detect mobile XR devices (Quest, Oculus, Android)
+    const isMobileXR = /Quest|Oculus|Android/i.test(navigator.userAgent);
+    
+    // On Quest/Android, turn off MSAA and lower pixel ratio for perf
+    // Spark's splats already look good; MSAA is expensive in XR
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: !isMobileXR, // Disable antialias on mobile XR for performance
+      alpha: true,
+    });
+    
+    const width = window.innerWidth || innerWidth;
+    const height = window.innerHeight || innerHeight;
+    
+    // ✅ Clamp pixel ratio on mobile XR for Quest 3 performance
+    // Full devicePixelRatio + antialias is expensive; reduce to 75% max
+    const basePixelRatio = window.devicePixelRatio || 1;
+    const pixelRatio = isMobileXR ? Math.min(0.75 * basePixelRatio, 1.0) : basePixelRatio;
+    this.renderer.setPixelRatio(pixelRatio);
+    this.renderer.setSize(width, height);
+    
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType?.('local-floor');
     
-    // Enable max anisotropic filtering for crisp textures
-    const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
-    // Anisotropic filtering automatically applied to textures
+    // ✅ Explicitly disable shadow maps for perf (avoid hidden costs from lighting)
+    this.renderer.shadowMap.enabled = false;
+    
+    // Enable max anisotropic filtering for crisp textures (desktop only)
+    if (!isMobileXR) {
+      const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
+      // Anisotropic filtering automatically applied to textures
+      logger.verbose(`[ThreeXRApp] Desktop mode: Anisotropic filtering enabled (max: ${maxAnisotropy})`);
+    } else {
+      logger.verbose(`[ThreeXRApp] Mobile XR detected: Pixel ratio clamped to ${pixelRatio.toFixed(2)}, antialias disabled`);
+    }
     
     document.body.appendChild(this.renderer.domElement);
 

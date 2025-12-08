@@ -212,6 +212,13 @@ export class GaussianSplatLoader {
       // It has an `initialized` promise that resolves when loading is complete
       const splatMesh = new this.SplatMeshClass({ url });
       
+      // ✅ ORIENTATION FIX – Spark docs use this for correct "upright" splats
+      // This prevents upside-down splats by setting identity quaternion
+      if (splatMesh.quaternion) {
+        splatMesh.quaternion.set(1, 0, 0, 0);
+        logger.verbose(`[GaussianSplatLoader] Applied orientation fix (quaternion identity)`);
+      }
+      
       if (DEBUG_SPLATS) {
         console.log(`[GaussianSplatLoader] ⏳ Waiting for SplatMesh initialization...`);
       }

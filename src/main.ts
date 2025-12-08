@@ -36,18 +36,19 @@ const assetLinkMgr = new AssetLinkManager(store);
 const authMgr = new AuthManager();
 const musicMgr = new MusicManager();
 
-// 2D UI (desktop only - hidden in XR)
+// 2D UI (desktop only - production GS build: only keep essential UI)
 const assetLinkUI = new AssetLinkUI(assetLinkMgr);
-const authUI = new AuthUI(authMgr);
-const musicUI = new MusicUI(musicMgr);
-
-// Hide 2D UI initially (will show in XR via 3D panels)
-authUI.hide();
-musicUI.hide();
+// Auth and music 2D UI disabled for production GS viewer
+// const authUI = new AuthUI(authMgr);
+// const musicUI = new MusicUI(musicMgr);
 
 // 3D XR UI panels (Mixed Reality)
-const xrAuthPanel = new XRAuthPanel(authMgr, app.scene);
-const xrMusicPanel = new XRMusicPanel(musicMgr, app.scene);
+// For production GS viewer, disable auth & music panels to avoid overlapping UI.
+// Multiplayer panel remains enabled.
+const ENABLE_AUTH_PANELS = false; // Set to true to re-enable auth/music panels
+
+const xrAuthPanel = ENABLE_AUTH_PANELS ? new XRAuthPanel(authMgr, app.scene) : null;
+const xrMusicPanel = ENABLE_AUTH_PANELS ? new XRMusicPanel(musicMgr, app.scene) : null;
 
 // EXPERIMENTAL: Multiplayer system (real-time hand tracking & gesture sync)
 const multiplayer = new MultiplayerManager();
@@ -375,8 +376,9 @@ async function loadMainFeed() {
     }
     
     // Update 3D panels to face camera
-    xrAuthPanel.update(app.camera);
-    xrMusicPanel.update(app.camera);
+    // Update 3D panels to face camera (if enabled)
+    xrAuthPanel?.update(app.camera);
+    xrMusicPanel?.update(app.camera);
     
     // Update multiplayer panel (like ReactionHud - positions itself relative to object)
     const dt = 0.016; // ~60fps
