@@ -146,6 +146,26 @@ export class FeedStore {
   setItems(items: Item[]) {
     this.items = items;
   }
+  
+  /**
+   * Get the current feed item.
+   * @returns Current item or undefined if index is out of bounds
+   */
+  getCurrentItem(): Item | undefined {
+    if (this.index < 0 || this.index >= this.items.length) {
+      return undefined;
+    }
+    return this.items[this.index];
+  }
+  
+  /**
+   * Check if the current item is a Gaussian splat.
+   * Used to hide/show UI panels that might interfere with splat rendering.
+   */
+  isCurrentItemGaussianSplat(): boolean {
+    const item = this.getCurrentItem();
+    return item?.type === 'gaussianSplat';
+  }
 
   // Add item
   addItem(item: Item) {

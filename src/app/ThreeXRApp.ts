@@ -57,11 +57,11 @@ export class ThreeXRApp {
     this.renderer.xr.setReferenceSpaceType?.('local-floor');
     
     // ✅ CRITICAL FIX: Set framebuffer scale factor for WebXR performance
-    // Reduces render resolution in XR for better frame rate (0.8 = 80% resolution)
-    // Tune between 0.7-1.0 based on performance vs quality tradeoff
+    // Reduces render resolution in XR for better frame rate (0.75 = 75% resolution)
+    // Tune between 0.6-0.8 based on performance vs quality tradeoff for Quest 3 (60-72 fps target)
     if (this.renderer.xr.setFramebufferScaleFactor && isMobileXR) {
-      this.renderer.xr.setFramebufferScaleFactor(0.8); // 80% resolution for Quest 3
-      logger.verbose(`[ThreeXRApp] WebXR framebuffer scale set to 0.8 for performance`);
+      this.renderer.xr.setFramebufferScaleFactor(0.75); // 75% resolution for Quest 3 (tuned for 60-72 fps)
+      logger.verbose(`[ThreeXRApp] WebXR framebuffer scale set to 0.75 for Quest 3 performance`);
     }
     
     // ✅ Explicitly disable shadow maps for perf (avoid hidden costs from lighting)

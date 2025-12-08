@@ -126,8 +126,9 @@ export class GaussianSplatLoader {
    * without hardcoding a specific URL.
    * 
    * Smart URL resolution:
-   * - If url ends with .ply, checks manifest for .spz version and uses it if available
+   * - If url ends with .ply, checks for .spz version via HEAD request (non-destructive)
    * - This allows feed.json to use .ply URLs but automatically prefer .spz for performance
+   * - Falls back to original .ply if .spz doesn't exist (safe, non-breaking)
    * 
    * Returns a scene that can be safely added to the world.
    */
@@ -139,10 +140,10 @@ export class GaussianSplatLoader {
       return this.loadFirstFromManifest(settingsUrl);
     }
 
-    // Smart URL resolution: prefer .spz over .ply if available in manifest
-    const resolvedUrl = await this.resolveUrlFromManifest(url);
+    // Smart URL resolution: prefer .spz over .ply if available (non-destructive)
+    const resolvedUrl = await this.preferSpzVariant(url);
     if (resolvedUrl !== url) {
-      logger.verbose(`[GaussianSplatLoader] Resolved ${url} → ${resolvedUrl} (preferring .spz)`);
+      logger.verbose(`[GaussianSplatLoader] 🔁 Using .spz variant: ${resolvedUrl} (preferred over ${url})`);
     }
 
     const base = await this.fetchOrCache(resolvedUrl, settingsUrl);
@@ -150,38 +151,32 @@ export class GaussianSplatLoader {
   }
   
   /**
-   * Resolve a URL to prefer .spz over .ply if available in manifest.
-   * This allows feed.json to use .ply URLs but automatically use .spz for better performance.
+   * Prefer .spz variant over .ply if it exists (non-destructive fallback).
+   * Uses HEAD request to check if .spz exists without breaking .ply support.
    * 
    * @param url Original URL (may be .ply or .spz)
    * @returns Resolved URL (prefers .spz if available, otherwise returns original)
    */
-  async resolveUrlFromManifest(url: string): Promise<string> {
-    // Only try to resolve .ply URLs
-    if (!url.toLowerCase().endsWith('.ply')) {
-      return url;
+  private async preferSpzVariant(url: string): Promise<string> {
+    const lower = url.toLowerCase();
+    if (!lower.endsWith('.ply')) {
+      return url; // Not a .ply URL, return as-is
     }
     
+    const spzUrl = url.replace(/\.ply$/i, '.spz');
+    
     try {
-      const manifestUrls = await this.loadSplatManifest();
-      if (manifestUrls.length === 0) {
-        return url; // No manifest, use original
+      const res = await fetch(spzUrl, { method: 'HEAD' });
+      if (res.ok) {
+        logger.verbose(`[GaussianSplatLoader] 🔁 Using .spz variant: ${spzUrl}`);
+        return spzUrl;
       }
-      
-      // Try to find .spz version of the .ply URL
-      const candidate = url.replace(/\.ply$/i, '.spz');
-      if (manifestUrls.includes(candidate)) {
-        logger.verbose(`[GaussianSplatLoader] Found .spz version in manifest: ${candidate}`);
-        return candidate;
-      }
-      
-      // No .spz version found, use original .ply
-      return url;
-    } catch (err) {
-      // If manifest loading fails, just use original URL
-      logger.verbose(`[GaussianSplatLoader] Manifest check failed, using original URL: ${url}`);
-      return url;
+    } catch (e) {
+      logger.verbose(`[GaussianSplatLoader] .spz check failed for ${url}, using .ply`, e);
     }
+    
+    // Fallback: keep original .ply
+    return url;
   }
 
   /**

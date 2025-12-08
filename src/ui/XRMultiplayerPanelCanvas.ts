@@ -7,6 +7,12 @@ import * as THREE from 'three';
 import { MultiplayerManager, VoiceState } from '../multiplayer/MultiplayerManager';
 import { VRKeypad } from './VRKeypad';
 import { MULTIPLAYER } from '../config/constants';
+import {
+  CanvasTheme,
+  readCanvasThemeFromCSS,
+  drawRoundedRect,
+  applyPanelBackground,
+} from './canvasTheme';
 
 type ButtonType = 'host' | 'join' | 'close' | 'voice' | 'mute';
 
@@ -92,6 +98,9 @@ export class XRMultiplayerPanel {
     voice: { x: 0, y: 0, w: 0, h: 0 },
     mute: { x: 0, y: 0, w: 0, h: 0 },
   };
+  
+  // Theme colors from CSS custom properties (shared helper)
+  private theme: CanvasTheme = readCanvasThemeFromCSS();
   
   constructor(
     scene: THREE.Scene, 
@@ -813,93 +822,101 @@ export class XRMultiplayerPanel {
     const w = this.canvas.width;
     const h = this.canvas.height;
     
-    // Clear
+    // Clear + background
     ctx.clearRect(0, 0, w, h);
+    applyPanelBackground(ctx, w, h, this.theme);
     
-    // Background - grey/dark grey gradient
-    const bgGradient = ctx.createLinearGradient(0, 0, 0, h);
-    bgGradient.addColorStop(0, '#3a3a3a'); // Light grey top
-    bgGradient.addColorStop(1, '#1a1a1a'); // Dark grey bottom
-    ctx.fillStyle = bgGradient;
-    ctx.fillRect(0, 0, w, h);
+    // Reset button regions
     (Object.keys(this.buttonRegions) as Array<keyof typeof this.buttonRegions>).forEach((key) => {
       this.buttonRegions[key] = { x: 0, y: 0, w: 0, h: 0 };
     });
     
-    // Border - grey/silver accent
-    ctx.strokeStyle = this.hoveredButton ? '#888888' : '#555555';
-    ctx.lineWidth = 8;
-    ctx.strokeRect(4, 4, w - 8, h - 8);
+    // Outer rounded border - subtle vs accent on hover
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = this.hoveredButton
+      ? this.theme.panelBorderHover
+      : this.theme.panelBorder;
+    drawRoundedRect(ctx, 12, 12, w - 24, h - 24, 32);
+    ctx.stroke();
     
-    // Title - black/dark grey text
-    ctx.fillStyle = '#1a1a1a';
-    ctx.font = 'bold 70px Arial';
+    // Title - XR panel style
+    ctx.fillStyle = this.theme.textPrimary;
+    ctx.font = '600 60px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('MULTIPLAYER', w / 2, 90);
+    ctx.textBaseline = 'top';
+    ctx.fillText('MULTIPLAYER', w / 2, 48);
     
     // Status/instructions
     if (this.mode === 'idle') {
-      ctx.fillStyle = '#000000';
-      ctx.font = '36px Arial';
-      ctx.fillText('👉 Point & Pinch to Interact', w / 2, 160);
+      ctx.fillStyle = this.theme.textSecondary;
+      ctx.font = '500 32px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
+      ctx.fillText('👉 Point & pinch to interact', w / 2, 130);
       
-      // HOST button - grey/silver theme
-      const hostY = 240;
-      const hostH = 140;
+      // HOST button – use CTA color
+      const hostY = 220;
+      const hostH = 120;
       this.buttonRegions.host = { x: 112, y: hostY, w: 800, h: hostH };
-      this.drawButton(ctx, 'HOST', hostY, hostH, '#666666', this.hoveredButton === 'host', 'host');
+      this.drawButton(ctx, 'HOST', hostY, hostH, this.theme.cta, this.hoveredButton === 'host', 'host');
       
-      // JOIN button - grey/silver theme
-      const joinY = 420;
-      const joinH = 140;
+      // JOIN button – use accent color
+      const joinY = 380;
+      const joinH = 120;
       this.buttonRegions.join = { x: 112, y: joinY, w: 800, h: joinH };
-      this.drawButton(ctx, 'JOIN', joinY, joinH, '#666666', this.hoveredButton === 'join', 'join');
+      this.drawButton(ctx, 'JOIN', joinY, joinH, this.theme.accent, this.hoveredButton === 'join', 'join');
       
-      // Close button with enhanced visual feedback - grey theme
-      const closeY = 650;
+      // Close button – subtle chip style
+      const closeY = 620;
       const closeH = 80;
       this.buttonRegions.close = { x: 362, y: closeY, w: 300, h: closeH };
       const closeHovered = this.hoveredButton === 'close';
       const closeActive = this.activeButton === 'close';
       const closeGlow = this.getButtonHoverProgress('close');
       
-      if (closeActive) {
-        ctx.fillStyle = '#888888';
-        ctx.shadowColor = '#666666';
-        ctx.shadowBlur = 15;
-      } else if (closeHovered || closeGlow > 0) {
-        ctx.fillStyle = '#666666';
-        ctx.shadowColor = '#555555';
-        ctx.shadowBlur = 10;
-      } else {
-        ctx.fillStyle = '#444444';
-        ctx.shadowBlur = 0;
-      }
-      ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
-      ctx.shadowBlur = 0;
+      const baseFill = closeActive
+        ? this.theme.chipHover
+        : closeHovered || closeGlow > 0
+        ? this.theme.chipHover
+        : this.theme.chip;
       
-      ctx.fillStyle = '#1a1a1a';
-      ctx.font = closeActive ? 'bold 44px Arial' : '40px Arial';
-      ctx.fillText('X', w / 2, closeY + 55);
+      ctx.shadowBlur = closeActive ? 20 : closeHovered || closeGlow > 0 ? 14 : 0;
+      ctx.shadowColor = this.theme.panelBorderHover;
+      
+      ctx.fillStyle = baseFill;
+      drawRoundedRect(ctx, this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH, 40);
+      ctx.fill();
+      
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = this.theme.panelBorder;
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH, 40);
+      ctx.stroke();
+      
+      ctx.fillStyle = this.theme.textSecondary;
+      ctx.font = closeActive
+        ? '600 40px -apple-system, system-ui, BlinkMacSystemFont, sans-serif'
+        : '500 36px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('CLOSE', w / 2, closeY + closeH / 2);
       
     } else if (this.mode === 'hosting') {
-      ctx.fillStyle = '#1a1a1a';
-      ctx.font = 'bold 48px Arial';
+      ctx.fillStyle = this.theme.textPrimary;
+      ctx.font = '600 56px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
       ctx.fillText('YOUR PEER ID:', w / 2, 120);
       
-      // Display full Peer ID (shorter, cleaner than SDP) - dark grey text
-      ctx.fillStyle = '#2a2a2a';
-      ctx.font = 'bold 60px monospace';
+      // Display full Peer ID - primary text
+      ctx.fillStyle = this.theme.textPrimary;
+      ctx.font = '600 60px "JetBrains Mono", "SF Mono", Menlo, monospace';
       ctx.fillText(this.currentCode, w / 2, 220);
       
-      ctx.fillStyle = '#3a3a3a';
-      ctx.font = '24px Arial';
+      ctx.fillStyle = this.theme.textSecondary;
+      ctx.font = '500 28px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
       ctx.fillText('Share this ID with friend', w / 2, 280);
       ctx.fillText('They can join using JOIN button', w / 2, 320);
       
       // Copy to clipboard hint
-      ctx.fillStyle = '#4a4a4a';
-      ctx.font = '20px Arial';
+      ctx.fillStyle = this.theme.textDim;
+      ctx.font = '400 22px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
       ctx.fillText('(Code copied to console - check browser)', w / 2, 380);
       
       // Close button with enhanced visual feedback
@@ -910,50 +927,57 @@ export class XRMultiplayerPanel {
       const closeActive = this.activeButton === 'close';
       const closeGlow = this.getButtonHoverProgress('close');
       
-      if (closeActive) {
-        ctx.fillStyle = '#888888';
-        ctx.shadowColor = '#666666';
-        ctx.shadowBlur = 20;
-      } else if (closeHovered || closeGlow > 0) {
-        ctx.fillStyle = '#666666';
-        ctx.shadowColor = '#555555';
-        ctx.shadowBlur = 15;
-      } else {
-        ctx.fillStyle = '#444444';
-        ctx.shadowBlur = 0;
-      }
-      ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
-      ctx.shadowBlur = 0;
+      const baseFill = closeActive
+        ? this.theme.chipHover
+        : closeHovered || closeGlow > 0
+        ? this.theme.chipHover
+        : this.theme.chip;
       
-      ctx.fillStyle = '#1a1a1a';
-      ctx.font = closeActive ? 'bold 42px Arial' : 'bold 38px Arial';
-      ctx.fillText('CLOSE', w / 2, closeY + 56);
+      ctx.shadowBlur = closeActive ? 20 : closeHovered || closeGlow > 0 ? 14 : 0;
+      ctx.shadowColor = this.theme.panelBorderHover;
+      
+      ctx.fillStyle = baseFill;
+      drawRoundedRect(ctx, this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH, 40);
+      ctx.fill();
+      
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = this.theme.panelBorder;
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH, 40);
+      ctx.stroke();
+      
+      ctx.fillStyle = this.theme.textSecondary;
+      ctx.font = closeActive
+        ? '600 42px -apple-system, system-ui, BlinkMacSystemFont, sans-serif'
+        : '500 38px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('CLOSE', w / 2, closeY + closeH / 2);
       
     } else if (this.mode === 'joining') {
-      ctx.fillStyle = '#1a1a1a';
-      ctx.font = 'bold 48px Arial';
+      ctx.fillStyle = this.theme.textPrimary;
+      ctx.font = '600 56px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
       ctx.fillText('ENTER PEER ID', w / 2, 120);
       
-      // Instructions - dark grey text
-      ctx.fillStyle = '#2a2a2a';
-      ctx.font = '28px Arial';
+      // Instructions - secondary text
+      ctx.fillStyle = this.theme.textSecondary;
+      ctx.font = '500 28px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
       ctx.fillText('Touch keys on the keypad to type', w / 2, 190);
       ctx.fillText('Peer ID appears below in real time', w / 2, 230);
       
-      // Input field background (grey card)
+      // Input field background (semi-transparent dark card with rounded corners)
       const inputBoxW = w - 180;
       const inputBoxH = 120;
       const inputBoxX = (w - inputBoxW) / 2;
       const inputBoxY = 300;
-      ctx.fillStyle = 'rgba(60, 60, 60, 0.95)';
-      ctx.strokeStyle = '#888888';
-      ctx.lineWidth = 8;
-      ctx.beginPath();
-      ctx.rect(inputBoxX, inputBoxY - inputBoxH / 2, inputBoxW, inputBoxH);
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.strokeStyle = this.theme.panelBorder;
+      ctx.lineWidth = 3;
+      drawRoundedRect(ctx, inputBoxX, inputBoxY - inputBoxH / 2, inputBoxW, inputBoxH, 24);
       ctx.fill();
       ctx.stroke();
       
-      // Render typed text (left-aligned inside card) - dark grey/black text
+      // Render typed text (left-aligned inside card)
       const textPadding = 32;
       const textX = inputBoxX + textPadding;
       const textY = inputBoxY;
@@ -963,23 +987,25 @@ export class XRMultiplayerPanel {
       ctx.save();
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.font = hasInput ? 'bold 60px "Consolas", "Courier New", monospace' : 'bold 46px Arial';
-      ctx.fillStyle = hasInput ? '#1a1a1a' : '#4a4a4a';
+      ctx.font = hasInput 
+        ? '600 60px "JetBrains Mono", "SF Mono", Menlo, monospace' 
+        : '500 46px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
+      ctx.fillStyle = hasInput ? this.theme.textPrimary : this.theme.textDim;
       ctx.fillText(displayText, textX, textY);
       
-      // Caret indicator (only when typing) - grey accent
+      // Caret indicator (only when typing) - accent color
       if (hasInput) {
         const metrics = ctx.measureText(displayText);
         const caretX = textX + metrics.width + 10;
         const caretH = inputBoxH - 30;
-        ctx.fillStyle = '#888888';
+        ctx.fillStyle = this.theme.accent;
         ctx.fillRect(caretX, textY - caretH / 2, 4, caretH);
       }
       ctx.restore();
       
-      // Instructions for keypad - dark grey text
-      ctx.fillStyle = '#3a3a3a';
-      ctx.font = '20px Arial';
+      // Instructions for keypad - dim text
+      ctx.fillStyle = this.theme.textDim;
+      ctx.font = '400 22px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
       ctx.fillText('Touch keypad keys with index finger to type', w / 2, 380);
       ctx.fillText('Press CONNECT when done', w / 2, 410);
       
@@ -991,52 +1017,60 @@ export class XRMultiplayerPanel {
       const closeActive = this.activeButton === 'close';
       const closeGlow = this.getButtonHoverProgress('close');
       
-      if (closeActive) {
-        ctx.fillStyle = '#888888';
-        ctx.shadowColor = '#666666';
-        ctx.shadowBlur = 20;
-      } else if (closeHovered || closeGlow > 0) {
-        ctx.fillStyle = '#666666';
-        ctx.shadowColor = '#555555';
-        ctx.shadowBlur = 15;
-      } else {
-        ctx.fillStyle = '#444444';
-        ctx.shadowBlur = 0;
-      }
-      ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
-      ctx.shadowBlur = 0;
+      const baseFill = closeActive
+        ? this.theme.chipHover
+        : closeHovered || closeGlow > 0
+        ? this.theme.chipHover
+        : this.theme.chip;
       
-      ctx.fillStyle = '#1a1a1a';
-      ctx.font = closeActive ? 'bold 42px Arial' : 'bold 38px Arial';
-      ctx.fillText('BACK', w / 2, closeY + 56);
+      ctx.shadowBlur = closeActive ? 20 : closeHovered || closeGlow > 0 ? 14 : 0;
+      ctx.shadowColor = this.theme.panelBorderHover;
+      
+      ctx.fillStyle = baseFill;
+      drawRoundedRect(ctx, this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH, 40);
+      ctx.fill();
+      
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = this.theme.panelBorder;
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH, 40);
+      ctx.stroke();
+      
+      ctx.fillStyle = this.theme.textSecondary;
+      ctx.font = closeActive
+        ? '600 42px -apple-system, system-ui, BlinkMacSystemFont, sans-serif'
+        : '500 38px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('BACK', w / 2, closeY + closeH / 2);
       
     } else if (this.mode === 'waiting') {
       // CRITICAL FIX: Add explicit close button to waiting mode
-      ctx.fillStyle = '#1a1a1a';
-      ctx.font = 'bold 48px Arial';
+      ctx.fillStyle = this.theme.textPrimary;
+      ctx.font = '600 56px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
       ctx.fillText('CONNECTED', w / 2, 120);
       
-      ctx.fillStyle = '#2a2a2a';
-      ctx.font = '28px Arial';
+      ctx.fillStyle = this.theme.textSecondary;
+      ctx.font = '500 28px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
       ctx.fillText('Multiplayer session active', w / 2, 200);
 
       if (this.voiceControls) {
-        ctx.fillStyle = '#3a3a3a';
-        ctx.font = '24px Arial';
+        ctx.fillStyle = this.theme.textSecondary;
+        ctx.font = '500 24px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
         ctx.fillText(this.getVoiceStatusText(), w / 2, 260);
 
         const voiceY = 320;
         const voiceH = 90;
         this.buttonRegions.voice = { x: 112, y: voiceY, w: 800, h: voiceH };
         const voiceLabel = this.voiceState.enabled ? 'VOICE READY' : 'VOICE ON';
-        this.drawButton(ctx, voiceLabel, voiceY, voiceH, '#666666', this.hoveredButton === 'voice', 'voice');
+        this.drawButton(ctx, voiceLabel, voiceY, voiceH, this.theme.accent, this.hoveredButton === 'voice', 'voice');
 
         if (this.voiceState.enabled) {
           const muteY = voiceY + 130;
           const muteH = 90;
           this.buttonRegions.mute = { x: 112, y: muteY, w: 800, h: muteH };
           const muteLabel = this.voiceState.muted ? 'UNMUTE' : 'MUTE';
-          this.drawButton(ctx, muteLabel, muteY, muteH, '#666666', this.hoveredButton === 'mute', 'mute');
+          this.drawButton(ctx, muteLabel, muteY, muteH, this.theme.cta, this.hoveredButton === 'mute', 'mute');
         }
       }
       
@@ -1048,32 +1082,40 @@ export class XRMultiplayerPanel {
       const closeActive = this.activeButton === 'close';
       const closeGlow = this.getButtonHoverProgress('close');
       
-      if (closeActive) {
-        ctx.fillStyle = '#888888';
-        ctx.shadowColor = '#666666';
-        ctx.shadowBlur = 20;
-      } else if (closeHovered || closeGlow > 0) {
-        ctx.fillStyle = '#666666';
-        ctx.shadowColor = '#555555';
-        ctx.shadowBlur = 15;
-      } else {
-        ctx.fillStyle = '#444444';
-        ctx.shadowBlur = 0;
-      }
-      ctx.fillRect(this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH);
-      ctx.shadowBlur = 0;
+      const baseFill = closeActive
+        ? this.theme.chipHover
+        : closeHovered || closeGlow > 0
+        ? this.theme.chipHover
+        : this.theme.chip;
       
-      ctx.fillStyle = '#1a1a1a';
-      ctx.font = closeActive ? 'bold 42px Arial' : 'bold 38px Arial';
-      ctx.fillText('CLOSE', w / 2, closeY + 56);
+      ctx.shadowBlur = closeActive ? 20 : closeHovered || closeGlow > 0 ? 14 : 0;
+      ctx.shadowColor = this.theme.panelBorderHover;
+      
+      ctx.fillStyle = baseFill;
+      drawRoundedRect(ctx, this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH, 40);
+      ctx.fill();
+      
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = this.theme.panelBorder;
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, this.buttonRegions.close.x, closeY, this.buttonRegions.close.w, closeH, 40);
+      ctx.stroke();
+      
+      ctx.fillStyle = this.theme.textSecondary;
+      ctx.font = closeActive
+        ? '600 42px -apple-system, system-ui, BlinkMacSystemFont, sans-serif'
+        : '500 38px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('CLOSE', w / 2, closeY + closeH / 2);
       
     } else if (this.mode === 'waiting_old') {
-      ctx.fillStyle = '#1a1a1a';
-      ctx.font = 'bold 48px Arial';
+      ctx.fillStyle = this.theme.textPrimary;
+      ctx.font = '600 56px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
       ctx.fillText('CONNECTING...', w / 2, 200);
       
-      ctx.fillStyle = '#3a3a3a';
-      ctx.font = '24px Arial';
+      ctx.fillStyle = this.theme.textSecondary;
+      ctx.font = '500 24px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
       ctx.fillText('Establishing connection', w / 2, 280);
       ctx.fillText('Please wait...', w / 2, 320);
     }
@@ -1089,117 +1131,73 @@ export class XRMultiplayerPanel {
     this.render();
   }
   
-  private drawButton(ctx: CanvasRenderingContext2D, text: string, y: number, h: number, color: string, hovered: boolean, buttonType?: ButtonType): void {
+  private drawButton(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    y: number,
+    h: number,
+    color: string,
+    hovered: boolean,
+    buttonType?: ButtonType
+  ): void {
     const w = this.canvas.width;
     const buttonW = 800;
     const buttonX = (w - buttonW) / 2;
     
-    // Get visual state
     const glowProgress = buttonType ? this.getButtonHoverProgress(buttonType) : 0;
-    const isActive = buttonType ? (this.activeButton === buttonType) : false;
+    const isActive = buttonType ? this.activeButton === buttonType : false;
     
-    // Determine button state: active > hovered > normal
+    const radius = 36;
+    
+    // Base styles derived from theme
+    const baseFill = color || this.theme.accent;
+    const hoverFill = buttonType === 'host' || buttonType === 'join'
+      ? baseFill
+      : this.theme.chipHover;
+    const inactiveFill = buttonType === 'host' || buttonType === 'join'
+      ? baseFill
+      : this.theme.chip;
+    
+    // Background
+    ctx.save();
+    
     if (isActive) {
-      // Active/clicked state - light grey highlight
-      ctx.shadowColor = '#888888';
-      ctx.shadowBlur = 30;
-      ctx.fillStyle = '#aaaaaa';
-      ctx.fillRect(buttonX, y, buttonW, h);
-      ctx.shadowBlur = 0;
-      
-      ctx.strokeStyle = '#666666';
-      ctx.lineWidth = 8;
-      ctx.strokeRect(buttonX + 2, y + 2, buttonW - 4, h - 4);
+      ctx.shadowColor = this.theme.panelBorderHover;
+      ctx.shadowBlur = 28;
+      ctx.fillStyle = baseFill;
+      drawRoundedRect(ctx, buttonX, y, buttonW, h, radius);
+      ctx.fill();
     } else if (hovered || glowProgress > 0) {
-      // Hovered or glowing - light grey background
-      ctx.shadowColor = '#888888';
+      ctx.shadowColor = this.theme.panelBorderHover;
       ctx.shadowBlur = 20;
-      ctx.fillStyle = '#888888';
-      ctx.fillRect(buttonX, y, buttonW, h);
-      ctx.shadowBlur = 0;
-      
-      // Progressive glow border effect
-      if (glowProgress > 0) {
-        // Draw border glow that fills based on progress
-        const borderWidth = 8;
-        const glowColor = color;
-        
-        // Calculate how much of the border to fill
-        const perimeter = 2 * (buttonW + h);
-        const filledLength = perimeter * glowProgress;
-        
-        // Draw filled portion of border
-        ctx.strokeStyle = glowColor;
-        ctx.lineWidth = borderWidth;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        
-        // Top edge
-        if (filledLength > 0) {
-          const topFill = Math.min(buttonW, filledLength);
-          ctx.beginPath();
-          ctx.moveTo(buttonX, y);
-          ctx.lineTo(buttonX + topFill, y);
-          ctx.stroke();
-        }
-        
-        // Right edge
-        if (filledLength > buttonW) {
-          const rightFill = Math.min(h, filledLength - buttonW);
-          ctx.beginPath();
-          ctx.moveTo(buttonX + buttonW, y);
-          ctx.lineTo(buttonX + buttonW, y + rightFill);
-          ctx.stroke();
-        }
-        
-        // Bottom edge
-        if (filledLength > buttonW + h) {
-          const bottomFill = Math.min(buttonW, filledLength - buttonW - h);
-          ctx.beginPath();
-          ctx.moveTo(buttonX + buttonW, y + h);
-          ctx.lineTo(buttonX + buttonW - bottomFill, y + h);
-          ctx.stroke();
-        }
-        
-        // Left edge
-        if (filledLength > 2 * buttonW + h) {
-          const leftFill = Math.min(h, filledLength - 2 * buttonW - h);
-          ctx.beginPath();
-          ctx.moveTo(buttonX, y + h);
-          ctx.lineTo(buttonX, y + h - leftFill);
-          ctx.stroke();
-        }
-        
-        // Draw remaining unfilled border in grey
-        ctx.strokeStyle = '#666666';
-        ctx.lineWidth = 4;
-        ctx.strokeRect(buttonX + 2, y + 2, buttonW - 4, h - 4);
-      } else {
-        // No glow yet, just normal hover border
-        ctx.strokeStyle = '#888888';
-        ctx.lineWidth = 6;
-        ctx.strokeRect(buttonX + 3, y + 3, buttonW - 6, h - 6);
-      }
+      ctx.fillStyle = hoverFill;
+      drawRoundedRect(ctx, buttonX, y, buttonW, h, radius);
+      ctx.fill();
     } else {
-      // Normal - grey background
-      ctx.fillStyle = color;
-      ctx.fillRect(buttonX, y, buttonW, h);
-      
-      ctx.strokeStyle = '#555555';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(buttonX + 2, y + 2, buttonW - 4, h - 4);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = inactiveFill;
+      drawRoundedRect(ctx, buttonX, y, buttonW, h, radius);
+      ctx.fill();
     }
     
-    // Button text - black/dark grey
-    if (isActive) {
-      ctx.fillStyle = '#1a1a1a';
-      ctx.font = 'bold 72px Arial'; // Slightly larger when active
-    } else {
-      ctx.fillStyle = (hovered || glowProgress > 0) ? '#1a1a1a' : '#1a1a1a';
-      ctx.font = 'bold 68px Arial';
-    }
+    // Border – subtle in normal, brighter with glow
+    ctx.shadowBlur = 0;
+    const hasGlow = glowProgress > 0;
+    ctx.lineWidth = hasGlow ? 3 : 2;
+    ctx.strokeStyle = hasGlow ? this.theme.panelBorderHover : this.theme.panelBorder;
+    drawRoundedRect(ctx, buttonX + 1.5, y + 1.5, buttonW - 3, h - 3, radius - 2);
+    ctx.stroke();
+    
+    // Button label
+    ctx.fillStyle = this.theme.textPrimary;
+    ctx.font = isActive
+      ? '700 44px -apple-system, system-ui, BlinkMacSystemFont, sans-serif'
+      : '600 40px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(text, w / 2, y + h / 2 + 24);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, w / 2, y + h / 2);
+    
+    ctx.restore();
   }
   
   dispose(): void {

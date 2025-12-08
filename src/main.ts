@@ -7,6 +7,7 @@ import { GlobalPlayer } from './integrations/player';
 import { checkWebXRSupport, logError } from './utils/errors';
 import { detectXRMode, getXRBackground } from './config/xr';
 import { MULTIPLAYER } from './config/constants';
+import { logger } from './config/production';
 import { AssetLinkManager } from './feed/AssetLinkManager';
 import { AuthManager } from './auth/AuthManager';
 import { MusicManager } from './music/MusicManager';
@@ -382,6 +383,26 @@ async function loadMainFeed() {
     // Update 3D panels to face camera (if enabled)
     xrAuthPanel?.update(app.camera);
     xrMusicPanel?.update(app.camera);
+    
+    // CRITICAL FIX: Hide multiplayer panel when Gaussian splat is active to prevent right-eye flicker
+    // This ensures clean GS rendering without UI overlay interference in WebXR
+    // The panel can cause per-eye rendering differences when overlapping with SparkRenderer output
+    const isGaussianSplatActive = store.isCurrentItemGaussianSplat();
+    const wasGaussianSplatActive = (app as any)._lastGaussianSplatState || false;
+    
+    if (isGaussianSplatActive && !wasGaussianSplatActive) {
+      // Just switched to Gaussian splat - hide panel
+      if (xrMultiplayerPanel.isVisible() && !multiplayer.isConnected()) {
+        xrMultiplayerPanel.hide();
+        logger.verbose('[Main] Multiplayer panel hidden (Gaussian splat active - prevents XR flicker)');
+      }
+    } else if (!isGaussianSplatActive && wasGaussianSplatActive) {
+      // Just switched away from Gaussian splat - panel can be shown again if needed
+      // (Don't auto-show - let user or connection state control visibility)
+      logger.verbose('[Main] Gaussian splat inactive - multiplayer panel can be shown');
+    }
+    
+    (app as any)._lastGaussianSplatState = isGaussianSplatActive;
     
     // Update multiplayer panel (like ReactionHud - positions itself relative to object)
     const dt = 0.016; // ~60fps

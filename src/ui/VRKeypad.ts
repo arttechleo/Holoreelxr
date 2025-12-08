@@ -24,6 +24,12 @@
  */
 
 import * as THREE from 'three';
+import {
+  CanvasTheme,
+  readCanvasThemeFromCSS,
+  drawRoundedRect,
+  applyPanelBackground,
+} from './canvasTheme';
 
 export type KeypadKey = 
   | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
@@ -74,6 +80,9 @@ export class VRKeypad {
   private onInputChange?: (text: string) => void;
   private onConnect?: () => void;
   private onCancel?: () => void;
+  
+  // Theme colors from CSS custom properties (shared helper)
+  private theme: CanvasTheme = readCanvasThemeFromCSS();
   
   constructor(scene: THREE.Scene) {
     // Create canvas
@@ -344,30 +353,28 @@ export class VRKeypad {
     const w = this.canvas.width;
     const h = this.canvas.height;
     
-    // Clear
+    // Clear + background
     ctx.clearRect(0, 0, w, h);
+    applyPanelBackground(ctx, w, h, this.theme);
     
-    // Background - grey/dark grey gradient
-    const bgGradient = ctx.createLinearGradient(0, 0, 0, h);
-    bgGradient.addColorStop(0, '#3a3a3a'); // Light grey top
-    bgGradient.addColorStop(1, '#1a1a1a'); // Dark grey bottom
-    ctx.fillStyle = bgGradient;
-    ctx.fillRect(0, 0, w, h);
+    // Optional outer border, same as XR panel
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = this.theme.panelBorder;
+    drawRoundedRect(ctx, 12, 12, w - 24, h - 24, 28);
+    ctx.stroke();
     
-    // Border - grey/silver accent
-    ctx.strokeStyle = '#888888';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(4, 4, w - 8, h - 8);
-    
-    // Title - black/dark grey text
-    ctx.fillStyle = '#1a1a1a';
-    ctx.font = 'bold 48px Arial';
+    // Title / instructions
+    ctx.fillStyle = this.theme.textPrimary;
+    ctx.font = '600 44px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('ENTER PEER ID', w / 2, 50);
+    ctx.textBaseline = 'top';
+    ctx.fillText('ENTER PEER ID', w / 2, 32);
     
-    // Input display - dark grey text
-    ctx.fillStyle = '#2a2a2a';
-    ctx.font = 'bold 36px monospace';
+    // Input display - primary text
+    ctx.fillStyle = this.theme.textPrimary;
+    ctx.font = '600 36px "JetBrains Mono", "SF Mono", Menlo, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.fillText(this.inputText || '...', w / 2, 110);
     
     // Draw keys
@@ -397,8 +404,8 @@ export class VRKeypad {
     const controlY = startY + (keySize + keySpacing) * 4;
     this.drawKey(ctx, 'backspace', startX, controlY, keySize * 2, keySize, '⌫');
     this.drawKey(ctx, 'clear', startX + (keySize + keySpacing) * 2.5, controlY, keySize * 2, keySize, 'CLEAR');
-    this.drawKey(ctx, 'cancel', startX + (keySize + keySpacing) * 5, controlY, keySize * 2.5, keySize, 'CANCEL', '#666666');
-    this.drawKey(ctx, 'connect', startX + (keySize + keySpacing) * 7.8, controlY, keySize * 2.5, keySize, 'CONNECT', '#666666');
+    this.drawKey(ctx, 'cancel', startX + (keySize + keySpacing) * 5, controlY, keySize * 2.5, keySize, 'CANCEL', this.theme.accent);
+    this.drawKey(ctx, 'connect', startX + (keySize + keySpacing) * 7.8, controlY, keySize * 2.5, keySize, 'CONNECT', this.theme.cta);
     
     // Update texture
     this.texture.needsUpdate = true;
@@ -414,35 +421,55 @@ export class VRKeypad {
   }
   
   /**
-   * Draw a single key (grey/white styling)
+   * Draw a single key (unified visual style with rounded corners)
    */
-  private drawKey(ctx: CanvasRenderingContext2D, key: KeypadKey, x: number, y: number, w: number, h: number, label: string, color: string = '#555555'): void {
+  private drawKey(ctx: CanvasRenderingContext2D, key: KeypadKey, x: number, y: number, w: number, h: number, label: string, color: string = this.theme.chip): void {
     const isHovered = this.hoveredKey === key;
+    const isSpecial = key === 'connect' || key === 'cancel' || key === 'backspace' || key === 'clear';
+    const radius = 30;
     
     // Store region for collider detection
     this.keyRegions.push({ key, x, y, w, h });
     
-    // Key background
-    if (key === 'cancel') {
-      ctx.fillStyle = isHovered ? '#ffffff' : '#444444';
-    } else if (key === 'connect') {
-      ctx.fillStyle = isHovered ? '#ffffff' : '#666666';
-    } else {
-      ctx.fillStyle = isHovered ? '#ffffff' : color;
-    }
-    ctx.fillRect(x, y, w, h);
+    // Base styles derived from theme
+    const baseColor = color || (isSpecial ? this.theme.accent : this.theme.chip);
+    const hoverFill = isSpecial ? baseColor : this.theme.chipHover;
+    const inactiveFill = baseColor;
     
-    // Key border
-    ctx.strokeStyle = isHovered ? '#ffffff' : '#888888';
-    ctx.lineWidth = isHovered ? 4 : 2;
-    ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+    ctx.save();
+    
+    // Key background with rounded corners
+    if (isHovered) {
+      ctx.shadowColor = this.theme.panelBorderHover;
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = hoverFill;
+    } else {
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = inactiveFill;
+    }
+    
+    drawRoundedRect(ctx, x, y, w, h, radius);
+    ctx.fill();
+    
+    // Border – subtle in normal, brighter with hover
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = isHovered ? 3 : 2;
+    ctx.strokeStyle = isHovered ? this.theme.panelBorderHover : this.theme.panelBorder;
+    drawRoundedRect(ctx, x + 1, y + 1, w - 2, h - 2, radius - 1);
+    ctx.stroke();
     
     // Key label
-    ctx.fillStyle = isHovered ? '#000000' : '#ffffff';
-    ctx.font = isHovered ? 'bold 32px Arial' : '28px Arial';
+    ctx.fillStyle = this.theme.textPrimary;
+    ctx.font = isHovered
+      ? '600 32px -apple-system, system-ui, BlinkMacSystemFont, sans-serif'
+      : isSpecial
+      ? '600 30px -apple-system, system-ui, BlinkMacSystemFont, sans-serif'
+      : '500 30px -apple-system, system-ui, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, x + w / 2, y + h / 2);
+    
+    ctx.restore();
   }
   
   /**
