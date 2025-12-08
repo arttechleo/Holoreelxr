@@ -7,7 +7,7 @@ import { CONTROLS } from '../config/constants';
 import { logger } from '../config/production';
 import { TutorialStep, createDefaultTutorialSteps } from './tutorial/TutorialSteps';
 import { TutorialPanel } from './tutorial/TutorialPanel';
-import { getVideoManager } from './tutorial/VideoManager';
+import { getVideoManager, resolveVideoUrl } from './tutorial/VideoManager';
 import { USE_GESTURE_POSTERS_INSTEAD_OF_VIDEO } from './tutorial/TutorialConfig';
 
 export class OnboardingTutorial {
@@ -122,8 +122,8 @@ export class OnboardingTutorial {
   }
   
   /**
-   * Preload tutorial videos - OPTIMIZED: Only preload current + next step.
-   * This avoids loading all 7 videos upfront, which is expensive on constrained hardware.
+   * Preload all tutorial videos upfront for instant playback.
+   * Gathers all videoSrc values from all steps and preloads them immediately.
    * 
    * If poster fallback is enabled, this does nothing (no videos needed).
    */
@@ -134,23 +134,39 @@ export class OnboardingTutorial {
       return;
     }
     
-    // Only preload welcome step video if it exists (usually doesn't)
-    // Most videos will be loaded on-demand via ensureVideoForStep()
-    const welcomeStep = this.steps[0];
-    if (welcomeStep?.videoSrc) {
-      const videoManager = getVideoManager();
-      try {
-        await videoManager.preloadAll([welcomeStep.videoSrc]);
-        console.log(`[OnboardingTutorial] ✅ Preloaded welcome step video`);
-      } catch (error) {
-        console.error(`[OnboardingTutorial] Error preloading welcome video:`, error);
-      }
+    // Gather all video sources from all steps
+    const videoSources = this.steps
+      .map(step => step.videoSrc)
+      .filter((src): src is NonNullable<typeof src> => !!src);
+    
+    if (videoSources.length === 0) {
+      console.log(`[OnboardingTutorial] No videos to preload`);
+      return;
+    }
+    
+    const videoManager = getVideoManager();
+    const t0 = performance.now();
+    console.log(`[OnboardingTutorial] Preloading ${videoSources.length} tutorial videos...`);
+    
+    try {
+      await videoManager.preloadAll(videoSources);
+      const t1 = performance.now();
+      console.log(`[OnboardingTutorial] ✅ All tutorial videos preloaded (${(t1 - t0).toFixed(2)}ms)`);
+      
+      // Log which format was chosen for each video
+      videoSources.forEach(source => {
+        const resolvedUrl = resolveVideoUrl(source);
+        const format = resolvedUrl.endsWith('.webm') ? 'WebM' : 'MP4';
+        console.log(`[OnboardingTutorial] Video resolved to ${format}: ${resolvedUrl}`);
+      });
+    } catch (error) {
+      console.error(`[OnboardingTutorial] Error preloading tutorial videos:`, error);
     }
   }
 
   /**
    * Ensure video for a specific step is preloaded.
-   * Also optionally preloads the next step's video in the background.
+   * Since we now preload all videos upfront, this mainly checks if the video is ready.
    * This is called when showing a step to ensure its video is ready.
    */
   private async ensureVideoForStep(index: number): Promise<void> {
@@ -166,22 +182,22 @@ export class OnboardingTutorial {
       return; // No video for this step
     }
 
+    const resolvedUrl = resolveVideoUrl(step.videoSrc);
     const t0 = performance.now();
-    console.log(`[OnboardingTutorial] ensureVideoForStep start: step=${step.id}, video=${step.videoSrc}, t=${t0.toFixed(2)}ms`);
+    console.log(`[OnboardingTutorial] ensureVideoForStep: step=${step.id}, resolvedUrl=${resolvedUrl}, t=${t0.toFixed(2)}ms`);
 
+    // Check if video is already ready (should be, since we preload all upfront)
+    if (videoManager.isReady(step.videoSrc)) {
+      const t1 = performance.now();
+      console.log(`[OnboardingTutorial] ✅ Video already ready for step ${step.id}: ${(t1 - t0).toFixed(2)}ms`);
+      return;
+    }
+
+    // If not ready, try to preload it (shouldn't happen if preloadTutorialVideos worked)
     try {
-      // Preload current step's video
       await videoManager.preloadAll([step.videoSrc]);
       const t1 = performance.now();
       console.log(`[OnboardingTutorial] ✅ Video ready for step ${step.id}: ${(t1 - t0).toFixed(2)}ms`);
-
-      // Optionally preload next step in background (non-blocking)
-      const nextStep = this.steps[index + 1];
-      if (nextStep?.videoSrc) {
-        videoManager.preloadAll([nextStep.videoSrc]).catch(err => {
-          console.warn(`[OnboardingTutorial] Optional preload for next step video failed:`, nextStep.videoSrc, err);
-        });
-      }
     } catch (error) {
       console.error(`[OnboardingTutorial] Error ensuring video for step ${step.id}:`, error);
     }
@@ -189,6 +205,37 @@ export class OnboardingTutorial {
   
   setFeedControls(controls: any) {
     this.feedControls = controls;
+  }
+  
+  /**
+   * Preload the Gaussian splat item in the background.
+   * Called on the last two tutorial steps to ensure it's ready when tutorial ends.
+   */
+  private preloadGaussianSplat(): void {
+    // Find the Gaussian splat item in the feed
+    const gaussianSplatItem = this.store.items.find(item => item.type === 'gaussianSplat');
+    
+    if (!gaussianSplatItem) {
+      console.warn('[OnboardingTutorial] No Gaussian splat item found in feed');
+      return;
+    }
+    
+    const itemIndex = this.store.items.indexOf(gaussianSplatItem);
+    console.log(`[OnboardingTutorial] Preloading Gaussian splat at index ${itemIndex}: ${gaussianSplatItem.title || gaussianSplatItem.id}`);
+    
+    // Use FeedStore's preloadRange or schedulePreload method
+    // Fire-and-forget: don't block tutorial UI
+    if (typeof (this.store as any).schedulePreload === 'function') {
+      (this.store as any).schedulePreload(itemIndex).catch((err: any) => {
+        console.warn('[OnboardingTutorial] Error preloading Gaussian splat:', err);
+      });
+    } else if (typeof (this.store as any).preloadRange === 'function') {
+      (this.store as any).preloadRange(itemIndex, 1).catch((err: any) => {
+        console.warn('[OnboardingTutorial] Error preloading Gaussian splat:', err);
+      });
+    } else {
+      console.warn('[OnboardingTutorial] FeedStore does not have preload methods available');
+    }
   }
   
   /**
@@ -1163,6 +1210,12 @@ export class OnboardingTutorial {
     this.clearGestureHandlers({ preserveTwoHandTracking: isTwoHandTrackingStep });
     
     console.log(`[TutorialTiming] showStep start: step=${step.id}, index=${index + 1}/${this.steps.length}, t=${t0.toFixed(2)}ms`);
+    
+    // Preload Gaussian splat on last two steps (N-2 and N-1)
+    const isLastTwoSteps = index >= this.steps.length - 2;
+    if (isLastTwoSteps) {
+      this.preloadGaussianSplat();
+    }
     
     // Ensure video is preloaded for this step (only if not using posters)
     await this.ensureVideoForStep(index);

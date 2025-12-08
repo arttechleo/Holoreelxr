@@ -1,7 +1,7 @@
 // src/ui/tutorial/TutorialPanel.ts
 import * as THREE from 'three';
 import type { TutorialStep } from './TutorialSteps';
-import { getVideoManager } from './VideoManager';
+import { getVideoManager, resolveVideoUrl, type VideoSource } from './VideoManager';
 import { USE_GESTURE_POSTERS_INSTEAD_OF_VIDEO } from './TutorialConfig';
 
 export interface ButtonRegion {
@@ -243,15 +243,16 @@ export class TutorialPanel {
     }
   }
 
-  private switchVideo(videoSrc: string, isTutorialVisible: boolean): void {
+  private switchVideo(videoSrc: VideoSource, isTutorialVisible: boolean): void {
+    const resolvedUrl = resolveVideoUrl(videoSrc);
     // CRITICAL: Only play videos when tutorial is visible
     if (!isTutorialVisible) {
-      console.log(`[TutorialPanel] ⚠️ switchVideo called but tutorial not visible - NOT playing: ${videoSrc}`);
+      console.log(`[TutorialPanel] ⚠️ switchVideo called but tutorial not visible - NOT playing: ${resolvedUrl}`);
       // Still set up the texture for when tutorial becomes visible, but don't play
       const texture = this.videoManager.getTexture(videoSrc);
       if (texture) {
         this.currentVideoTexture = texture;
-        this.currentVideoUrl = videoSrc;
+        this.currentVideoUrl = resolvedUrl; // Store resolved URL
       }
       return;
     }
@@ -266,20 +267,20 @@ export class TutorialPanel {
     const texture = this.videoManager.getTexture(videoSrc);
     if (texture) {
       this.currentVideoTexture = texture;
-      this.currentVideoUrl = videoSrc;
+      this.currentVideoUrl = resolvedUrl; // Store resolved URL
       
       // Play the video if it's ready AND tutorial is visible
       if (this.videoManager.isReady(videoSrc) && isTutorialVisible) {
-        console.log(`[TutorialPanel] ✅ Playing video for step: ${videoSrc} (tutorial visible: ${isTutorialVisible})`);
+        console.log(`[TutorialPanel] ✅ Playing video for step: ${resolvedUrl} (tutorial visible: ${isTutorialVisible})`);
         this.videoManager.playVideo(videoSrc);
         // Start update loop for smooth playback
         this.startVideoUpdateLoop();
       } else {
         // Video not ready yet - will show loading indicator
-        console.log(`[TutorialPanel] Video not ready yet: ${videoSrc}`);
+        console.log(`[TutorialPanel] Video not ready yet: ${resolvedUrl}`);
       }
     } else {
-      console.warn(`[TutorialPanel] Video not preloaded: ${videoSrc}`);
+      console.warn(`[TutorialPanel] Video not preloaded: ${resolvedUrl}`);
       this.currentVideoTexture = null;
       this.currentVideoUrl = null;
     }
@@ -404,7 +405,8 @@ export class TutorialPanel {
     ctx.fillText('Loading video...', this.canvas.width / 2, this.canvas.height / 2);
   }
   
-  private drawVideoError(ctx: CanvasRenderingContext2D, videoSrc: string): void {
+  private drawVideoError(ctx: CanvasRenderingContext2D, videoSrc: VideoSource): void {
+    const resolvedUrl = resolveVideoUrl(videoSrc);
     // Show error message when video fails to load
     ctx.font = '18px sans-serif';
     ctx.fillStyle = '#ff6666';
@@ -413,9 +415,9 @@ export class TutorialPanel {
     
     ctx.font = '14px sans-serif';
     ctx.fillStyle = '#aaaaaa';
-    ctx.fillText(videoSrc, this.canvas.width / 2, this.canvas.height / 2 + 10);
+    ctx.fillText(resolvedUrl, this.canvas.width / 2, this.canvas.height / 2 + 10);
     
-    console.error(`[TutorialPanel] Video error displayed for: ${videoSrc}`);
+    console.error(`[TutorialPanel] Video error displayed for: ${resolvedUrl}`);
   }
   
   private drawDescription(ctx: CanvasRenderingContext2D, description: string): void {

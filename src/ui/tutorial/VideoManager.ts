@@ -2,6 +2,65 @@
 import * as THREE from 'three';
 
 /**
+ * Video source descriptor - supports WebM with MP4 fallback.
+ * Can be a simple string URL (backward compatible) or an object with webm/mp4.
+ */
+export type VideoSource = string | { webm: string; mp4?: string };
+
+/**
+ * Check if the browser supports WebM video playback.
+ * Cached result for performance.
+ */
+let webmSupportCache: boolean | null = null;
+function supportsWebM(): boolean {
+  if (webmSupportCache !== null) {
+    return webmSupportCache;
+  }
+  
+  try {
+    const video = document.createElement('video');
+    const canPlay = video.canPlayType('video/webm; codecs="vp9"');
+    webmSupportCache = canPlay === 'probably' || canPlay === 'maybe';
+    console.log(`[VideoManager] WebM support detected: ${webmSupportCache} (canPlayType: ${canPlay})`);
+    return webmSupportCache;
+  } catch (e) {
+    console.warn('[VideoManager] Error checking WebM support:', e);
+    webmSupportCache = false;
+    return false;
+  }
+}
+
+/**
+ * Resolve a VideoSource to a single URL string.
+ * Prefers WebM if supported, falls back to MP4, then to webm as last resort.
+ */
+export function resolveVideoUrl(source: VideoSource): string {
+  if (typeof source === 'string') {
+    return source; // Backward compatible: simple string URL
+  }
+  
+  // Object format: { webm: string; mp4?: string }
+  if (supportsWebM() && source.webm) {
+    console.log(`[VideoManager] Resolved to WebM: ${source.webm}`);
+    return source.webm;
+  }
+  
+  if (source.mp4) {
+    console.log(`[VideoManager] Resolved to MP4 (fallback): ${source.mp4}`);
+    return source.mp4;
+  }
+  
+  // Last resort: use webm even if not supported (browser will handle error)
+  if (source.webm) {
+    console.warn(`[VideoManager] Using WebM as last resort (may not be supported): ${source.webm}`);
+    return source.webm;
+  }
+  
+  console.error('[VideoManager] Invalid VideoSource: no webm or mp4 URL provided');
+  return '';
+}
+
+/**
  * Central video manager for preloading and caching tutorial gesture videos.
  * Ensures videos are ready before they're shown and provides smooth playback.
  */
@@ -13,12 +72,14 @@ export class VideoManager {
   private loadingPromises = new Map<string, Promise<void>>();
 
   /**
-   * Preload all videos from the given URLs.
+   * Preload all videos from the given sources (VideoSource[]).
    * Returns a promise that resolves when all videos are ready to play.
    * Failed videos are logged but don't prevent resolution (so tutorial can still show).
    */
-  async preloadAll(urls: string[]): Promise<void> {
-    const uniqueUrls = Array.from(new Set(urls.filter(url => url))); // Remove duplicates and empty strings
+  async preloadAll(sources: VideoSource[]): Promise<void> {
+    // Resolve all VideoSource to actual URLs
+    const urls = sources.map(source => resolveVideoUrl(source)).filter(url => url);
+    const uniqueUrls = Array.from(new Set(urls)); // Remove duplicates
     
     if (uniqueUrls.length === 0) {
       return;
@@ -126,18 +187,20 @@ export class VideoManager {
   }
 
   /**
-   * Get a preloaded video element by URL.
+   * Get a preloaded video element by source (VideoSource or resolved URL).
    * Returns undefined if the video hasn't been preloaded yet.
    */
-  getVideo(url: string): HTMLVideoElement | undefined {
+  getVideo(source: VideoSource | string): HTMLVideoElement | undefined {
+    const url = typeof source === 'string' ? source : resolveVideoUrl(source);
     return this.videos.get(url);
   }
 
   /**
-   * Get or create a THREE.VideoTexture for the given video URL.
+   * Get or create a THREE.VideoTexture for the given video source (VideoSource or resolved URL).
    * The texture is cached and reused.
    */
-  getTexture(url: string): THREE.VideoTexture | undefined {
+  getTexture(source: VideoSource | string): THREE.VideoTexture | undefined {
+    const url = typeof source === 'string' ? source : resolveVideoUrl(source);
     if (!this.textures.has(url)) {
       const video = this.getVideo(url);
       if (!video) {
@@ -157,9 +220,10 @@ export class VideoManager {
   }
 
   /**
-   * Check if a video is ready to play.
+   * Check if a video is ready to play (by VideoSource or resolved URL).
    */
-  isReady(url: string): boolean {
+  isReady(source: VideoSource | string): boolean {
+    const url = typeof source === 'string' ? source : resolveVideoUrl(source);
     if (this.readyStates.get(url) === true) {
       return true;
     }
@@ -172,17 +236,19 @@ export class VideoManager {
   }
 
   /**
-   * Check if a video failed to load.
+   * Check if a video failed to load (by VideoSource or resolved URL).
    */
-  hasError(url: string): boolean {
+  hasError(source: VideoSource | string): boolean {
+    const url = typeof source === 'string' ? source : resolveVideoUrl(source);
     return this.errorStates.get(url) === true;
   }
 
   /**
-   * Play a video by URL. Pauses all other videos first.
+   * Play a video by source (VideoSource or resolved URL). Pauses all other videos first.
    * CRITICAL: Only call this when tutorial is visible and step is current.
    */
-  playVideo(url: string): void {
+  playVideo(source: VideoSource | string): void {
+    const url = typeof source === 'string' ? source : resolveVideoUrl(source);
     console.log(`[VideoManager] playVideo called for: ${url}`);
     
     // Pause all other videos
@@ -221,9 +287,10 @@ export class VideoManager {
   }
 
   /**
-   * Pause a video by URL.
+   * Pause a video by source (VideoSource or resolved URL).
    */
-  pauseVideo(url: string): void {
+  pauseVideo(source: VideoSource | string): void {
+    const url = typeof source === 'string' ? source : resolveVideoUrl(source);
     const video = this.getVideo(url);
     if (video) {
       video.pause();

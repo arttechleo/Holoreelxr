@@ -1,4 +1,5 @@
 // src/ui/tutorial/TutorialSteps.ts
+import { VideoSource } from './VideoManager';
 
 export interface TutorialStep {
   id: string;
@@ -9,16 +10,15 @@ export interface TutorialStep {
   color: string;
   gesture?: string;
   completed: boolean;
-  videoSrc?: string; // Path to gesture demo video
+  videoSrc?: VideoSource; // Path to gesture demo video (supports WebM with MP4 fallback)
   posterSrc?: string; // Path to static poster image (fallback for slow video loading)
 }
 
 /**
  * Default tutorial steps for onboarding
  * 
- * NOTE: videoSrc paths must always point to files that actually exist in /public/gestuivideo.
- * Prefer optimized_*.mp4 under /gestuivideo/optimized/ if present, otherwise fall back
- * to the original /gestuivideo/*.mp4 assets.
+ * NOTE: videoSrc uses VideoSource format with WebM (preferred) and MP4 (fallback).
+ * WebM files are in /gestuivideo/webm/, MP4 files are in /gestuivideo/.
  */
 export function createDefaultTutorialSteps(): TutorialStep[] {
   return [
@@ -41,7 +41,10 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#4ECDC4',
       gesture: 'twohandrotate',
       completed: false,
-      videoSrc: '/gestuivideo/Rotate.mp4',
+      videoSrc: {
+        webm: '/gestuivideo/webm/Rotate.webm',
+        mp4: '/gestuivideo/Rotate.mp4',
+      },
       posterSrc: '/gestuivideo/posters/rotate.png',
     },
     {
@@ -53,7 +56,10 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#95E1D3',
       gesture: 'twohandscale',
       completed: false,
-      videoSrc: '/gestuivideo/Scale.mp4',
+      videoSrc: {
+        webm: '/gestuivideo/webm/Scale.webm',
+        mp4: '/gestuivideo/Scale.mp4',
+      },
       posterSrc: '/gestuivideo/posters/scale.png',
     },
     {
@@ -65,7 +71,10 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#FF6B6B',
       gesture: 'grab',
       completed: false,
-      videoSrc: '/gestuivideo/Grab.mp4',
+      videoSrc: {
+        webm: '/gestuivideo/webm/Grab.webm',
+        mp4: '/gestuivideo/Grab.mp4',
+      },
       posterSrc: '/gestuivideo/posters/grab.png',
     },
     {
@@ -77,7 +86,10 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#6BCF7F',
       gesture: 'scroll',
       completed: false,
-      videoSrc: '/gestuivideo/Scroll.mp4',
+      videoSrc: {
+        webm: '/gestuivideo/webm/Scroll.webm',
+        mp4: '/gestuivideo/Scroll.mp4',
+      },
       posterSrc: '/gestuivideo/posters/scroll.png',
     },
     {
@@ -89,7 +101,10 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#F38181',
       gesture: 'thumbsup',
       completed: false,
-      videoSrc: '/gestuivideo/ThumsUp.mp4',
+      videoSrc: {
+        webm: '/gestuivideo/webm/ThumsUp.webm',
+        mp4: '/gestuivideo/ThumsUp.mp4',
+      },
       posterSrc: '/gestuivideo/posters/thumbsup.png',
     },
     {
@@ -101,7 +116,10 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#AA96DA',
       gesture: 'heart',
       completed: false,
-      videoSrc: '/gestuivideo/Heart.mp4',
+      videoSrc: {
+        webm: '/gestuivideo/webm/Heart.webm',
+        mp4: '/gestuivideo/Heart.mp4',
+      },
       posterSrc: '/gestuivideo/posters/heart.png',
     },
     {
@@ -113,7 +131,10 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#FFD93D',
       gesture: 'peace',
       completed: false,
-      videoSrc: '/gestuivideo/Repost.mp4',
+      videoSrc: {
+        webm: '/gestuivideo/webm/Repost.webm',
+        mp4: '/gestuivideo/Repost.mp4',
+      },
       posterSrc: '/gestuivideo/posters/repost.png',
     },
   ];
