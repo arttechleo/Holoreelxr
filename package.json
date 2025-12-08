@@ -17,6 +17,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@mkkellogg/gaussian-splats-3d": "^0.4.7",
     "@playcanvas/supersplat-viewer": "^1.7.1",
     "@sparkjsdev/spark": "^0.1.10",
     "peerjs": "^1.5.5",

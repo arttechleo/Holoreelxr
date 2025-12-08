@@ -3,6 +3,7 @@ import { SplatSequence } from './loaders/SplatSequence';
 import { GLTFModelLoader } from './loaders/GLTFLoader';
 import { ModelAssetManager } from './loaders/ModelAssetManager';
 import { GaussianSplatLoader } from './loaders/GaussianSplatLoader';
+import { createGaussianSplatBackend, IGaussianSplatBackend, GAUSSIAN_BACKEND } from './loaders/GaussianSplatBackend';
 import { logError } from '../utils/errors';
 import { logger } from '../config/production';
 
@@ -29,7 +30,8 @@ export class FeedStore {
   private seq?: SplatSequence;
   private gltfLoader?: GLTFModelLoader; // Kept for backward compatibility
   private assetManager?: ModelAssetManager;
-  private gaussianSplatLoader?: GaussianSplatLoader;
+  private gaussianSplatLoader?: GaussianSplatLoader; // Kept for backward compatibility
+  private gaussianSplatBackend?: IGaussianSplatBackend; // New backend abstraction
   private preloadInFlight = new Set<number>();
   private currentGLTF?: THREE.Group;
   private previousGLTF?: THREE.Object3D; // Keep previous model visible while loading
@@ -382,8 +384,10 @@ export class FeedStore {
         console.log(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
         logger.verbose(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
         try {
-          console.log(`[FeedStore] 📦 Calling GaussianSplatLoader.load("${item.src}")...`);
-          const splatAsset = await this.ensureGaussianSplatLoader().load(item.src, item.settingsUrl);
+          console.log(`[FeedStore] 📦 Loading Gaussian Splat via backend: ${GAUSSIAN_BACKEND}`);
+          const backend = this.ensureGaussianSplatBackend();
+          console.log(`[FeedStore] 📦 Backend: ${backend.getName()}, URL: ${item.src}`);
+          const splatAsset = await backend.loadSplat(item.src, item.settingsUrl);
           console.log(`[FeedStore] ✅ Successfully loaded Gaussian Splat: ${item.title}`);
           logger.verbose(`[FeedStore] ✅ Successfully loaded Gaussian Splat: ${item.title}`);
           
@@ -403,7 +407,7 @@ export class FeedStore {
           });
           
           this.parent.add(splatAsset.scene);
-          this.currentGaussianSplat = splatAsset.scene;
+          this.currentGaussianSplat = splatAsset.scene as THREE.Group;
           
           // Debug: Add axes helper for visibility testing (can be removed later)
           // NOTE: If you see the axes but no splat, the file loaded but may not be rendering
@@ -434,8 +438,31 @@ export class FeedStore {
             splatMeshType: splatMesh?.constructor?.name || 'unknown',
             splatMeshUrl: (splatMesh as any)?.url || 'unknown',
             totalChildren: splatAsset.scene.children.length,
-            scenePath: `contentRoot -> ${splatAsset.scene.name} -> SplatMesh`
+            scenePath: `contentRoot -> ${splatAsset.scene.name} -> SplatMesh`,
+            splatMeshVisible: (splatMesh as any)?.visible !== false,
+            splatMeshParent: splatMesh?.parent?.name || 'unknown'
           });
+          
+          // CRITICAL: Immediately check if SparkRenderer can discover this SplatMesh
+          // SparkRenderer needs to traverse the scene to find SplatMesh objects
+          // If it's wrapped in a Group, it should still be discoverable via scene traversal
+          setTimeout(() => {
+            // Give SparkRenderer a moment to discover the new SplatMesh
+            const app = (window as any).app as any;
+            if (app && app.sparkRenderer) {
+              const splatMeshInfo = app.countSplatMeshesInScene?.();
+              if (splatMeshInfo) {
+                console.log(`[FeedStore] 🔍 SparkRenderer discovery check (after 100ms):`, {
+                  count: splatMeshInfo.count,
+                  details: splatMeshInfo.details
+                });
+                if (splatMeshInfo.count === 0) {
+                  console.warn(`[FeedStore] ⚠️ SparkRenderer found 0 SplatMesh objects - splat may not render!`);
+                  console.warn(`[FeedStore] 💡 Check: Is SplatMesh properly initialized? Is it in the scene graph?`);
+                }
+              }
+            }
+          }, 100);
           
           // XR DEBUG: Log position and scale when in XR mode
           // This helps verify the splat is positioned correctly for XR viewing
@@ -792,6 +819,18 @@ export class FeedStore {
   }
 
   /**
+   * Get or create the Gaussian Splat backend instance.
+   * Uses the backend abstraction to allow switching between Spark and GaussianSplats3D.
+   */
+  private ensureGaussianSplatBackend(): IGaussianSplatBackend {
+    if (!this.gaussianSplatBackend) {
+      this.gaussianSplatBackend = createGaussianSplatBackend();
+      console.log(`[FeedStore] ✅ Gaussian Splat backend created: ${this.gaussianSplatBackend.getName()}`);
+    }
+    return this.gaussianSplatBackend;
+  }
+
+  /**
    * Dispose resources (called when FeedStore is no longer needed)
    */
   dispose(): void {
@@ -810,6 +849,10 @@ export class FeedStore {
     if (this.gaussianSplatLoader) {
       this.gaussianSplatLoader.dispose();
       this.gaussianSplatLoader = undefined;
+    }
+    if (this.gaussianSplatBackend) {
+      this.gaussianSplatBackend.dispose();
+      this.gaussianSplatBackend = undefined;
     }
     if (this.seq) {
       this.seq.dispose();
@@ -964,8 +1007,8 @@ export class FeedStore {
         return;
       }
       this.preloadInFlight.add(index);
-      this.ensureGaussianSplatLoader()
-        .preload(item.src, item.settingsUrl)
+      this.ensureGaussianSplatBackend()
+        .preloadSplat(item.src, item.settingsUrl)
         .catch((err) => {
           logError(err, `FeedStore.preload:${item.id}`);
         })

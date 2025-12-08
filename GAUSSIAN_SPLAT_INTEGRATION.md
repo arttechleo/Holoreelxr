@@ -2,193 +2,186 @@
 
 ## Overview
 
-This document describes how Gaussian Splatting is integrated into the Holoreelxr WebXR application. Gaussian Splats are a cutting-edge 3D representation format that provides high-quality, real-time rendering of 3D scenes using point-based rendering techniques.
+This document describes the Gaussian Splatting integration in Holoreelxr, including both Spark and GaussianSplats3D backends, debugging tools, and performance considerations.
 
 ## Architecture
 
-### Library Choice
+### Backend Abstraction
 
-The project uses **@sparkjsdev/spark** (SparkJS) for Gaussian Splat rendering:
+The app uses a backend abstraction layer (`GaussianSplatBackend`) that allows switching between different Gaussian Splat libraries:
 
-- **Version**: v0.1.10 (as of package.json)
-- **Why SparkJS**: 
-  - Modern, actively maintained library
-  - Native Three.js integration (no iframes)
-  - WebXR compatible
-  - Supports .ply files and other formats (.spz, .splat, .ksplat)
-  - Efficient rendering on low-powered devices
-  - MIT license
+- **Spark** (`@sparkjsdev/spark`) - Default backend, integrated with SparkRenderer
+- **GaussianSplats3D** (`@mkkellogg/gaussian-splats-3d`) - Alternative backend with proven WebXR support
 
-### Core Components
+### Current Implementation
 
-1. **SparkRenderer** (`src/app/ThreeXRApp.ts`)
-   - Initialized once at app startup
-   - Added to the main Three.js scene
-   - Updated every frame with camera information for proper XR support
-   - Handles the actual rendering of all Gaussian Splat objects
+1. **ThreeXRApp.ts**: 
+   - Initializes `SparkRenderer` with `autoUpdate: true`
+   - Updates SparkRenderer every frame with correct camera (XR or desktop)
+   - Render order: `sparkRenderer.update()` → `renderer.render()`
 
-2. **GaussianSplatLoader** (`src/feed/loaders/GaussianSplatLoader.ts`)
-   - Loads .ply files using SparkJS SplatMesh API
-   - Handles caching and normalization
-   - Returns Three.js Group objects that can be added to the scene
+2. **GaussianSplatLoader.ts**: 
+   - Loads PLY files using Spark's `SplatMesh` class
+   - Wraps SplatMesh in a `THREE.Group` for consistency
+   - Normalizes scale and position
 
-3. **FeedStore** (`src/feed/FeedStore.ts`)
-   - Integrates Gaussian Splats as a feed content type (`gaussianSplat`)
-   - Handles loading, positioning, scaling, and cleanup
-   - Manages lifecycle similar to GLTF models
+3. **FeedStore.ts**: 
+   - Uses backend abstraction to load splats
+   - Adds splat groups to `contentRoot` in the scene
 
-## Integration Details
+## Configuration
 
-### Render Loop Integration
+### Backend Selection
 
-The key fix for WebXR compatibility is in `ThreeXRApp.start()`:
+Set the backend via environment variable or config:
 
 ```typescript
-// Update SparkRenderer with camera information
-if (this.sparkRenderer && this.sparkRenderer.update) {
-  this.sparkRenderer.update({ 
-    scene: this.scene,
-    camera: this.camera  // Critical for XR mode
-  });
-}
-
-// Render the scene (Three.js handles XR camera updates automatically)
-this.renderer.render(this.scene, this.camera);
-```
-
-**Important**: The camera passed to `sparkRenderer.update()` is automatically updated by Three.js when in XR mode. This ensures Gaussian Splats render correctly in both desktop and XR modes.
-
-### Content Type
-
-Gaussian Splats are defined in `feed.json` with the type `gaussianSplat`:
-
-```json
-{
-  "id": "test-gaussian-splat",
-  "title": "Test Gaussian Splat",
-  "author": "HoloreelXR",
-  "type": "gaussianSplat",
-  "src": "/assets/aigengsplat.ply"
+// In src/config/constants.ts
+export const GAUSSIAN_SPLAT = {
+  BACKEND: 'spark' | 'gaussian-splats-3d', // Default: 'spark'
+  QUALITY: 'high' | 'medium' | 'low',      // Default: 'medium'
+  DEBUG_OVERLAY: true | false,             // Default: false
+  TARGET_FPS: 72,                          // Quest 3 target
 }
 ```
 
-### Loading Process
-
-1. **FeedStore** detects `type: 'gaussianSplat'` in feed items
-2. **GaussianSplatLoader** loads the .ply file using SparkJS
-3. SplatMesh is wrapped in a Three.js Group for consistency
-4. Asset is normalized (scaled and centered) similar to GLTF models
-5. Group is added to `contentRoot` in the scene
-6. SparkRenderer automatically renders all SplatMesh objects in the scene
-
-## Adding New Gaussian Splat Assets
-
-### Step 1: Add Asset File
-
-Place your .ply file in `public/assets/` directory:
-
-```
-public/
-  assets/
-    your-splat.ply
+Or via environment variable:
+```bash
+VITE_GAUSSIAN_BACKEND=spark npm run dev
+VITE_GAUSSIAN_BACKEND=gaussian-splats-3d npm run dev
 ```
 
-**Note**: Large files (>100MB) should be stored in Git LFS.
+### Debug Overlay
 
-### Step 2: Add to Feed
+Enable debug overlay to see real-time diagnostics:
 
-Add an entry to `public/feed.json`:
-
-```json
-{
-  "id": "unique-id",
-  "title": "Your Splat Title",
-  "author": "Creator Name",
-  "type": "gaussianSplat",
-  "src": "/assets/your-splat.ply"
-}
+```bash
+VITE_GAUSSIAN_DEBUG=true npm run dev
 ```
 
-### Step 3: Test
+The overlay shows:
+- Current backend (Spark or GaussianSplats3D)
+- SplatMesh count in scene
+- SparkRenderer status
+- XR mode (Desktop or XR)
+- Camera type
 
-1. Start the dev server: `npm run dev`
-2. Navigate to the feed item in desktop mode
-3. Verify the splat loads and renders correctly
-4. Enter XR mode (AR/VR) and verify it follows the camera correctly
+## Adding Gaussian Splats
 
-## Known Limitations
-
-1. **Performance**: Large Gaussian Splat files (>100MB) may take time to load and can impact performance on lower-end devices
-2. **Memory**: Each splat consumes GPU memory. Multiple large splats may cause issues on mobile devices
-3. **Format Support**: Currently supports .ply files. Other formats (.spz, .splat, .ksplat) may work but are not fully tested
-4. **Cloning**: SplatMesh objects are shared between instances for efficiency. True cloning would require re-loading the file
+1. Place PLY files in `public/assets/` directory
+2. Reference in `feed.json`:
+   ```json
+   {
+     "id": "splat-1",
+     "title": "My Splat",
+     "author": "Author",
+     "type": "gaussianSplat",
+     "src": "/assets/mysplat.ply"
+   }
+   ```
 
 ## Troubleshooting
 
-### Splat Not Rendering in Desktop Mode
+### Splats Not Visible (Axes Show But No Splat)
 
-1. Check browser console for errors
-2. Verify the .ply file exists and is accessible
-3. Check that `@sparkjsdev/spark` is installed: `npm install @sparkjsdev/spark`
-4. Verify SparkRenderer initialized: Look for `[ThreeXRApp] SparkRenderer initialized successfully` in console
+**Symptoms:**
+- AxesHelper is visible
+- Console shows successful loading
+- SplatMesh count > 0
+- But splat itself is not visible
 
-### Splat Not Rendering in XR Mode
+**Debugging Steps:**
 
-1. Verify camera is being passed to SparkRenderer.update() (check render loop)
-2. Check that `renderer.xr.enabled = true` in ThreeXRApp
-3. Verify the splat object is visible: `splatAsset.scene.visible === true`
-4. Check that the splat is added to the scene: `splatAsset.scene.parent !== null`
+1. **Check SparkRenderer Status:**
+   ```javascript
+   // In browser console
+   window.app.sparkRenderer // Should be defined
+   window.app.countSplatMeshesInScene() // Should return count > 0
+   ```
+
+2. **Verify Render Loop:**
+   - Check console for `[SparkDebug]` logs
+   - Ensure `sparkRenderer.update()` is being called every frame
+   - Verify camera is passed correctly (especially in XR mode)
+
+3. **Check SplatMesh Discovery:**
+   - SplatMesh should be in scene graph (even if wrapped in Group)
+   - SparkRenderer should traverse scene and find SplatMesh
+   - Verify `visible` flags are true
+
+4. **Try Alternative Backend:**
+   ```bash
+   VITE_GAUSSIAN_BACKEND=gaussian-splats-3d npm run dev
+   ```
 
 ### Performance Issues
 
-1. Reduce splat file size if possible
-2. Check GPU memory usage in browser dev tools
-3. Consider using lower-quality splat files for mobile devices
-4. Ensure only one splat is loaded at a time (previous splats should be disposed)
+**On Quest 3:**
+- Target: 72 FPS for static splats
+- Large splats (>100MB) may cause frame drops
+- Consider using quality presets if available
+- Monitor FPS in debug overlay
 
-### Common Errors
+**Optimization Tips:**
+- Use compressed formats (`.ksplat` instead of `.ply`) if supported
+- Reduce splat count for large scenes
+- Enable LOD if backend supports it
 
-- **"Gaussian Splat library not available"**: Run `npm install @sparkjsdev/spark`
-- **"CORS/Network issue"**: Ensure the .ply file is served from the same origin or CORS is enabled
-- **"404 Not Found"**: Check that the file path in feed.json matches the actual file location
-- **"Load timeout"**: File may be too large or network too slow. Consider using a CDN or optimizing the file
+## Known Issues & Limitations
 
-## Technical Details
+### Spark Backend
 
-### Normalization
+- **Issue**: Splats may not render if SparkRenderer doesn't discover SplatMesh
+- **Workaround**: Ensure SplatMesh is in scene graph, check `visible` flags
+- **Status**: Under investigation - may require SparkRenderer API changes
 
-Gaussian Splats are automatically normalized when loaded:
-- Bounding box is calculated
-- Scale is adjusted to fit a 1-unit bounding box
-- Model is centered at origin
-- This ensures consistent sizing across different splat files
+### GaussianSplats3D Backend
 
-### Auto-Scaling
+- **Status**: Implemented but not fully tested
+- **API**: May require adjustment based on actual library exports
+- **WebXR**: Should work automatically (standard Three.js objects)
 
-Similar to GLTF models, Gaussian Splats are auto-scaled to fit the viewport:
-- Bounding box is calculated
-- Scale is adjusted to fit within a reasonable viewport size
-- User can still manually scale using gestures/keyboard
+## Files Changed
 
-### Cleanup
+### Core Integration
+- `src/app/ThreeXRApp.ts` - SparkRenderer initialization and render loop
+- `src/feed/FeedStore.ts` - Backend abstraction usage
+- `src/feed/loaders/GaussianSplatLoader.ts` - Spark-based loader
+- `src/feed/loaders/GaussianSplatBackend.ts` - Backend abstraction layer
 
-When navigating away from a Gaussian Splat:
-1. The Group containing the SplatMesh is removed from the scene
-2. Resources are cleaned up by SparkRenderer automatically
-3. Cached assets remain in memory for faster re-loading
+### Configuration
+- `src/config/constants.ts` - Added `GAUSSIAN_SPLAT` config section
 
-## Future Improvements
+## Testing
 
-- [ ] Support for animated splat sequences
-- [ ] Better error recovery and fallback rendering
-- [ ] Performance optimizations for mobile devices
-- [ ] Support for additional splat formats (.spz, .splat, .ksplat)
-- [ ] True cloning support for multiple instances
-- [ ] LOD (Level of Detail) support for distant splats
+### Desktop Mode
+1. Load feed with Gaussian splat item
+2. Verify splat is visible (not just axes)
+3. Check console for errors
+4. Verify debug overlay (if enabled)
+
+### WebXR Mode (Quest 3)
+1. Start XR session
+2. Load Gaussian splat feed item
+3. Verify splat is visible and stable in 3D space
+4. Move head - splat should remain fixed in world space
+5. Check FPS (target: 72 FPS)
+
+## Next Steps
+
+1. **Fix Spark Discovery**: If SparkRenderer still doesn't discover SplatMesh, investigate:
+   - Direct scene addition (not wrapped in Group)
+   - SparkRenderer API for explicit registration
+   - Scene traversal order
+
+2. **Test GaussianSplats3D**: Fully test alternative backend on Quest 3
+
+3. **Performance Tuning**: Add quality presets and LOD support
+
+4. **4D/Animated Splats**: Extend architecture for animated splat sequences
 
 ## References
 
-- SparkJS Documentation: https://sparkjs.dev
-- Three.js WebXR Guide: https://threejs.org/docs/#manual/en/introduction/How-to-use-WebXR
-- Gaussian Splatting Paper: https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/
-
+- SparkJS: https://sparkjs.dev
+- GaussianSplats3D: https://github.com/mkkellogg/GaussianSplats3D
+- Three.js WebXR: https://threejs.org/docs/#manual/en/introduction/How-to-use-WebXR

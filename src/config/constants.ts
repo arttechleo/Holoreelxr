@@ -254,6 +254,27 @@ export const CAMERA = {
   FAR: 100,
 } as const;
 
+// ========== GAUSSIAN SPLAT ==========
+// Type-safe access to Vite environment variables
+const getEnvVar = (key: string): string | undefined => {
+  // @ts-ignore - Vite injects import.meta.env at build time
+  return typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env[key] : undefined;
+};
+
+export const GAUSSIAN_SPLAT = {
+  /** Backend selection: 'spark' or 'gaussian-splats-3d' */
+  BACKEND: (getEnvVar('VITE_GAUSSIAN_BACKEND') as 'spark' | 'gaussian-splats-3d' | undefined) || 'spark',
+  
+  /** Quality preset: 'high' | 'medium' | 'low' (if supported by backend) */
+  QUALITY: (getEnvVar('VITE_GAUSSIAN_QUALITY') as 'high' | 'medium' | 'low' | undefined) || 'medium',
+  
+  /** Enable debug overlay for splat diagnostics */
+  DEBUG_OVERLAY: getEnvVar('VITE_GAUSSIAN_DEBUG') === 'true',
+  
+  /** Performance target FPS for Quest 3 */
+  TARGET_FPS: 72,
+} as const;
+
 // ========== DEBUG ==========
 export const DEBUG = {
   /** Enable console logging for gestures */

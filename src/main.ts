@@ -28,6 +28,9 @@ const hud = new Hud();
 const store = new FeedStore(app.contentRoot, (t)=>hud.toast(t));
 const player = new GlobalPlayer();
 
+// Expose app globally for debugging (can be removed in production)
+(window as any).app = app;
+
 // New managers
 const assetLinkMgr = new AssetLinkManager(store);
 const authMgr = new AuthManager();

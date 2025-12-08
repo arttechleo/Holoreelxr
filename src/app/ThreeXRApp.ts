@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { XRHandModelFactory } from 'three/examples/jsm/webxr/XRHandModelFactory.js';
 import { logError } from '../utils/errors';
+import { GAUSSIAN_SPLAT } from '../config/constants';
 
 export type XRFrameInfo = { frame: XRFrame | null; refSpace: XRReferenceSpace | null };
 
@@ -12,9 +13,12 @@ export class ThreeXRApp {
   public overlayRoot: HTMLElement;
   public sparkRenderer: any; // SparkRenderer from @sparkjsdev/spark
   
+  // Expose countSplatMeshesInScene for external debugging
+  public countSplatMeshesInScene = this._countSplatMeshesInScene.bind(this);
+  
   // Debug overlay for Spark/Splat diagnostics (optional, can be toggled)
   private sparkDebugOverlay: HTMLElement | null = null;
-  private sparkDebugEnabled = false; // Set to true to enable debug overlay
+  private sparkDebugEnabled = false; // Can be enabled via GAUSSIAN_SPLAT.DEBUG_OVERLAY config
 
   private onFrameCbs: Array<(info: XRFrameInfo) => void> = [];
   private refSpace: XRReferenceSpace | null = null;
@@ -135,20 +139,22 @@ export class ThreeXRApp {
       
       // CRITICAL FIX: SparkRenderer integration pattern
       // 
-      // SparkJS SparkRenderer integration (manual update mode, autoUpdate: false):
-      // - SparkRenderer must be added to the scene (done in initializeSparkRenderer)
-      // - SparkRenderer.update() must be called every frame with scene and camera
+      // SparkJS SparkRenderer integration (autoUpdate: true mode):
+      // - SparkRenderer is added to the scene (done in initializeSparkRenderer)
+      // - With autoUpdate: true, SparkRenderer handles its own update cycle automatically
+      // - However, we may still need to ensure it has the correct camera reference
       // 
-      // IMPORTANT: Based on typical post-processing renderer patterns, SparkRenderer
-      // may need to update AFTER renderer.render() to composite splats on top of
-      // the Three.js rendered scene. We try updating AFTER render first.
+      // IMPORTANT: With autoUpdate: true, SparkRenderer should automatically:
+      // 1. Discover SplatMesh objects in the scene
+      // 2. Update every frame with the current camera
+      // 3. Render splats during the main render pass
       // 
       // For XR: activeCamera is automatically the XR camera when in XR mode
       // For desktop: activeCamera is the normal PerspectiveCamera
       // 
-      // Render order:
-      // 1. Call renderer.render() (Three.js renders the scene)
-      // 2. Update SparkRenderer with scene and camera (composites splats on top)
+      // Render order with autoUpdate: true:
+      // 1. Update SparkRenderer BEFORE render (if manual update still needed)
+      // 2. Call renderer.render() - SparkRenderer will render splats automatically during this call
       if (!this.sparkRenderer) {
         // Only log once to avoid spam
         if (!(this as any)._sparkRendererWarningLogged) {
@@ -157,20 +163,34 @@ export class ThreeXRApp {
         }
       }
       
-      // Render the scene with the camera (Three.js handles XR camera updates automatically)
-      // This renders all Three.js objects first
-      this.renderer.render(this.scene, activeCamera);
-      
-      // Update SparkRenderer AFTER render to composite splats
-      // SparkJS update() accepts { scene, camera?, viewToWorld? }
-      // This tells SparkRenderer what scene to scan for SplatMesh objects and what camera to use
-      // By calling update() after render, SparkRenderer can composite splats on top of the rendered scene
-      if (this.sparkRenderer && this.sparkRenderer.update) {
-        this.sparkRenderer.update({ 
-          scene: this.scene,
-          camera: activeCamera
-        });
+      // CRITICAL: With autoUpdate: true, SparkRenderer should handle its own updates
+      // However, we may still need to ensure it has the correct camera reference
+      // Some SparkRenderer implementations need manual update even with autoUpdate: true
+      // Try both patterns: update before render (prepares state) and let autoUpdate handle rendering
+      if (this.sparkRenderer) {
+        // Check if SparkRenderer has autoUpdate enabled
+        const hasAutoUpdate = (this.sparkRenderer as any).autoUpdate !== false;
+        
+        if (hasAutoUpdate && this.sparkRenderer.update) {
+          // With autoUpdate: true, we may still need to pass camera for XR support
+          // Update BEFORE render to ensure SparkRenderer has correct camera state
+          this.sparkRenderer.update({ 
+            scene: this.scene,
+            camera: activeCamera
+          });
+        } else if (!hasAutoUpdate && this.sparkRenderer.update) {
+          // Manual update mode - must call update
+          this.sparkRenderer.update({ 
+            scene: this.scene,
+            camera: activeCamera
+          });
+        }
       }
+      
+      // Render the scene with the camera (Three.js handles XR camera updates automatically)
+      // SparkRenderer (if autoUpdate: true) will automatically render splats during this call
+      // OR if manual update, it will render based on the update() call above
+      this.renderer.render(this.scene, activeCamera);
       
       // DEBUG: Periodically log SplatMesh count (throttled to avoid spam)
       if (this.sparkRenderer && !(this as any)._lastSplatMeshCheck) {
@@ -178,7 +198,7 @@ export class ThreeXRApp {
       }
       if (this.sparkRenderer && (this as any)._lastSplatMeshCheck && 
           performance.now() - (this as any)._lastSplatMeshCheck > 5000) {
-        const splatMeshInfo = this.countSplatMeshesInScene();
+        const splatMeshInfo = this._countSplatMeshesInScene();
         if (splatMeshInfo.count > 0) {
           console.log(`[SparkDebug] SplatMesh count in scene: ${splatMeshInfo.count}`);
           splatMeshInfo.details.forEach((detail, i) => {
@@ -200,7 +220,7 @@ export class ThreeXRApp {
    * 
    * Returns: { count: number, details: Array<{path: string, url?: string}> }
    */
-  private countSplatMeshesInScene(): { count: number; details: Array<{path: string; url?: string}> } {
+  private _countSplatMeshesInScene(): { count: number; details: Array<{path: string; url?: string}> } {
     const details: Array<{path: string; url?: string}> = [];
     let count = 0;
     
@@ -337,21 +357,23 @@ export class ThreeXRApp {
       // - renderer: THREE.WebGLRenderer (required)
       // - autoUpdate: boolean (optional) - if true, SparkRenderer updates automatically
       // 
-      // We use autoUpdate: false to have manual control over when updates happen,
-      // which is important for XR camera handling. If autoUpdate: true, SparkRenderer
-      // would update automatically but might not get the correct XR camera.
+      // CRITICAL FIX: Try autoUpdate: true first - SparkRenderer may need to handle
+      // its own update cycle to properly discover and render SplatMesh objects.
+      // If autoUpdate works, it will automatically update every frame with the correct camera.
       try {
-        // Try with explicit autoUpdate: false for manual control
+        // Try with autoUpdate: true - SparkRenderer will handle updates automatically
+        // This is the recommended pattern for SparkJS integration
         this.sparkRenderer = new SparkRenderer({ 
           renderer: this.renderer,
-          autoUpdate: false
+          autoUpdate: true
         });
-        console.log('[ThreeXRApp] ✅ SparkRenderer created with autoUpdate: false (manual update for XR support)');
+        console.log('[ThreeXRApp] ✅ SparkRenderer created with autoUpdate: true (automatic updates)');
+        console.log('[ThreeXRApp] 💡 SparkRenderer will automatically update every frame and discover SplatMesh objects');
       } catch (e: any) {
         // If autoUpdate option causes error, try without it (defaults may vary)
         try {
           this.sparkRenderer = new SparkRenderer({ renderer: this.renderer });
-          console.log('[ThreeXRApp] ✅ SparkRenderer created (using default options)');
+          console.log('[ThreeXRApp] ✅ SparkRenderer created (using default options - may auto-update)');
         } catch (e2: any) {
           console.error('[ThreeXRApp] ❌ Failed to create SparkRenderer:', e2);
           throw e2;
@@ -366,8 +388,9 @@ export class ThreeXRApp {
       console.log('[ThreeXRApp] 💡 SparkRenderer will be updated every frame with camera info for XR support');
       console.log('[ThreeXRApp] 💡 SparkRenderer will automatically discover and render SplatMesh objects in the scene');
       
-      // Initialize debug overlay if enabled
-      if (this.sparkDebugEnabled) {
+      // Initialize debug overlay if enabled via config
+      if (GAUSSIAN_SPLAT.DEBUG_OVERLAY) {
+        this.sparkDebugEnabled = true;
         this.initializeSparkDebugOverlay();
       }
     } catch (e: any) {
@@ -417,7 +440,7 @@ export class ThreeXRApp {
       }
       lastUpdate = now;
       
-      const splatMeshInfo = this.countSplatMeshesInScene();
+      const splatMeshInfo = this._countSplatMeshesInScene();
       const xrMode = this.renderer.xr.isPresenting ? 'XR' : 'Desktop';
       const sparkStatus = this.sparkRenderer ? 'Active' : 'Not Initialized';
       

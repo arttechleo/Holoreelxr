@@ -190,7 +190,19 @@ export class GaussianSplatLoader {
       logger.verbose(`[GaussianSplatLoader] ✅ SplatMesh initialized: ${url}`);
       
       // Step 3: Wrap in a Group for consistency with GLTF assets
+      // CRITICAL: SparkRenderer should be able to discover SplatMesh even when wrapped in a Group
+      // via scene traversal. However, we ensure the SplatMesh itself is visible and properly configured.
       const group = new THREE.Group();
+      
+      // Ensure SplatMesh is visible and properly configured before adding to group
+      (splatMesh as any).visible = true;
+      if ((splatMesh as any).castShadow !== undefined) {
+        (splatMesh as any).castShadow = false; // Splats typically don't cast shadows
+      }
+      if ((splatMesh as any).receiveShadow !== undefined) {
+        (splatMesh as any).receiveShadow = false;
+      }
+      
       group.add(splatMesh);
       group.name = 'gaussian-splat';
 
