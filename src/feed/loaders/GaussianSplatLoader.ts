@@ -125,6 +125,10 @@ export class GaussianSplatLoader {
    * This is useful for quickly testing whatever .spz files are present
    * without hardcoding a specific URL.
    * 
+   * Smart URL resolution:
+   * - If url ends with .ply, checks manifest for .spz version and uses it if available
+   * - This allows feed.json to use .ply URLs but automatically prefer .spz for performance
+   * 
    * Returns a scene that can be safely added to the world.
    */
   async load(url: string, settingsUrl?: string): Promise<GaussianSplatAsset> {
@@ -135,8 +139,49 @@ export class GaussianSplatLoader {
       return this.loadFirstFromManifest(settingsUrl);
     }
 
-    const base = await this.fetchOrCache(url, settingsUrl);
+    // Smart URL resolution: prefer .spz over .ply if available in manifest
+    const resolvedUrl = await this.resolveUrlFromManifest(url);
+    if (resolvedUrl !== url) {
+      logger.verbose(`[GaussianSplatLoader] Resolved ${url} → ${resolvedUrl} (preferring .spz)`);
+    }
+
+    const base = await this.fetchOrCache(resolvedUrl, settingsUrl);
     return this.cloneAsset(base);
+  }
+  
+  /**
+   * Resolve a URL to prefer .spz over .ply if available in manifest.
+   * This allows feed.json to use .ply URLs but automatically use .spz for better performance.
+   * 
+   * @param url Original URL (may be .ply or .spz)
+   * @returns Resolved URL (prefers .spz if available, otherwise returns original)
+   */
+  async resolveUrlFromManifest(url: string): Promise<string> {
+    // Only try to resolve .ply URLs
+    if (!url.toLowerCase().endsWith('.ply')) {
+      return url;
+    }
+    
+    try {
+      const manifestUrls = await this.loadSplatManifest();
+      if (manifestUrls.length === 0) {
+        return url; // No manifest, use original
+      }
+      
+      // Try to find .spz version of the .ply URL
+      const candidate = url.replace(/\.ply$/i, '.spz');
+      if (manifestUrls.includes(candidate)) {
+        logger.verbose(`[GaussianSplatLoader] Found .spz version in manifest: ${candidate}`);
+        return candidate;
+      }
+      
+      // No .spz version found, use original .ply
+      return url;
+    } catch (err) {
+      // If manifest loading fails, just use original URL
+      logger.verbose(`[GaussianSplatLoader] Manifest check failed, using original URL: ${url}`);
+      return url;
+    }
   }
 
   /**
@@ -435,11 +480,12 @@ export class GaussianSplatLoader {
   /**
    * Load the splat manifest (if available) and return the list of URLs.
    * Used for "auto" loading of .spz files for testing/dev.
+   * Also used for smart URL resolution (.ply → .spz).
    * 
    * Note: The manifest is generated at build/dev time and cannot be discovered
    * dynamically in the browser. Run `npm run generate:splats` to regenerate it.
    */
-  private async loadSplatManifest(): Promise<string[]> {
+  async loadSplatManifest(): Promise<string[]> {
     try {
       const res = await fetch(SPLAT_MANIFEST_URL, { method: 'GET' });
       if (!res.ok) {

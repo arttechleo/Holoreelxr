@@ -369,18 +369,34 @@ export class FeedStore {
       } else if (item.type === 'gaussianSplat') {
         // GAUSSIAN-SPLAT: Load Gaussian Splat content using SparkJS (native Three.js integration)
         // 
-        // IMPORTANT: How to add a new .ply splat asset:
-        // 1. Place the .ply file in public/assets/ directory
-        // 2. Reference it in feed.json as "/assets/filename.ply" (not "./public/assets/...")
-        // 3. Ensure the .ply is a valid 3D Gaussian Splat format (not a regular mesh PLY)
+        // Supported formats:
+        // - .ply  – uncompressed Gaussian splat (fallback)
+        // - .spz  – compressed Spark splat (recommended for performance, especially Quest 3)
+        // - "auto" – loads first .spz from manifest (useful for testing)
+        // 
+        // IMPORTANT: How to add a new splat asset:
+        // 1. Place the .ply or .spz file in public/assets/ directory
+        // 2. Reference it in feed.json as:
+        //    - "/assets/filename.spz" (recommended - better performance)
+        //    - "/assets/filename.ply" (fallback - loader will prefer .spz if available)
+        //    - "auto" (loads first .spz from manifest)
+        // 3. Ensure the file is a valid 3D Gaussian Splat format
         //    - Test by loading in SuperSplat editor (superspl.at) to verify format
+        // 
+        // Smart URL resolution:
+        // - If feed.json uses .ply URL, loader automatically checks manifest for .spz version
+        // - If .spz exists, it's used instead (better performance)
+        // - This allows gradual migration from .ply to .spz without breaking existing feeds
         // 
         // If loading fails, check:
         // - Network tab: HTTP status should be 200, not 404
         // - Console: Look for detailed error messages from GaussianSplatLoader
         // - File format: Ensure it's a Gaussian splat, not a regular PLY mesh
+        // - Manifest: Run `npm run generate:splats` to regenerate manifest if using "auto"
         //
-        // Local test asset: public/assets/aigengsplat.ply (129.70 MB - stored in Git LFS)
+        // Local test assets:
+        // - public/assets/world.spz (compressed, recommended)
+        // - public/assets/aigengsplat.ply (uncompressed, fallback)
         console.log(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
         logger.verbose(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
         try {
