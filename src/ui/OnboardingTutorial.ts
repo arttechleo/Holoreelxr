@@ -8,9 +8,10 @@ import { logger } from '../config/production';
 import { TutorialStep, createDefaultTutorialSteps } from './tutorial/TutorialSteps';
 import { TutorialPanel } from './tutorial/TutorialPanel';
 import { getVideoManager } from './tutorial/VideoManager';
+import { USE_GESTURE_POSTERS_INSTEAD_OF_VIDEO } from './tutorial/TutorialConfig';
 
 export class OnboardingTutorial {
-  private group = new THREE.Group();
+  private group = new THREE.Group()
   private currentStepIndex = 0;
   private originalFeedIndex: number = 0;
   private firstNonTutorialIndex: number = 0;
@@ -121,23 +122,68 @@ export class OnboardingTutorial {
   }
   
   /**
-   * Preload all tutorial videos before they're needed.
-   * This ensures videos are ready when steps are shown.
+   * Preload tutorial videos - OPTIMIZED: Only preload current + next step.
+   * This avoids loading all 7 videos upfront, which is expensive on constrained hardware.
+   * 
+   * If poster fallback is enabled, this does nothing (no videos needed).
    */
   private async preloadTutorialVideos(): Promise<void> {
-    const videoManager = getVideoManager();
-    const videoUrls = this.steps
-      .map(step => step.videoSrc)
-      .filter((url): url is string => !!url); // Filter out undefined
+    // If using posters, skip video preloading entirely
+    if (USE_GESTURE_POSTERS_INSTEAD_OF_VIDEO) {
+      console.log(`[OnboardingTutorial] Using poster fallback - skipping video preload`);
+      return;
+    }
     
-    if (videoUrls.length > 0) {
-      console.log(`[OnboardingTutorial] Preloading ${videoUrls.length} tutorial videos...`);
+    // Only preload welcome step video if it exists (usually doesn't)
+    // Most videos will be loaded on-demand via ensureVideoForStep()
+    const welcomeStep = this.steps[0];
+    if (welcomeStep?.videoSrc) {
+      const videoManager = getVideoManager();
       try {
-        await videoManager.preloadAll(videoUrls);
-        console.log(`[OnboardingTutorial] ✅ All tutorial videos preloaded`);
+        await videoManager.preloadAll([welcomeStep.videoSrc]);
+        console.log(`[OnboardingTutorial] ✅ Preloaded welcome step video`);
       } catch (error) {
-        console.error(`[OnboardingTutorial] Error preloading videos:`, error);
+        console.error(`[OnboardingTutorial] Error preloading welcome video:`, error);
       }
+    }
+  }
+
+  /**
+   * Ensure video for a specific step is preloaded.
+   * Also optionally preloads the next step's video in the background.
+   * This is called when showing a step to ensure its video is ready.
+   */
+  private async ensureVideoForStep(index: number): Promise<void> {
+    // If using posters, skip video loading
+    if (USE_GESTURE_POSTERS_INSTEAD_OF_VIDEO) {
+      return;
+    }
+
+    const videoManager = getVideoManager();
+    const step = this.steps[index];
+    
+    if (!step?.videoSrc) {
+      return; // No video for this step
+    }
+
+    const t0 = performance.now();
+    console.log(`[OnboardingTutorial] ensureVideoForStep start: step=${step.id}, video=${step.videoSrc}, t=${t0.toFixed(2)}ms`);
+
+    try {
+      // Preload current step's video
+      await videoManager.preloadAll([step.videoSrc]);
+      const t1 = performance.now();
+      console.log(`[OnboardingTutorial] ✅ Video ready for step ${step.id}: ${(t1 - t0).toFixed(2)}ms`);
+
+      // Optionally preload next step in background (non-blocking)
+      const nextStep = this.steps[index + 1];
+      if (nextStep?.videoSrc) {
+        videoManager.preloadAll([nextStep.videoSrc]).catch(err => {
+          console.warn(`[OnboardingTutorial] Optional preload for next step video failed:`, nextStep.videoSrc, err);
+        });
+      }
+    } catch (error) {
+      console.error(`[OnboardingTutorial] Error ensuring video for step ${step.id}:`, error);
     }
   }
   
@@ -1107,6 +1153,7 @@ export class OnboardingTutorial {
       return;
     }
     
+    const t0 = performance.now();
     this.currentStepIndex = index;
     const step = this.steps[index];
     
@@ -1115,9 +1162,16 @@ export class OnboardingTutorial {
     const isTwoHandTrackingStep = step.gesture === 'twohandrotate' || step.gesture === 'twohandscale';
     this.clearGestureHandlers({ preserveTwoHandTracking: isTwoHandTrackingStep });
     
-    console.log(`[Tutorial] Showing step ${index + 1}/${this.steps.length}: ${step.title}`);
+    console.log(`[TutorialTiming] showStep start: step=${step.id}, index=${index + 1}/${this.steps.length}, t=${t0.toFixed(2)}ms`);
+    
+    // Ensure video is preloaded for this step (only if not using posters)
+    await this.ensureVideoForStep(index);
+    const t1 = performance.now();
+    console.log(`[TutorialTiming] ensureVideoForStep complete: ${(t1 - t0).toFixed(2)}ms`);
     
     this.updatePanel();
+    const t2 = performance.now();
+    console.log(`[TutorialTiming] updatePanel complete: ${(t2 - t1).toFixed(2)}ms, total=${(t2 - t0).toFixed(2)}ms`);
     
     // Welcome step - just show panel, load first model
     if (step.id === 'welcome') {
@@ -1453,6 +1507,7 @@ export class OnboardingTutorial {
   }
 
   private updatePanel() {
+    const t0 = performance.now();
     const step = this.steps[this.currentStepIndex];
     if (!step) return;
     

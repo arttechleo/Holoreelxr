@@ -27,6 +27,7 @@ This guide explains how to optimize gesture tutorial videos for WebXR performanc
 
 The optimization script uses the following settings for WebXR:
 
+### Standard Preset (Desktop/High-end headsets)
 - **Resolution**: 480p (854x480, scales to fit 16:9)
 - **Framerate**: 30 fps
 - **Codec**: H.264 (AVC) with Main profile
@@ -37,12 +38,43 @@ The optimization script uses the following settings for WebXR:
 - **Faststart**: Enabled (moov atom at front for instant playback)
 - **Audio**: Removed (smaller files, not needed for gesture demos)
 
+### Super Lightweight Headset Preset (Recommended for Quest/constrained devices)
+For WebXR tutorial usage on constrained devices (Quest 2/3, etc.), use these settings for dramatically faster startup:
+
+- **Resolution**: 360p (640x360, or scale down to 480p → 360p)
+- **Framerate**: 30 fps
+- **Codec**: H.264 (AVC) with Main profile
+- **Bitrate**: ~500 kbps (max 600 kbps, buffer 1 Mbps)
+- **Preset**: `veryfast`
+- **Tuning**: `zerolatency`
+- **GOP**: 30 frames (1 second at 30fps) - shorter GOP for faster seeking
+- **Faststart**: Enabled
+- **Audio**: Removed
+
+**Expected file sizes with headset preset**: 50-150 KB per video (vs 200-500 KB with standard preset)
+
+**To use headset preset**, modify the optimization script or run ffmpeg manually with:
+```bash
+ffmpeg -i input.mp4 \
+  -vf "scale=640:-2" \
+  -r 30 \
+  -c:v libx264 -preset veryfast -profile:v main -tune zerolatency \
+  -b:v 500k -maxrate 600k -bufsize 1000k \
+  -g 30 \
+  -movflags +faststart \
+  -an \
+  output.mp4
+```
+
 ## File Size Expectations
 
 Typical results:
 - **Original**: 2-5 MB per video
-- **Optimized**: 200-500 KB per video
-- **Reduction**: 80-90% smaller files
+- **Optimized (standard preset)**: 200-500 KB per video
+- **Optimized (headset preset)**: 50-150 KB per video
+- **Reduction**: 80-95% smaller files
+
+**For WebXR headsets**, prefer the headset preset (360p, ~500 kbps) for instant loading and smooth playback.
 
 ## Using Optimized Videos
 

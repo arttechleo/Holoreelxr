@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import type { TutorialStep } from './TutorialSteps';
 import { getVideoManager } from './VideoManager';
+import { USE_GESTURE_POSTERS_INSTEAD_OF_VIDEO } from './TutorialConfig';
 
 export interface ButtonRegion {
   x: number;
@@ -25,6 +26,10 @@ export class TutorialPanel {
   private currentVideoUrl: string | null = null;
   private videoAnimationFrame: number | null = null;
   private currentStepId: string | null = null;
+  
+  // Poster fallback support
+  private posterTextures = new Map<string, THREE.Texture>();
+  private currentPosterUrl: string | null = null;
   private lastRenderOptions: {
     step: TutorialStep;
     progressPercentage: number;
@@ -76,21 +81,34 @@ export class TutorialPanel {
     ctx.textAlign = 'center';
     ctx.fillText(step.title, this.canvas.width / 2, 50);
     
-    // Handle video for steps that have one
+    // Handle video/poster for steps that have one
     // CRITICAL: Only switch/play videos when tutorial is visible
     if (step.id !== this.currentStepId) {
+      const t0 = performance.now();
+      
       // Step changed - pause previous video
       if (this.currentVideoUrl) {
         console.log(`[TutorialPanel] Step changed, pausing previous video: ${this.currentVideoUrl}`);
         this.videoManager.pauseVideo(this.currentVideoUrl);
       }
       
-      // Switch to new video if step has one AND tutorial is visible
-      if (step.videoSrc && isTutorialVisible) {
+      // Clear previous poster
+      this.currentPosterUrl = null;
+      
+      // Check if using poster fallback
+      if (USE_GESTURE_POSTERS_INSTEAD_OF_VIDEO && step.posterSrc) {
+        console.log(`[TutorialPanel] Using poster fallback for step: ${step.id}, poster: ${step.posterSrc}`);
+        this.switchPoster(step.posterSrc);
+        const t1 = performance.now();
+        console.log(`[TutorialPanel] Poster switch complete: ${(t1 - t0).toFixed(2)}ms`);
+      } else if (step.videoSrc && isTutorialVisible) {
+        // Use video (normal path)
         console.log(`[TutorialPanel] Switching to video for step: ${step.id}, video: ${step.videoSrc}, visible: ${isTutorialVisible}`);
         this.switchVideo(step.videoSrc, isTutorialVisible);
+        const t1 = performance.now();
+        console.log(`[TutorialPanel] Video switch complete: ${(t1 - t0).toFixed(2)}ms`);
       } else {
-        // No video for this step OR tutorial not visible
+        // No video/poster for this step OR tutorial not visible
         if (step.videoSrc && !isTutorialVisible) {
           console.log(`[TutorialPanel] ⚠️ Tutorial not visible - NOT playing video for step: ${step.id}`);
         }
@@ -114,8 +132,18 @@ export class TutorialPanel {
       }
     }
     
-    // Draw video if available and ready
-    if (step.videoSrc) {
+    // Draw video/poster if available
+    if (USE_GESTURE_POSTERS_INSTEAD_OF_VIDEO && step.posterSrc) {
+      // Use poster fallback
+      const posterTexture = this.posterTextures.get(step.posterSrc);
+      if (posterTexture) {
+        this.drawPoster(ctx, posterTexture);
+      } else {
+        // Poster not loaded yet - show loading
+        this.drawLoadingIndicator(ctx);
+      }
+    } else if (step.videoSrc) {
+      // Use video (normal path)
       // Check if video failed to load
       if (this.videoManager.hasError(step.videoSrc)) {
         this.drawVideoError(ctx, step.videoSrc);
@@ -136,7 +164,7 @@ export class TutorialPanel {
         this.drawLoadingIndicator(ctx);
       }
     } else {
-      // No video - show description for welcome step
+      // No video/poster - show description for welcome step
       this.drawDescription(ctx, step.description);
     }
     
@@ -181,6 +209,40 @@ export class TutorialPanel {
     this.lastRenderOptions = { step, progressPercentage, hoveredButton, currentStepIndex, totalSteps };
   }
   
+  /**
+   * Switch to a poster image (fallback mode).
+   * Posters are loaded once and cached.
+   */
+  private switchPoster(posterSrc: string): void {
+    if (this.currentPosterUrl === posterSrc) {
+      return; // Already showing this poster
+    }
+
+    // Load poster if not already cached
+    if (!this.posterTextures.has(posterSrc)) {
+      const loader = new THREE.TextureLoader();
+      loader.load(
+        posterSrc,
+        (texture) => {
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          texture.generateMipmaps = false;
+          this.posterTextures.set(posterSrc, texture);
+          this.currentPosterUrl = posterSrc;
+          console.log(`[TutorialPanel] ✅ Poster loaded: ${posterSrc}`);
+          // Trigger a re-render to show the poster
+          this.texture.needsUpdate = true;
+        },
+        undefined,
+        (error) => {
+          console.warn(`[TutorialPanel] ⚠️ Failed to load poster: ${posterSrc}`, error);
+        }
+      );
+    } else {
+      this.currentPosterUrl = posterSrc;
+    }
+  }
+
   private switchVideo(videoSrc: string, isTutorialVisible: boolean): void {
     // CRITICAL: Only play videos when tutorial is visible
     if (!isTutorialVisible) {
@@ -232,18 +294,18 @@ export class TutorialPanel {
         if (video && this.videoManager.isReady(this.currentVideoUrl) && video.readyState >= 2) {
           const ctx = this.canvas.getContext('2d')!;
           
-          // Video area coordinates
-          const videoY = 100;
-          const videoHeight = this.canvas.height - videoY - 140;
-          const videoWidth = this.canvas.width - 80;
-          const videoX = 40;
-          
           // Clear video area (redraw background)
-          const bgGradient = ctx.createLinearGradient(0, videoY, 0, videoY + videoHeight);
+          // Use reduced resolution area (matches drawVideoFrame)
+          const videoAreaY = 100;
+          const videoAreaHeight = Math.min(this.canvas.height - videoAreaY - 140, 256);
+          const videoAreaWidth = Math.min(this.canvas.width - 80, 384);
+          const videoAreaX = (this.canvas.width - videoAreaWidth) / 2;
+          
+          const bgGradient = ctx.createLinearGradient(0, videoAreaY, 0, videoAreaY + videoAreaHeight);
           bgGradient.addColorStop(0, '#3a3a3a');
           bgGradient.addColorStop(1, '#1a1a1a');
           ctx.fillStyle = bgGradient;
-          ctx.fillRect(videoX, videoY, videoWidth, videoHeight);
+          ctx.fillRect(videoAreaX, videoAreaY, videoAreaWidth, videoAreaHeight);
           
           // Redraw video frame
           this.drawVideoFrame(ctx, video);
@@ -260,16 +322,55 @@ export class TutorialPanel {
     this.videoAnimationFrame = requestAnimationFrame(update);
   }
   
-  private drawVideoFrame(ctx: CanvasRenderingContext2D, video: HTMLVideoElement): void {
-    if (!video || video.readyState < 2) {
-      return; // Video not ready
-    }
-    
+  /**
+   * Draw a poster image in the video area.
+   */
+  private drawPoster(ctx: CanvasRenderingContext2D, texture: THREE.Texture): void {
     // Video area: below title, above buttons
     const videoY = 100;
     const videoHeight = this.canvas.height - videoY - 140; // Leave space for buttons and hint
     const videoWidth = this.canvas.width - 80; // Margins
     const videoX = 40;
+
+    // Calculate aspect ratio to maintain poster proportions
+    const image = texture.image;
+    if (!image || !(image instanceof HTMLImageElement)) {
+      return; // Not a valid image
+    }
+    const posterAspect = image.width / image.height;
+    const targetAspect = videoWidth / videoHeight;
+
+    let drawWidth = videoWidth;
+    let drawHeight = videoHeight;
+    let drawX = videoX;
+    let drawY = videoY;
+
+    if (posterAspect > targetAspect) {
+      // Poster is wider, fit to width
+      drawHeight = videoWidth / posterAspect;
+      drawY = videoY + (videoHeight - drawHeight) / 2;
+    } else {
+      // Poster is taller, fit to height
+      drawWidth = videoHeight * posterAspect;
+      drawX = videoX + (videoWidth - drawWidth) / 2;
+    }
+
+    // Draw poster image
+    ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+  }
+
+  private drawVideoFrame(ctx: CanvasRenderingContext2D, video: HTMLVideoElement): void {
+    if (!video || video.readyState < 2) {
+      return; // Video not ready
+    }
+    
+    // OPTIMIZATION: Use lower resolution for video area to reduce CPU/GPU load
+    // Video area: below title, above buttons
+    // Reduced from full canvas size to ~384x256 effective area for video
+    const videoY = 100;
+    const videoHeight = Math.min(this.canvas.height - videoY - 140, 256); // Cap at 256px height
+    const videoWidth = Math.min(this.canvas.width - 80, 384); // Cap at 384px width
+    const videoX = (this.canvas.width - videoWidth) / 2; // Center the smaller video area
     
     // Calculate aspect ratio to maintain video proportions
     const videoAspect = video.videoWidth / video.videoHeight;
@@ -291,6 +392,7 @@ export class TutorialPanel {
     }
     
     // Draw video frame - this is called every frame for smooth playback
+    // NOTE: Drawing at reduced resolution (384x256) reduces CPU/GPU load significantly
     ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
   }
   
@@ -372,9 +474,14 @@ export class TutorialPanel {
       this.videoAnimationFrame = null;
     }
     
+    // Dispose poster textures
+    this.posterTextures.forEach(texture => texture.dispose());
+    this.posterTextures.clear();
+    
     // Reset state
     this.currentVideoTexture = null;
     this.currentVideoUrl = null;
+    this.currentPosterUrl = null;
     this.currentStepId = null;
     this.lastRenderOptions = null;
   }

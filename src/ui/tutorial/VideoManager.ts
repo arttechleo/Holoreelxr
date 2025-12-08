@@ -20,22 +20,33 @@ export class VideoManager {
   async preloadAll(urls: string[]): Promise<void> {
     const uniqueUrls = Array.from(new Set(urls.filter(url => url))); // Remove duplicates and empty strings
     
-    console.log(`[VideoManager] Preloading ${uniqueUrls.length} videos...`);
+    if (uniqueUrls.length === 0) {
+      return;
+    }
+    
+    const t0 = performance.now();
+    console.log(`[VideoManager] Preloading ${uniqueUrls.length} videos... (t=${t0.toFixed(2)}ms)`);
     
     // Use Promise.allSettled so one failure doesn't block others
-    const loadPromises = uniqueUrls.map(url => 
-      this.preloadVideo(url).catch(err => {
-        console.error(`[VideoManager] ⚠️ Video preload failed (will continue): ${url}`, err);
+    const loadPromises = uniqueUrls.map(url => {
+      const urlT0 = performance.now();
+      return this.preloadVideo(url).then(() => {
+        const urlT1 = performance.now();
+        console.log(`[VideoManager] ✅ Video preloaded: ${url} (${(urlT1 - urlT0).toFixed(2)}ms)`);
+      }).catch(err => {
+        const urlT1 = performance.now();
+        console.error(`[VideoManager] ⚠️ Video preload failed (will continue): ${url} (${(urlT1 - urlT0).toFixed(2)}ms)`, err);
         // Mark as not ready but don't throw
         this.readyStates.set(url, false);
         return Promise.resolve(); // Resolve to continue
-      })
-    );
+      });
+    });
     
     await Promise.all(loadPromises);
     
+    const t1 = performance.now();
     const readyCount = uniqueUrls.filter(url => this.readyStates.get(url) === true).length;
-    console.log(`[VideoManager] ✅ Preload complete: ${readyCount}/${uniqueUrls.length} videos ready`);
+    console.log(`[VideoManager] ✅ Preload complete: ${readyCount}/${uniqueUrls.length} videos ready (total: ${(t1 - t0).toFixed(2)}ms)`);
   }
 
   /**
@@ -66,10 +77,12 @@ export class VideoManager {
       // We want fast "ready enough" behavior:
       // - loadeddata fires when the first frame is available
       // - plus a timeout fallback so we never hang forever
+      const t0 = performance.now();
       const onLoadedData = () => {
         clearTimeout(timeoutId);
+        const t1 = performance.now();
         this.readyStates.set(url, true);
-        console.log(`[VideoManager] ✅ loadeddata for ${video.src || url}`);
+        console.log(`[VideoManager] ✅ loadeddata for ${video.src || url} (${(t1 - t0).toFixed(2)}ms)`);
         resolve();
       };
 
@@ -88,9 +101,10 @@ export class VideoManager {
         // consider it "ready enough" for streaming playback.
         if (!this.readyStates.get(url)) {
           const readyState = video.readyState;
+          const t1 = performance.now();
           console.warn(
             `[VideoManager] ⏱️ Timeout waiting for loadeddata on ${video.src || url}, ` +
-            `readyState=${readyState} (marking as ready for streaming)`
+            `readyState=${readyState} (marking as ready for streaming, ${(t1 - t0).toFixed(2)}ms)`
           );
           this.readyStates.set(url, true);
         }

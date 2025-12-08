@@ -10,6 +10,7 @@ export interface TutorialStep {
   gesture?: string;
   completed: boolean;
   videoSrc?: string; // Path to gesture demo video
+  posterSrc?: string; // Path to static poster image (fallback for slow video loading)
 }
 
 /**
@@ -41,6 +42,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       gesture: 'twohandrotate',
       completed: false,
       videoSrc: '/gestuivideo/Rotate.mp4',
+      posterSrc: '/gestuivideo/posters/rotate.png',
     },
     {
       id: 'scale',
@@ -52,6 +54,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       gesture: 'twohandscale',
       completed: false,
       videoSrc: '/gestuivideo/Scale.mp4',
+      posterSrc: '/gestuivideo/posters/scale.png',
     },
     {
       id: 'grab',
@@ -63,6 +66,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       gesture: 'grab',
       completed: false,
       videoSrc: '/gestuivideo/Grab.mp4',
+      posterSrc: '/gestuivideo/posters/grab.png',
     },
     {
       id: 'scroll',
@@ -74,6 +78,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       gesture: 'scroll',
       completed: false,
       videoSrc: '/gestuivideo/Scroll.mp4',
+      posterSrc: '/gestuivideo/posters/scroll.png',
     },
     {
       id: 'like',
@@ -85,6 +90,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       gesture: 'thumbsup',
       completed: false,
       videoSrc: '/gestuivideo/ThumsUp.mp4',
+      posterSrc: '/gestuivideo/posters/thumbsup.png',
     },
     {
       id: 'heart',
@@ -96,6 +102,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       gesture: 'heart',
       completed: false,
       videoSrc: '/gestuivideo/Heart.mp4',
+      posterSrc: '/gestuivideo/posters/heart.png',
     },
     {
       id: 'repost',
@@ -107,6 +114,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       gesture: 'peace',
       completed: false,
       videoSrc: '/gestuivideo/Repost.mp4',
+      posterSrc: '/gestuivideo/posters/repost.png',
     },
   ];
 }
