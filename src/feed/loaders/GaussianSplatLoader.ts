@@ -9,7 +9,7 @@ import { logger } from '../../config/production';
  * Selected because:
  * - Modern, actively maintained (v0.1.10, published 2025-10-25)
  * - Native Three.js integration (no iframes, works directly in our scene)
- * - Supports .ply files (our current format) and other formats (.spz, .splat, .ksplat)
+ * - Supports .ply (uncompressed) and .spz/.splat/.ksplat (compressed) formats
  * - WebXR compatible (designed to work seamlessly with WebXR)
  * - Advanced rendering features and efficient on low-powered devices
  * - MIT license (permissive)
@@ -39,6 +39,14 @@ export type SparkSplatMeshCtor = new (opts: { url: string }) => SparkSplatMesh;
 // @ts-ignore - Vite injects import.meta.env at build time
 const DEBUG_SPLATS = (typeof import.meta !== 'undefined' && import.meta.env?.DEV) || false;
 
+// Supported file extensions for Gaussian splats (uncompressed + compressed)
+const SUPPORTED_SPLAT_EXTENSIONS = ['.ply', '.spz'];
+
+function hasSupportedSplatExtension(url: string): boolean {
+  const lower = url.toLowerCase();
+  return SUPPORTED_SPLAT_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
 /**
  * Gaussian Splat asset representation.
  * Returns a Three.js object that can be added directly to the scene.
@@ -46,7 +54,7 @@ const DEBUG_SPLATS = (typeof import.meta !== 'undefined' && import.meta.env?.DEV
 export type GaussianSplatAsset = {
   // Three.js object that can be added to scene (similar to GLTFAsset.scene)
   scene: THREE.Group;
-  // URL of the loaded splat file
+  // URL of the loaded splat file (.ply / .spz)
   url: string;
   // Optional settings URL (for future use)
   settingsUrl?: string;
@@ -56,10 +64,10 @@ export type GaussianSplatAsset = {
  * Loader for Gaussian Splat content using @sparkjsdev/spark.
  * 
  * Architecture:
- * - Loads .ply files directly into Three.js scene using SparkJS
+ * - Loads .ply (uncompressed) or .spz (compressed) splats directly into Three.js
  * - No iframes - integrates directly with our WebXR/Three.js pipeline
  * - Caching and normalization similar to GLTFModelLoader
- * - Returns cloned objects for multiple instances
+ * - Returns shared instances (no re-parenting bugs)
  * 
  * Note: SparkRenderer must be initialized in ThreeXRApp and added to the scene.
  * This loader only handles loading SplatMesh objects.
@@ -150,21 +158,32 @@ export class GaussianSplatLoader {
   /**
    * Load a Gaussian Splat from a URL.
    * 
-   * IMPORTANT: The .ply file must be:
-   * 1. Placed in public/assets/ directory (for Vite dev server)
-   * 2. Referenced as "/assets/filename.ply" (not "./public/assets/...")
-   * 3. A valid 3D Gaussian Splat format (not a regular mesh PLY)
+   * Supported formats (via SparkJS SplatMesh):
+   * - .ply  – uncompressed Gaussian splat
+   * - .spz  – compressed Spark splat (recommended for mobile / Quest 3)
    * 
-   * If loading fails, check:
-   * - Network tab for HTTP status (should be 200, not 404)
-   * - Console for detailed error messages
-   * - That the file is actually a Gaussian splat (try loading in SuperSplat editor)
+   * IMPORTANT:
+   * 1. Place the file under public/assets/ (for Vite dev server)
+   * 2. Reference it as "/assets/filename.ply" or "/assets/filename.spz"
+   * 3. Ensure it is a *Gaussian splat* export, not a generic mesh PLY
    */
   private async loadSplat(url: string, settingsUrl?: string): Promise<GaussianSplatAsset> {
     if (DEBUG_SPLATS) {
       console.log(`[GaussianSplatLoader] 🔄 Starting load: ${url}`);
     }
     logger.verbose(`[GaussianSplatLoader] 🔄 Starting load: ${url}`);
+
+    // Simple extension hint to catch obvious mistakes early
+    if (!hasSupportedSplatExtension(url)) {
+      logger.warn(
+        `[GaussianSplatLoader] URL does not have a known splat extension (.ply/.spz): ${url}`
+      );
+      if (DEBUG_SPLATS) {
+        console.warn(
+          `[GaussianSplatLoader] ⚠️ URL does not end with .ply or .spz – is this a valid splat asset?`
+        );
+      }
+    }
 
     // Step 1: Optional HEAD check (non-fatal) - just for early validation
     // If HEAD fails, we proceed anyway and let Spark's own load handle errors
@@ -212,12 +231,14 @@ export class GaussianSplatLoader {
       // It has an `initialized` promise that resolves when loading is complete
       const splatMesh = new this.SplatMeshClass({ url });
       
-      // ✅ ORIENTATION FIX – 180° around X (Spark samples use this)
-      // NOTE: This is NOT the identity quaternion; identity is (0,0,0,1)
-      // This prevents upside-down splats by rotating 180° around X axis
+      // ✅ ORIENTATION FIX – 180° rotation around X axis
+      // Spark samples use quaternion (1,0,0,0) for correct upright splats.
+      // NOTE: Identity quaternion is (0,0,0,1); (1,0,0,0) is NOT identity.
       if (splatMesh.quaternion) {
         splatMesh.quaternion.set(1, 0, 0, 0);
-        logger.verbose(`[GaussianSplatLoader] Applied orientation fix (180deg around X)`);
+        logger.verbose(
+          `[GaussianSplatLoader] Applied orientation fix (180° around X)`
+        );
       }
       
       if (DEBUG_SPLATS) {
@@ -235,26 +256,13 @@ export class GaussianSplatLoader {
       logger.verbose(`[GaussianSplatLoader] ✅ SplatMesh initialized: ${url}`);
       
       // Step 3: Wrap in a Group for consistency with GLTF assets
-      // CRITICAL: SparkRenderer should be able to discover SplatMesh even when wrapped in a Group
-      // via scene traversal. However, we ensure the SplatMesh itself is visible and properly configured.
       const group = new THREE.Group();
-      
-      // Ensure SplatMesh is visible and properly configured before adding to group
-      // Note: Only set these if SplatMesh actually extends THREE.Object3D and supports these properties
+
+      // Ensure SplatMesh is visible and not culled accidentally
       splatMesh.visible = true;
-      // Don't set castShadow/receiveShadow unless we know Spark supports them
-      // Spark's SplatMesh may not respect these Three.js properties
-      
-      // ✅ IMPORTANT: Disable frustum culling – bad bounds can cause XR flicker
-      // Spark's own bounds vs Three's Box3 might not line up perfectly, especially after
-      // quaternion/scale math. In XR (stereo cameras, differing FOVs), if the bounding box
-      // is slightly off or tiny, Three.js may think the object is out of view in one eye
-      // or in both for a frame – you see this as "flicker" or "shimmer".
-      // For a single hero GS in your scene, the cost of turning off frustum culling is
-      // tiny and absolutely worth it to kill this class of bug.
       splatMesh.frustumCulled = false;
       group.frustumCulled = false;
-      
+
       group.add(splatMesh);
       group.name = 'gaussian-splat';
 
@@ -292,13 +300,12 @@ export class GaussianSplatLoader {
       if (errorMsg.includes('CORS') || errorMsg.includes('fetch') || errorMsg.includes('Failed to fetch')) {
         if (DEBUG_SPLATS) {
           console.error(`[GaussianSplatLoader] ⚠️ CORS/Network issue detected`);
-          console.error(`[GaussianSplatLoader] 💡 Ensure file is in public/assets/ and URL is "/assets/filename.ply"`);
+          console.error(`[GaussianSplatLoader] 💡 Ensure file is in public/assets/ and URL is "/assets/filename.ply" or ".spz"`);
         }
         logger.error(`[GaussianSplatLoader] ⚠️ CORS/Network issue detected for ${url}`);
       } else if (errorMsg.includes('parse') || errorMsg.includes('format') || errorMsg.includes('invalid')) {
         if (DEBUG_SPLATS) {
-          console.error(`[GaussianSplatLoader] ⚠️ File format issue - may not be a valid Gaussian splat PLY`);
-          console.error(`[GaussianSplatLoader] 💡 Try loading the file in SuperSplat editor to verify format`);
+          console.error(`[GaussianSplatLoader] ⚠️ File format issue - may not be a valid Gaussian splat`);
         }
         logger.error(`[GaussianSplatLoader] ⚠️ File format issue for ${url}`);
       }
@@ -387,25 +394,15 @@ export class GaussianSplatLoader {
   /**
    * Clone a Gaussian Splat asset for multiple instances.
    * 
-   * CRITICAL FIX: In Three.js, an Object3D can only have one parent.
-   * When you add an object to a new parent, it's automatically removed from the old one.
+   * CRITICAL: In Three.js, an Object3D can only have one parent.
+   * We do NOT reparent the same SplatMesh into multiple groups.
    * 
-   * Therefore, we cannot simply reparent the same SplatMesh into multiple groups.
-   * 
-   * For now, we return the original asset (no cloning) to avoid this bug.
-   * 
-   * If true multiple instances are needed in the future, we would need to:
-   * 1. Create a new SplatMesh instance per clone: `new SplatMeshClass({ url: asset.url })`
-   * 2. Wait for each new instance to initialize
-   * 3. Or use Spark's instancing support if available
-   * 
-   * But until that's implemented, sharing the same asset is safe and avoids
-   * the "ghost splat" bug where only one instance is ever visible.
+   * If true multiple instances are needed in the future:
+   * - Create new SplatMesh instances per clone, or
+   * - Use Spark's instancing support if/when available.
    */
   private cloneAsset(asset: GaussianSplatAsset): GaussianSplatAsset {
-    // No cloning for now - return the original asset
-    // This avoids re-parenting the SplatMesh, which breaks Three.js hierarchy
-    // If multiple instances are truly needed, create new SplatMesh instances
+    // For now, we just share the same asset instance (no re-parenting).
     return asset;
   }
 
