@@ -419,6 +419,35 @@ export class FeedStore {
             logger.verbose(`[FeedStore] Could not add debug helper (non-critical):`, helperError);
           }
           
+          // DEBUG: Count SplatMesh instances in the scene after adding
+          // This helps verify that SparkRenderer can discover the SplatMesh
+          const splatMesh = splatAsset.scene.children.find((child: any) => 
+            child && (
+              child.constructor?.name === 'SplatMesh' ||
+              (child.url && child.initialized !== undefined) ||
+              child.type === 'SplatMesh' ||
+              (child.isSplatMesh === true)
+            )
+          );
+          console.log(`[FeedStore] 🔍 SplatMesh discovery check:`, {
+            found: !!splatMesh,
+            splatMeshType: splatMesh?.constructor?.name || 'unknown',
+            splatMeshUrl: (splatMesh as any)?.url || 'unknown',
+            totalChildren: splatAsset.scene.children.length,
+            scenePath: `contentRoot -> ${splatAsset.scene.name} -> SplatMesh`
+          });
+          
+          // XR DEBUG: Log position and scale when in XR mode
+          // This helps verify the splat is positioned correctly for XR viewing
+          if ((window as any).app?.renderer?.xr?.isPresenting) {
+            console.log(`[XRDebug] 📍 Gaussian Splat loaded in XR mode:`, {
+              position: spawnPos.toArray(),
+              scale: autoScale.scale,
+              cameraMode: 'XR (automatic)',
+              note: 'Camera will be updated by Three.js for XR'
+            });
+          }
+          
           console.log(`[FeedStore] ✅ Gaussian Splat attached to scene:`, {
             position: spawnPos.toArray(),
             scale: autoScale.scale,
