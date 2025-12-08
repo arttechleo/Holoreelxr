@@ -156,12 +156,18 @@ export class XRMultiplayerPanel {
       map: this.texture,
       transparent: true,
       opacity: 1.0,
-      depthTest: true,  // Like ReactionHud
-      depthWrite: false // Like ReactionHud
+      // ✅ FIX FLICKER: Disable depth testing/writing to prevent Z-fighting with splats
+      // Panel is now a true overlay that renders on top of everything
+      depthTest: false,  // Ignore scene depth - panel always renders on top
+      depthWrite: false // Don't write to depth buffer - doesn't affect splat rendering
     });
     
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.renderOrder = 10000; // CRITICAL FIX: Lower than keypad (keypad is 20000)
+    // ✅ FIX FLICKER: High renderOrder ensures panel draws AFTER splats
+    // Spark's splat pass goes first, then panel is composited on top
+    this.panel.renderOrder = 10000;
+    // Optional but helpful for UI planes: don't cull when outside frustum
+    this.panel.frustumCulled = false;
     this.anchor.add(this.panel);
     scene.add(this.anchor);
     

@@ -218,6 +218,12 @@ export class ThreeXRApp {
       // Render the scene with the camera (Three.js handles XR camera updates automatically)
       // SparkRenderer (if autoUpdate: true) will automatically render splats during this call
       // OR if manual update, it will render based on the update() call above
+      // 
+      // ✅ RENDER ORDER: Three.js sorts objects by renderOrder before rendering
+      // - Splats render first (default renderOrder = 0)
+      // - UI panels render last (renderOrder = 10000+)
+      // - This ensures panels are composited on top of splats without Z-fighting
+      // - Panel materials have depthTest=false, depthWrite=false to prevent depth conflicts
       this.renderer.render(this.scene, activeCamera);
       
       // DEBUG: Periodically log SplatMesh count (throttled to avoid spam)
