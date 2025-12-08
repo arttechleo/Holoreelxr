@@ -7,6 +7,7 @@ import { CONTROLS } from '../config/constants';
 import { logger } from '../config/production';
 import { TutorialStep, createDefaultTutorialSteps } from './tutorial/TutorialSteps';
 import { TutorialPanel } from './tutorial/TutorialPanel';
+import { getVideoManager } from './tutorial/VideoManager';
 
 export class OnboardingTutorial {
   private group = new THREE.Group();
@@ -114,6 +115,30 @@ export class OnboardingTutorial {
     this.group.add(this.panel);
     
     scene.add(this.group);
+    
+    // Preload all tutorial videos in the background
+    this.preloadTutorialVideos();
+  }
+  
+  /**
+   * Preload all tutorial videos before they're needed.
+   * This ensures videos are ready when steps are shown.
+   */
+  private async preloadTutorialVideos(): Promise<void> {
+    const videoManager = getVideoManager();
+    const videoUrls = this.steps
+      .map(step => step.videoSrc)
+      .filter((url): url is string => !!url); // Filter out undefined
+    
+    if (videoUrls.length > 0) {
+      console.log(`[OnboardingTutorial] Preloading ${videoUrls.length} tutorial videos...`);
+      try {
+        await videoManager.preloadAll(videoUrls);
+        console.log(`[OnboardingTutorial] ✅ All tutorial videos preloaded`);
+      } catch (error) {
+        console.error(`[OnboardingTutorial] Error preloading videos:`, error);
+      }
+    }
   }
   
   setFeedControls(controls: any) {

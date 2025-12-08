@@ -1,6 +1,7 @@
 // src/ui/tutorial/TutorialPanel.ts
 import * as THREE from 'three';
 import type { TutorialStep } from './TutorialSteps';
+import { getVideoManager } from './VideoManager';
 
 export interface ButtonRegion {
   x: number;
@@ -19,9 +20,18 @@ export class TutorialPanel {
   readonly canvas: HTMLCanvasElement;
   readonly texture: THREE.CanvasTexture;
   readonly buttonRegions: ButtonRegions;
-  private currentVideo: HTMLVideoElement | null = null;
+  private videoManager = getVideoManager();
+  private currentVideoTexture: THREE.VideoTexture | null = null;
+  private currentVideoUrl: string | null = null;
   private videoAnimationFrame: number | null = null;
   private currentStepId: string | null = null;
+  private lastRenderOptions: {
+    step: TutorialStep;
+    progressPercentage: number;
+    hoveredButton: 'prev' | 'next' | 'skip' | null;
+    currentStepIndex: number;
+    totalSteps: number;
+  } | null = null;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -67,18 +77,18 @@ export class TutorialPanel {
     
     // Handle video for steps that have one
     if (step.id !== this.currentStepId) {
-      // Step changed
+      // Step changed - pause previous video
+      if (this.currentVideoUrl) {
+        this.videoManager.pauseVideo(this.currentVideoUrl);
+      }
+      
+      // Switch to new video if step has one
       if (step.videoSrc) {
-        // Switch to new video
         this.switchVideo(step.videoSrc);
       } else {
-        // No video for this step, cleanup previous video
-        if (this.currentVideo) {
-          this.currentVideo.pause();
-          this.currentVideo.src = '';
-          this.currentVideo.load();
-          this.currentVideo = null;
-        }
+        // No video for this step
+        this.currentVideoTexture = null;
+        this.currentVideoUrl = null;
         if (this.videoAnimationFrame) {
           cancelAnimationFrame(this.videoAnimationFrame);
           this.videoAnimationFrame = null;
@@ -87,35 +97,22 @@ export class TutorialPanel {
       this.currentStepId = step.id;
     }
     
-    // Draw video if available
-    if (step.videoSrc && this.currentVideo) {
-      this.drawVideoFrame(ctx);
-    } else {
-      // Fallback: show description for welcome step (no video)
-      ctx.font = '20px sans-serif';
-      ctx.fillStyle = '#000000';
-      ctx.textAlign = 'center';
-      const maxWidth = this.canvas.width - 80;
-      const words = step.description.split(' ');
-      let line = '';
-      let y = 120;
-      const lineHeight = 24;
-      
-      words.forEach((word) => {
-        const testLine = line + (line ? ' ' : '') + word;
-        const metrics = ctx.measureText(testLine);
-        
-        if (metrics.width > maxWidth && line !== '') {
-          ctx.fillText(line, this.canvas.width / 2, y);
-          line = word;
-          y += lineHeight;
-        } else {
-          line = testLine;
+    // Draw video if available and ready
+    if (step.videoSrc && this.currentVideoTexture) {
+      const video = this.videoManager.getVideo(step.videoSrc);
+      if (video && this.videoManager.isReady(step.videoSrc)) {
+        this.drawVideoFrame(ctx, video);
+        // Start update loop if not already running
+        if (!this.videoAnimationFrame) {
+          this.startVideoUpdateLoop();
         }
-      });
-      if (line) {
-        ctx.fillText(line, this.canvas.width / 2, y);
+      } else {
+        // Video not ready yet - show loading indicator
+        this.drawLoadingIndicator(ctx);
       }
+    } else {
+      // No video - show description for welcome step
+      this.drawDescription(ctx, step.description);
     }
     
     // Progress bar for rotation/scale
@@ -154,57 +151,70 @@ export class TutorialPanel {
     ctx.fillText('👆 Point with index finger, pinch to click', this.canvas.width / 2, this.canvas.height - 20);
 
     this.texture.needsUpdate = true;
+    
+    // Store render options for update loop
+    this.lastRenderOptions = { step, progressPercentage, hoveredButton, currentStepIndex, totalSteps };
   }
   
   private switchVideo(videoSrc: string): void {
-    // Stop and cleanup previous video
-    if (this.currentVideo) {
-      this.currentVideo.pause();
-      this.currentVideo.src = '';
-      this.currentVideo.load();
-    }
-    
+    // Stop previous video update loop
     if (this.videoAnimationFrame) {
       cancelAnimationFrame(this.videoAnimationFrame);
       this.videoAnimationFrame = null;
     }
     
-    // Create new video element
-    const video = document.createElement('video');
-    video.src = videoSrc;
-    video.loop = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = 'auto';
-    video.controls = false; // No video controls - just loop automatically
-    
-    // Start playing when loaded
-    video.addEventListener('loadeddata', () => {
-      video.play().catch(err => {
-        console.warn('Video autoplay failed:', err);
-      });
-      // Start animation frame loop to continuously update texture
-      this.startVideoUpdateLoop();
-    });
-    
-    // Handle video errors
-    video.addEventListener('error', (e) => {
-      console.error('Video load error:', e, videoSrc);
-    });
-    
-    this.currentVideo = video;
+    // Get preloaded video texture from VideoManager
+    const texture = this.videoManager.getTexture(videoSrc);
+    if (texture) {
+      this.currentVideoTexture = texture;
+      this.currentVideoUrl = videoSrc;
+      
+      // Play the video if it's ready
+      if (this.videoManager.isReady(videoSrc)) {
+        this.videoManager.playVideo(videoSrc);
+        // Start update loop for smooth playback
+        this.startVideoUpdateLoop();
+      } else {
+        // Video not ready yet - will show loading indicator
+        console.log(`[TutorialPanel] Video not ready yet: ${videoSrc}`);
+      }
+    } else {
+      console.warn(`[TutorialPanel] Video not preloaded: ${videoSrc}`);
+      this.currentVideoTexture = null;
+      this.currentVideoUrl = null;
+    }
   }
   
   private startVideoUpdateLoop(): void {
-    if (!this.currentVideo) return;
+    if (!this.currentVideoTexture || !this.currentVideoUrl) return;
     
     const update = () => {
-      if (this.currentVideo && this.currentVideo.readyState >= 2) {
-        // Just trigger texture update - the actual drawing happens in render()
-        this.texture.needsUpdate = true;
-      }
-      
-      if (this.currentVideo) {
+      if (this.currentVideoTexture && this.currentVideoUrl && this.lastRenderOptions) {
+        const video = this.videoManager.getVideo(this.currentVideoUrl);
+        if (video && this.videoManager.isReady(this.currentVideoUrl) && video.readyState >= 2) {
+          const ctx = this.canvas.getContext('2d')!;
+          
+          // Video area coordinates
+          const videoY = 100;
+          const videoHeight = this.canvas.height - videoY - 140;
+          const videoWidth = this.canvas.width - 80;
+          const videoX = 40;
+          
+          // Clear video area (redraw background)
+          const bgGradient = ctx.createLinearGradient(0, videoY, 0, videoY + videoHeight);
+          bgGradient.addColorStop(0, '#3a3a3a');
+          bgGradient.addColorStop(1, '#1a1a1a');
+          ctx.fillStyle = bgGradient;
+          ctx.fillRect(videoX, videoY, videoWidth, videoHeight);
+          
+          // Redraw video frame
+          this.drawVideoFrame(ctx, video);
+          
+          // Update texture
+          this.texture.needsUpdate = true;
+        }
+        
+        // Continue loop
         this.videoAnimationFrame = requestAnimationFrame(update);
       }
     };
@@ -212,8 +222,8 @@ export class TutorialPanel {
     this.videoAnimationFrame = requestAnimationFrame(update);
   }
   
-  private drawVideoFrame(ctx: CanvasRenderingContext2D): void {
-    if (!this.currentVideo || this.currentVideo.readyState < 2) {
+  private drawVideoFrame(ctx: CanvasRenderingContext2D, video: HTMLVideoElement): void {
+    if (!video || video.readyState < 2) {
       return; // Video not ready
     }
     
@@ -224,7 +234,7 @@ export class TutorialPanel {
     const videoX = 40;
     
     // Calculate aspect ratio to maintain video proportions
-    const videoAspect = this.currentVideo.videoWidth / this.currentVideo.videoHeight;
+    const videoAspect = video.videoWidth / video.videoHeight;
     const targetAspect = videoWidth / videoHeight;
     
     let drawWidth = videoWidth;
@@ -242,25 +252,63 @@ export class TutorialPanel {
       drawX = videoX + (videoWidth - drawWidth) / 2;
     }
     
-    // Draw video frame
-    ctx.drawImage(this.currentVideo, drawX, drawY, drawWidth, drawHeight);
+    // Draw video frame - this is called every frame for smooth playback
+    ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+  }
+  
+  private drawLoadingIndicator(ctx: CanvasRenderingContext2D): void {
+    // Show lightweight loading indicator
+    ctx.font = '20px sans-serif';
+    ctx.fillStyle = '#888888';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loading video...', this.canvas.width / 2, this.canvas.height / 2);
+  }
+  
+  private drawDescription(ctx: CanvasRenderingContext2D, description: string): void {
+    // Fallback: show description for welcome step (no video)
+    ctx.font = '20px sans-serif';
+    ctx.fillStyle = '#000000';
+    ctx.textAlign = 'center';
+    const maxWidth = this.canvas.width - 80;
+    const words = description.split(' ');
+    let line = '';
+    let y = 120;
+    const lineHeight = 24;
+    
+    words.forEach((word) => {
+      const testLine = line + (line ? ' ' : '') + word;
+      const metrics = ctx.measureText(testLine);
+      
+      if (metrics.width > maxWidth && line !== '') {
+        ctx.fillText(line, this.canvas.width / 2, y);
+        line = word;
+        y += lineHeight;
+      } else {
+        line = testLine;
+      }
+    });
+    if (line) {
+      ctx.fillText(line, this.canvas.width / 2, y);
+    }
   }
   
   dispose(): void {
-    // Cleanup video when panel is disposed
-    if (this.currentVideo) {
-      this.currentVideo.pause();
-      this.currentVideo.src = '';
-      this.currentVideo.load();
-      this.currentVideo = null;
+    // Pause current video
+    if (this.currentVideoUrl) {
+      this.videoManager.pauseVideo(this.currentVideoUrl);
     }
     
+    // Stop update loop
     if (this.videoAnimationFrame) {
       cancelAnimationFrame(this.videoAnimationFrame);
       this.videoAnimationFrame = null;
     }
     
+    // Reset state
+    this.currentVideoTexture = null;
+    this.currentVideoUrl = null;
     this.currentStepId = null;
+    this.lastRenderOptions = null;
   }
   
   private drawNavigationButtons(
