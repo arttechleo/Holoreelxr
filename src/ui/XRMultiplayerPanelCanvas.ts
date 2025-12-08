@@ -80,6 +80,10 @@ export class XRMultiplayerPanel {
   };
   private voiceBusy = false;
   
+  // CRITICAL: Enabled flag - when false, panel is fully disabled (hidden + no updates)
+  // This prevents flicker when Gaussian splats are active in WebXR
+  private enabled = true;
+  
   // Button interaction state
   private buttonHoverProgress = new Map<ButtonType, number>(); // 0.0 to 1.0 (visual feedback only)
   private buttonHoverStartTime = new Map<ButtonType, number>(); // timestamp when hover started
@@ -205,6 +209,11 @@ export class XRMultiplayerPanel {
   // ============== PUBLIC API (like ReactionHud) ==============
   
   show(): void {
+    // Don't show if disabled (e.g., during splat viewing)
+    if (!this.enabled) {
+      console.log('[XRMultiplayerPanel] ⚠️ Cannot show panel - disabled (Gaussian splat active)');
+      return;
+    }
     this.visible = true;
     this.mode = 'idle';
     this.render();
@@ -221,11 +230,50 @@ export class XRMultiplayerPanel {
   }
   
   /**
+   * Enable or disable the multiplayer panel.
+   * When disabled:
+   * - Panel is hidden (not visible in XR)
+   * - All update logic is suspended (no per-frame updates)
+   * - Raycasting is disabled (no hand interactions)
+   * 
+   * This is used to prevent flicker when Gaussian splats are active in WebXR.
+   * The panel should be disabled whenever a .ply or .spz splat is the active feed item.
+   */
+  setEnabled(isEnabled: boolean): void {
+    if (this.enabled === isEnabled) return; // No change
+    
+    this.enabled = isEnabled;
+    
+    if (!isEnabled) {
+      // Disable: hide panel and make anchor invisible
+      this.visible = false;
+      if (this.anchor) {
+        this.anchor.visible = false;
+      }
+      // Hide keypad if visible
+      this.keypad?.hide();
+      console.log('[XRMultiplayerPanel] 🔴 Panel disabled (Gaussian splat active - prevents XR flicker)');
+    } else {
+      // Enable: restore visibility (but don't auto-show - let user or connection state control)
+      if (this.anchor) {
+        this.anchor.visible = true;
+      }
+      // Don't automatically set this.visible = true - let show() be called explicitly
+      console.log('[XRMultiplayerPanel] 🟢 Panel enabled (Gaussian splat inactive)');
+    }
+  }
+  
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+  
+  /**
    * Raycast in world space against the panel (matching ReactionHud pattern EXACTLY)
    * Enhanced with significantly increased interaction distance and proper plane orientation
    */
   raycastHit(ray: THREE.Ray, thickness = 10): MultiplayerHit {
-    if (!this.visible || !ray || !this.anchor) return null;
+    // CRITICAL: Disabled panels cannot be hit (prevents interaction during splat viewing)
+    if (!this.enabled || !this.visible || !ray || !this.anchor) return null;
     
     try {
       // Get panel's world transform
@@ -700,9 +748,13 @@ export class XRMultiplayerPanel {
    * Update panel position (like ReactionHud.tick) - call every frame
    * CRITICAL FIX: Enhanced error handling and null safety
    * Added: Panel dimming when keypad is active
+   * 
+   * IMPORTANT: When disabled (e.g., during Gaussian splat viewing), this method
+   * returns early to prevent any per-frame work and reduce CPU/GPU usage.
    */
   tick(dt: number): void {
-    if (!this.visible) return;
+    // CRITICAL: Disabled panels skip all update logic (performance optimization)
+    if (!this.enabled || !this.visible) return;
     
     try {
       // Position anchor relative to object (like ReactionHud)

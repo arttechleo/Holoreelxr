@@ -161,6 +161,12 @@ export class FeedStore {
   /**
    * Check if the current item is a Gaussian splat.
    * Used to hide/show UI panels that might interfere with splat rendering.
+   * 
+   * Supports both .ply (uncompressed) and .spz (compressed) formats.
+   * Both formats are detected by checking item.type === 'gaussianSplat'.
+   * 
+   * When a splat is active, the multiplayer panel should be disabled
+   * to prevent right-eye flicker in WebXR (see main.ts for implementation).
    */
   isCurrentItemGaussianSplat(): boolean {
     const item = this.getCurrentItem();

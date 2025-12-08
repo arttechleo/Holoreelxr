@@ -384,22 +384,26 @@ async function loadMainFeed() {
     xrAuthPanel?.update(app.camera);
     xrMusicPanel?.update(app.camera);
     
-    // CRITICAL FIX: Hide multiplayer panel when Gaussian splat is active to prevent right-eye flicker
+    // CRITICAL FIX: Disable multiplayer panel when Gaussian splat is active to prevent right-eye flicker
     // This ensures clean GS rendering without UI overlay interference in WebXR
     // The panel can cause per-eye rendering differences when overlapping with SparkRenderer output
+    // 
+    // When a .ply or .spz splat is active:
+    // - Panel is fully disabled (hidden + no updates + no raycasting)
+    // - This eliminates flicker in both eyes, especially right eye
+    // - Performance is improved by skipping multiplayer UI work during splat viewing
     const isGaussianSplatActive = store.isCurrentItemGaussianSplat();
     const wasGaussianSplatActive = (app as any)._lastGaussianSplatState || false;
     
-    if (isGaussianSplatActive && !wasGaussianSplatActive) {
-      // Just switched to Gaussian splat - hide panel
-      if (xrMultiplayerPanel.isVisible() && !multiplayer.isConnected()) {
-        xrMultiplayerPanel.hide();
-        logger.verbose('[Main] Multiplayer panel hidden (Gaussian splat active - prevents XR flicker)');
+    if (isGaussianSplatActive !== wasGaussianSplatActive) {
+      // State changed - update panel enabled state
+      xrMultiplayerPanel.setEnabled(!isGaussianSplatActive);
+      
+      if (isGaussianSplatActive) {
+        logger.verbose('[Main] 🔴 Multiplayer panel disabled (Gaussian splat active - prevents XR flicker)');
+      } else {
+        logger.verbose('[Main] 🟢 Multiplayer panel enabled (Gaussian splat inactive)');
       }
-    } else if (!isGaussianSplatActive && wasGaussianSplatActive) {
-      // Just switched away from Gaussian splat - panel can be shown again if needed
-      // (Don't auto-show - let user or connection state control visibility)
-      logger.verbose('[Main] Gaussian splat inactive - multiplayer panel can be shown');
     }
     
     (app as any)._lastGaussianSplatState = isGaussianSplatActive;
