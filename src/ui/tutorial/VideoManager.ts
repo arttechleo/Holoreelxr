@@ -9,22 +9,33 @@ export class VideoManager {
   private videos = new Map<string, HTMLVideoElement>();
   private textures = new Map<string, THREE.VideoTexture>();
   private readyStates = new Map<string, boolean>();
+  private errorStates = new Map<string, boolean>(); // Track which videos failed to load
   private loadingPromises = new Map<string, Promise<void>>();
 
   /**
    * Preload all videos from the given URLs.
    * Returns a promise that resolves when all videos are ready to play.
+   * Failed videos are logged but don't prevent resolution (so tutorial can still show).
    */
   async preloadAll(urls: string[]): Promise<void> {
     const uniqueUrls = Array.from(new Set(urls.filter(url => url))); // Remove duplicates and empty strings
     
     console.log(`[VideoManager] Preloading ${uniqueUrls.length} videos...`);
     
-    const loadPromises = uniqueUrls.map(url => this.preloadVideo(url));
+    // Use Promise.allSettled so one failure doesn't block others
+    const loadPromises = uniqueUrls.map(url => 
+      this.preloadVideo(url).catch(err => {
+        console.error(`[VideoManager] ⚠️ Video preload failed (will continue): ${url}`, err);
+        // Mark as not ready but don't throw
+        this.readyStates.set(url, false);
+        return Promise.resolve(); // Resolve to continue
+      })
+    );
     
     await Promise.all(loadPromises);
     
-    console.log(`[VideoManager] ✅ All ${uniqueUrls.length} videos preloaded and ready`);
+    const readyCount = uniqueUrls.filter(url => this.readyStates.get(url) === true).length;
+    console.log(`[VideoManager] ✅ Preload complete: ${readyCount}/${uniqueUrls.length} videos ready`);
   }
 
   /**
@@ -55,15 +66,18 @@ export class VideoManager {
       // Mark as ready when can play through
       video.addEventListener('canplaythrough', () => {
         this.readyStates.set(url, true);
-        console.log(`[VideoManager] ✅ Video ready: ${url}`);
+        console.log(`[VideoManager] ✅ canplaythrough for ${video.src || url}`);
         resolve();
       }, { once: true });
 
       // Handle errors
       video.addEventListener('error', (e) => {
-        console.error(`[VideoManager] ❌ Failed to load video: ${url}`, e);
+        const error = video.error;
+        const errorMsg = error ? `code ${error.code}: ${error.message}` : 'unknown error';
+        console.error(`[VideoManager] ❌ ERROR loading video ${video.src || url}:`, errorMsg, e);
         this.readyStates.set(url, false);
-        reject(new Error(`Failed to load video: ${url}`));
+        this.errorStates.set(url, true); // Mark as failed
+        reject(new Error(`Failed to load video: ${url} - ${errorMsg}`));
       }, { once: true });
 
       // Start loading
@@ -113,6 +127,13 @@ export class VideoManager {
    */
   isReady(url: string): boolean {
     return this.readyStates.get(url) === true;
+  }
+
+  /**
+   * Check if a video failed to load.
+   */
+  hasError(url: string): boolean {
+    return this.errorStates.get(url) === true;
   }
 
   /**
@@ -173,6 +194,7 @@ export class VideoManager {
     this.videos.clear();
     this.textures.clear();
     this.readyStates.clear();
+    this.errorStates.clear();
     this.loadingPromises.clear();
   }
 }

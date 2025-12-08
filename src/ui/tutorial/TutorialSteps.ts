@@ -14,6 +14,10 @@ export interface TutorialStep {
 
 /**
  * Default tutorial steps for onboarding
+ * 
+ * NOTE: videoSrc paths must always point to files that actually exist in /public/gestuivideo.
+ * Prefer optimized_*.mp4 under /gestuivideo/optimized/ if present, otherwise fall back
+ * to the original /gestuivideo/*.mp4 assets.
  */
 export function createDefaultTutorialSteps(): TutorialStep[] {
   return [
@@ -36,7 +40,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#4ECDC4',
       gesture: 'twohandrotate',
       completed: false,
-      videoSrc: '/gestuivideo/optimized/Rotate.mp4',
+      videoSrc: '/gestuivideo/Rotate.mp4',
     },
     {
       id: 'scale',
@@ -47,7 +51,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#95E1D3',
       gesture: 'twohandscale',
       completed: false,
-      videoSrc: '/gestuivideo/optimized/Scale.mp4',
+      videoSrc: '/gestuivideo/Scale.mp4',
     },
     {
       id: 'grab',
@@ -58,7 +62,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#FF6B6B',
       gesture: 'grab',
       completed: false,
-      videoSrc: '/gestuivideo/optimized/Grab.mp4',
+      videoSrc: '/gestuivideo/Grab.mp4',
     },
     {
       id: 'scroll',
@@ -69,7 +73,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#6BCF7F',
       gesture: 'scroll',
       completed: false,
-      videoSrc: '/gestuivideo/optimized/Scroll.mp4',
+      videoSrc: '/gestuivideo/Scroll.mp4',
     },
     {
       id: 'like',
@@ -80,7 +84,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#F38181',
       gesture: 'thumbsup',
       completed: false,
-      videoSrc: '/gestuivideo/optimized/ThumsUp.mp4',
+      videoSrc: '/gestuivideo/ThumsUp.mp4',
     },
     {
       id: 'heart',
@@ -91,7 +95,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#AA96DA',
       gesture: 'heart',
       completed: false,
-      videoSrc: '/gestuivideo/optimized/Heart.mp4',
+      videoSrc: '/gestuivideo/Heart.mp4',
     },
     {
       id: 'repost',
@@ -102,7 +106,7 @@ export function createDefaultTutorialSteps(): TutorialStep[] {
       color: '#FFD93D',
       gesture: 'peace',
       completed: false,
-      videoSrc: '/gestuivideo/optimized/Repost.mp4',
+      videoSrc: '/gestuivideo/Repost.mp4',
     },
   ];
 }

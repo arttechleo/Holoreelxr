@@ -115,16 +115,24 @@ export class TutorialPanel {
     }
     
     // Draw video if available and ready
-    if (step.videoSrc && this.currentVideoTexture) {
-      const video = this.videoManager.getVideo(step.videoSrc);
-      if (video && this.videoManager.isReady(step.videoSrc)) {
-        this.drawVideoFrame(ctx, video);
-        // Start update loop if not already running
-        if (!this.videoAnimationFrame) {
-          this.startVideoUpdateLoop();
+    if (step.videoSrc) {
+      // Check if video failed to load
+      if (this.videoManager.hasError(step.videoSrc)) {
+        this.drawVideoError(ctx, step.videoSrc);
+      } else if (this.currentVideoTexture) {
+        const video = this.videoManager.getVideo(step.videoSrc);
+        if (video && this.videoManager.isReady(step.videoSrc)) {
+          this.drawVideoFrame(ctx, video);
+          // Start update loop if not already running
+          if (!this.videoAnimationFrame) {
+            this.startVideoUpdateLoop();
+          }
+        } else {
+          // Video not ready yet - show loading indicator
+          this.drawLoadingIndicator(ctx);
         }
       } else {
-        // Video not ready yet - show loading indicator
+        // Video texture not created yet - show loading
         this.drawLoadingIndicator(ctx);
       }
     } else {
@@ -292,6 +300,20 @@ export class TutorialPanel {
     ctx.fillStyle = '#888888';
     ctx.textAlign = 'center';
     ctx.fillText('Loading video...', this.canvas.width / 2, this.canvas.height / 2);
+  }
+  
+  private drawVideoError(ctx: CanvasRenderingContext2D, videoSrc: string): void {
+    // Show error message when video fails to load
+    ctx.font = '18px sans-serif';
+    ctx.fillStyle = '#ff6666';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠️ Video failed to load', this.canvas.width / 2, this.canvas.height / 2 - 20);
+    
+    ctx.font = '14px sans-serif';
+    ctx.fillStyle = '#aaaaaa';
+    ctx.fillText(videoSrc, this.canvas.width / 2, this.canvas.height / 2 + 10);
+    
+    console.error(`[TutorialPanel] Video error displayed for: ${videoSrc}`);
   }
   
   private drawDescription(ctx: CanvasRenderingContext2D, description: string): void {
