@@ -124,18 +124,19 @@ export class FeedStore {
         throw new Error('Feed JSON is not an array');
       }
       
-      // FILTER: Main feed shows GLTF/GLB models and simple shapes (cube, sphere, pyramid)
+      // FILTER: Main feed shows GLTF/GLB models, Gaussian Splats (.ply files), and simple shapes
       // Tutorial items (id starts with "tutorial-") are preserved for tutorial flow
       this.items = allItems.filter(item => {
         // Keep tutorial items for tutorial flow
         if (item.id && item.id.startsWith('tutorial-')) {
           return true;
         }
-        // Main feed: GLTF/GLB models, Gaussian Splats, and simple shapes (exclude meshes, splat4d, ply)
+        // Main feed: GLTF/GLB models (.glb/.gltf), Gaussian Splats (.ply/.spz), and simple shapes
+        // Note: gaussianSplat type includes both .ply (uncompressed) and .spz (compressed) formats
         return item.type === 'gltf' || item.type === 'glb' || item.type === 'gaussianSplat' || item.type === 'shape';
       });
       
-      logger.verbose(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} items (GLTF/GLB + shapes)`);
+      logger.verbose(`[FeedStore] Filtered feed: ${allItems.length} total items → ${this.items.length} items (GLB/GLTF + Gaussian Splats + shapes)`);
     } catch (error) {
       logError(error, 'FeedStore.loadFeed');
       logger.error(`[FeedStore.loadFeed] Failed to load feed from ${url} - using empty feed`);
@@ -173,6 +174,28 @@ export class FeedStore {
   isCurrentItemGaussianSplat(): boolean {
     const item = this.getCurrentItem();
     return item?.type === 'gaussianSplat';
+  }
+
+  /**
+   * Get detailed Gaussian Splat state for the current feed item.
+   * Returns null if current item is not a Gaussian splat.
+   * 
+   * Used for:
+   * - Detecting when to disable heavy UI canvases (prevents XR flicker)
+   * - Showing lightweight engagement panel for .ply splats
+   * - Ensuring only one XR render path is active during GS viewing
+   */
+  getGaussianSplatState(): { isPly: boolean; isSpz: boolean; src: string } | null {
+    const item = this.getCurrentItem();
+    if (item?.type !== 'gaussianSplat' || !item.src) {
+      return null;
+    }
+    
+    const src = item.src.toLowerCase();
+    const isPly = src.endsWith('.ply');
+    const isSpz = src.endsWith('.spz') || src === 'auto'; // 'auto' loads from manifest (typically .spz)
+    
+    return { isPly, isSpz, src: item.src };
   }
 
   // Add item

@@ -233,10 +233,12 @@ export class XRMultiplayerPanel {
    * Enable or disable the multiplayer panel.
    * When disabled:
    * - Panel is hidden (not visible in XR)
+   * - Canvas rendering is stopped (no texture updates)
    * - All update logic is suspended (no per-frame updates)
    * - Raycasting is disabled (no hand interactions)
+   * - Canvas texture is detached from material (prevents XR layer conflicts)
    * 
-   * This is used to prevent flicker when Gaussian splats are active in WebXR.
+   * This is used to prevent phantom canvas artifacts when Gaussian splats are active in WebXR.
    * The panel should be disabled whenever a .ply or .spz splat is the active feed item.
    */
   setEnabled(isEnabled: boolean): void {
@@ -245,21 +247,37 @@ export class XRMultiplayerPanel {
     this.enabled = isEnabled;
     
     if (!isEnabled) {
-      // Disable: hide panel and make anchor invisible
+      // DISABLE: Fully stop canvas-based rendering to prevent XR artifacts
       this.visible = false;
       if (this.anchor) {
         this.anchor.visible = false;
+        // Remove from scene to ensure no XR layer submission
+        if (this.anchor.parent) {
+          this.anchor.parent.remove(this.anchor);
+        }
+      }
+      // Detach texture from material to prevent canvas updates from affecting XR
+      if (this.panel && this.panel.material) {
+        (this.panel.material as THREE.MeshBasicMaterial).map = null;
+        (this.panel.material as THREE.MeshBasicMaterial).needsUpdate = true;
       }
       // Hide keypad if visible
       this.keypad?.hide();
-      console.log('[XRMultiplayerPanel] 🔴 Panel disabled (Gaussian splat active - prevents XR flicker)');
+      console.log('[XRMultiplayerPanel] 🔴 Panel disabled + canvas detached (Gaussian splat active - prevents XR flicker)');
     } else {
-      // Enable: restore visibility (but don't auto-show - let user or connection state control)
-      if (this.anchor) {
+      // ENABLE: Re-attach canvas texture and restore scene presence
+      // Re-attach texture
+      if (this.panel && this.panel.material && this.texture) {
+        (this.panel.material as THREE.MeshBasicMaterial).map = this.texture;
+        (this.panel.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      }
+      // Re-add to scene
+      if (this.anchor && this.scene && !this.anchor.parent) {
+        this.scene.add(this.anchor);
         this.anchor.visible = true;
       }
       // Don't automatically set this.visible = true - let show() be called explicitly
-      console.log('[XRMultiplayerPanel] 🟢 Panel enabled (Gaussian splat inactive)');
+      console.log('[XRMultiplayerPanel] 🟢 Panel enabled + canvas re-attached (Gaussian splat inactive)');
     }
   }
   
@@ -870,6 +888,10 @@ export class XRMultiplayerPanel {
   // ============== RENDERING ==============
   
   private render(): void {
+    // CRITICAL: Don't render canvas when disabled (prevents XR layer conflicts during GS mode)
+    // This ensures canvas textures are not updated, which could cause phantom artifacts
+    if (!this.enabled || !this.ctx) return;
+    
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;

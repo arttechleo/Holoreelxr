@@ -125,10 +125,10 @@ export class GaussianSplatLoader {
    * This is useful for quickly testing whatever .spz files are present
    * without hardcoding a specific URL.
    * 
-   * Smart URL resolution:
-   * - If url ends with .ply, checks for .spz version via HEAD request (non-destructive)
-   * - This allows feed.json to use .ply URLs but automatically prefer .spz for performance
-   * - Falls back to original .ply if .spz doesn't exist (safe, non-breaking)
+   * IMPORTANT: No automatic format conversion.
+   * - If feed.json specifies .ply, loads .ply exactly
+   * - If feed.json specifies .spz, loads .spz exactly
+   * - No silent substitution between formats (explicit control required)
    * 
    * Returns a scene that can be safely added to the world.
    */
@@ -140,43 +140,10 @@ export class GaussianSplatLoader {
       return this.loadFirstFromManifest(settingsUrl);
     }
 
-    // Smart URL resolution: prefer .spz over .ply if available (non-destructive)
-    const resolvedUrl = await this.preferSpzVariant(url);
-    if (resolvedUrl !== url) {
-      logger.verbose(`[GaussianSplatLoader] 🔁 Using .spz variant: ${resolvedUrl} (preferred over ${url})`);
-    }
-
-    const base = await this.fetchOrCache(resolvedUrl, settingsUrl);
+    // Load exactly what was specified - no automatic format conversion
+    // This ensures feed.json has full control over which format to use
+    const base = await this.fetchOrCache(url, settingsUrl);
     return this.cloneAsset(base);
-  }
-  
-  /**
-   * Prefer .spz variant over .ply if it exists (non-destructive fallback).
-   * Uses HEAD request to check if .spz exists without breaking .ply support.
-   * 
-   * @param url Original URL (may be .ply or .spz)
-   * @returns Resolved URL (prefers .spz if available, otherwise returns original)
-   */
-  private async preferSpzVariant(url: string): Promise<string> {
-    const lower = url.toLowerCase();
-    if (!lower.endsWith('.ply')) {
-      return url; // Not a .ply URL, return as-is
-    }
-    
-    const spzUrl = url.replace(/\.ply$/i, '.spz');
-    
-    try {
-      const res = await fetch(spzUrl, { method: 'HEAD' });
-      if (res.ok) {
-        logger.verbose(`[GaussianSplatLoader] 🔁 Using .spz variant: ${spzUrl}`);
-        return spzUrl;
-      }
-    } catch (e) {
-      logger.verbose(`[GaussianSplatLoader] .spz check failed for ${url}, using .ply`, e);
-    }
-    
-    // Fallback: keep original .ply
-    return url;
   }
 
   /**

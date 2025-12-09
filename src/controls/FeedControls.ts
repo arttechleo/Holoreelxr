@@ -13,6 +13,7 @@ import { CONTROLS, TRANSFORM, REACTIONS, HUD, MULTIPLAYER } from '../config/cons
 import { logError } from '../utils/errors';
 import { UIRaycastVisualizer } from '../interaction/UIRaycastVisualizer';
 import { XRMultiplayerPanel } from '../ui/XRMultiplayerPanelCanvas';
+import { XRGaussianEngagementPanel } from '../ui/XRGaussianEngagementPanel';
 import { logger } from '../config/production';
 
 export class FeedControls {
@@ -151,6 +152,7 @@ export class FeedControls {
   
   // Multiplayer panel reference (set via setMultiplayerPanel method)
   private multiplayerPanel?: XRMultiplayerPanel;
+  private engagementPanel?: XRGaussianEngagementPanel;
 
   constructor(private app: ThreeXRApp, private hands: HandEngine, private store: FeedStore) {
     this.app.scene.add(this.rayGroup);
@@ -454,6 +456,10 @@ export class FeedControls {
   // Set multiplayer panel reference for keyboard interaction
   setMultiplayerPanel(panel: XRMultiplayerPanel): void {
     this.multiplayerPanel = panel;
+  }
+  
+  setEngagementPanel(panel: XRGaussianEngagementPanel): void {
+    this.engagementPanel = panel;
   }
 
   setFeedSyncCallback(callback: (info: { reason: 'scroll'; direction: number }) => void): void {
@@ -1318,10 +1324,37 @@ export class FeedControls {
       }
     }
     
-    // For other UI panels (auth, music, multiplayer), use hand-based ray (hand gesture pointing)
+    // For other UI panels (auth, music, multiplayer, engagement), use hand-based ray (hand gesture pointing)
     // Check XR panels with hand gesture ray
     const authPanel = (this as any).authPanel as XRAuthPanel | undefined;
     const musicPanel = (this as any).musicPanel as XRMusicPanel | undefined;
+    
+    // Check engagement panel (lightweight panel for .ply Gaussian splats)
+    if (this.engagementPanel?.isPanelVisible()) {
+      const raycaster = new THREE.Raycaster(ray.origin, ray.direction);
+      const engagementHit = this.engagementPanel.raycast(raycaster);
+      if (engagementHit) {
+        // Calculate hit distance for priority sorting
+        const hitDistance = tip.distanceTo(this.engagementPanel.getPosition());
+        uiHits.push({
+          hit: engagementHit,
+          distance: hitDistance,
+          handler: () => {
+            // Handle engagement panel interaction
+            if (isPinching) {
+              this.engagementPanel?.handleInteraction(engagementHit);
+              return true;
+            }
+            // Set hover state for visual feedback
+            this.engagementPanel?.setHoveredButton(engagementHit);
+            return false;
+          }
+        });
+      } else {
+        // Clear hover when not hitting any button
+        this.engagementPanel?.setHoveredButton(null);
+      }
+    }
     
     if (authPanel?.isVisible()) {
       const authHit = authPanel.raycast(ray);
