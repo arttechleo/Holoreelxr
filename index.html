@@ -47,19 +47,13 @@
         pointer-events: none !important;
       }
       
-      /* Ensure body content is on top */
-      body > *:not(canvas):not(script) {
-        position: relative;
-        z-index: 100;
-      }
-      
-      /* Logo container */
+      /* Logo container - behind button */
       #logo-container {
         display: flex;
         justify-content: center;
         align-items: center;
         margin-bottom: 3rem;
-        z-index: 100;
+        z-index: 1;
         position: relative;
         pointer-events: auto;
       }
@@ -70,7 +64,7 @@
         height: auto;
       }
       
-      /* CTA Button — SILVER VERSION */
+      /* CTA Button — SILVER VERSION - in front of logo */
       .ar-cta-button {
         position: relative;
         border: none;
@@ -78,7 +72,7 @@
         padding: 0;
         background: transparent;
         outline: none;
-        z-index: 10000 !important; /* Ensure button is in front - fix z-fighting */
+        z-index: 10 !important; /* Button in front of logo */
         pointer-events: auto !important;
         display: block !important;
         visibility: visible !important;
@@ -127,7 +121,7 @@
           transform 0.15s ease-out,
           box-shadow 0.15s ease-out,
           filter 0.15s ease-out;
-        z-index: 10001 !important; /* Ensure label is in front */
+        z-index: 11 !important; /* Label in front of button */
         pointer-events: auto !important;
         visibility: visible !important;
         opacity: 1 !important;
@@ -192,8 +186,7 @@
     </div>
     
     <button id="enter-ar" class="ar-cta-button">
-      
-      <!-- <span class="ar-cta-label">Enter AR</span> -->
+      <span class="ar-cta-label">Enter AR</span>
     </button>
     
     <div id="xr-bar">
