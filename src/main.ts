@@ -540,14 +540,27 @@ async function loadMainFeed() {
       if (shouldShowMultiplayerPanel) {
         // PRIMITIVE OR GLB MODEL: Enable multiplayer panel
         logger.verbose('[Main] 🟢 Primitive/GLB content - enabling multiplayer panel');
+        
+        // CRITICAL: Enable first, then show, with a small delay to ensure setup completes
         xrMultiplayerPanel.setEnabled(true);
-        xrMultiplayerPanel.show();
+        
+        // Force show after a brief delay to ensure anchor is in scene
+        setTimeout(() => {
+          xrMultiplayerPanel.show();
+          console.log('[Main] 🎮 Multiplayer panel enabled and shown', {
+            isPrimitive: contentKind.isPrimitive,
+            isGlbModel: contentKind.isGlbModel,
+            contentType: store.getCurrentItem()?.type,
+            enabled: xrMultiplayerPanel.isEnabled(),
+            visible: xrMultiplayerPanel.isVisible()
+          });
+        }, 100);
         
         // Position panel to the right of content (world-locked)
         // Panel positioning happens in tick() via getObjectWorldPos() callback
         // OFFSET is already set to (0.80, 0.20, 0) - 80cm right, 20cm up
         
-        console.log('[Main] 🎮 Multiplayer panel enabled', {
+        console.log('[Main] 🎮 Multiplayer panel enabling...', {
           isPrimitive: contentKind.isPrimitive,
           isGlbModel: contentKind.isGlbModel,
           contentType: store.getCurrentItem()?.type

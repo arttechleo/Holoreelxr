@@ -292,21 +292,33 @@ export class XRMultiplayerPanel {
       if (this.panel && this.panel.material && this.texture) {
         (this.panel.material as THREE.MeshBasicMaterial).map = this.texture;
         (this.panel.material as THREE.MeshBasicMaterial).needsUpdate = true;
+        (this.panel.material as THREE.MeshBasicMaterial).visible = true;
+        if (this.panel) {
+          this.panel.visible = true;
+        }
       }
-      // Re-add to scene
-      if (this.anchor && this.scene && !this.anchor.parent) {
-        this.scene.add(this.anchor);
+      // Re-add to scene - CRITICAL: Always ensure anchor is in scene
+      if (this.anchor && this.scene) {
+        if (!this.anchor.parent) {
+          this.scene.add(this.anchor);
+          console.log('[XRMultiplayerPanel.setEnabled] Re-added anchor to scene');
+        }
+        // Force anchor and all children visible
         this.anchor.visible = true;
-        console.log('[XRMultiplayerPanel.setEnabled] Re-added anchor to scene');
-      } else if (this.anchor) {
-        // Ensure anchor is visible even if already in scene
-        this.anchor.visible = true;
+        this.anchor.traverse((child) => {
+          if (child instanceof THREE.Mesh || child instanceof THREE.Group) {
+            child.visible = true;
+          }
+        });
       }
-      // Don't automatically set this.visible = true - let show() be called explicitly
-      console.log('[XRMultiplayerPanel] 🟢 Panel enabled + canvas re-attached (Gaussian splat inactive)', {
+      // Set visible flag - show() will also set it but let's be explicit
+      this.visible = true;
+      console.log('[XRMultiplayerPanel] 🟢 Panel enabled + canvas re-attached', {
         anchorInScene: !!this.anchor?.parent,
         anchorVisible: this.anchor?.visible,
-        sceneExists: !!this.scene
+        sceneExists: !!this.scene,
+        panelVisible: this.panel?.visible,
+        materialMap: !!(this.panel?.material as THREE.MeshBasicMaterial)?.map
       });
     }
   }
