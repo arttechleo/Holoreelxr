@@ -226,6 +226,26 @@ export class FeedStore {
     return item?.type === 'glb' || item?.type === 'gltf';
   }
 
+  /**
+   * Get the content kind for the current feed item.
+   * Used to determine which UI panels should be enabled/disabled.
+   * 
+   * @returns Object with flags indicating content type
+   */
+  getContentKind(): { isGaussianSplat: boolean; isPrimitive: boolean; isGlbModel: boolean } {
+    const item = this.getCurrentItem();
+    
+    if (!item) {
+      return { isGaussianSplat: false, isPrimitive: false, isGlbModel: false };
+    }
+    
+    const isGaussianSplat = item.type === 'gaussianSplat';
+    const isPrimitive = item.type === 'shape';
+    const isGlbModel = item.type === 'glb' || item.type === 'gltf';
+    
+    return { isGaussianSplat, isPrimitive, isGlbModel };
+  }
+
   // Add item
   addItem(item: Item) {
     this.items.push(item);
@@ -732,7 +752,14 @@ export class FeedStore {
       });
     }
     
-    // Trigger callback for GS mode changes (if registered)
+    // Trigger callbacks for content mode changes
+    const onContentModeChange = (this as any).onContentModeChange as (() => void) | undefined;
+    if (onContentModeChange) {
+      // Unified content mode handler - handles all UI visibility based on content type
+      onContentModeChange();
+    }
+    
+    // Legacy GS mode callback (for backwards compatibility)
     const onGsModeChange = (this as any).onGaussianSplatModeChange as ((isGsActive: boolean, gsState: ReturnType<typeof this.getGaussianSplatState>) => void) | undefined;
     if (onGsModeChange) {
       if (finalGsState) {

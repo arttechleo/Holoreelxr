@@ -45,8 +45,8 @@ export class XRMultiplayerPanel {
   private readonly CANVAS_H = 768;
   
   // Position offset (to the RIGHT of model, matching ReactionHud offset)
-  // RIGHT side (positive X) - 50cm right, 5cm up
-  private readonly OFFSET = new THREE.Vector3(0.50, 0.05, 0);
+  // RIGHT side (positive X) - 80cm right, 20cm up, comfortable viewing distance
+  private readonly OFFSET = new THREE.Vector3(0.80, 0.20, 0);
   
   // Hit detection thickness (like ReactionHud) - significantly increased for easier interaction
   private readonly HIT_THICKNESS = 0.08 * MULTIPLAYER.RAYCAST_THICKNESS_MULTIPLIER;
