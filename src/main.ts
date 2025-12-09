@@ -237,21 +237,41 @@ onboarding.setOnComplete(() => {
   // Feed index has already been set by tutorial, ensure content is shown
   const item = store.items[store.index];
   console.log(`[Main] Showing feed item at index ${store.index}: ${item?.title || item?.id || 'unknown'}`);
-  store.showCurrent().catch(err => {
+  
+  // Show content and trigger content mode change to set up UI panels
+  store.showCurrent().then(() => {
+    // CRITICAL: Explicitly trigger content mode change after content loads
+    // This ensures multiplayer panel is enabled/shown for primitives and GLB models
+    if ((store as any).onContentModeChange) {
+      (store as any).onContentModeChange();
+      console.log('[Main] ✅ Content mode change triggered after tutorial');
+    }
+    
+    // Ensure multiplayer panel is shown after tutorial (for primitives OR GLB models)
+    const contentKind = store.getContentKind();
+    if (!multiplayer.isConnected() && (contentKind.isPrimitive || contentKind.isGlbModel)) {
+      setTimeout(() => {
+        // Panel should already be enabled by onContentModeChange, just ensure it's shown
+        if (xrMultiplayerPanel.isEnabled()) {
+          xrMultiplayerPanel.show();
+          console.log('[Main] ✅ Multiplayer panel shown after tutorial', {
+            isPrimitive: contentKind.isPrimitive,
+            isGlbModel: contentKind.isGlbModel,
+            enabled: xrMultiplayerPanel.isEnabled(),
+            visible: xrMultiplayerPanel.isVisible()
+          });
+        } else {
+          console.warn('[Main] ⚠️ Multiplayer panel not enabled after tutorial!', {
+            contentKind,
+            enabled: xrMultiplayerPanel.isEnabled()
+          });
+        }
+      }, 500); // Reduced delay for faster appearance
+    }
+  }).catch(err => {
     console.error('[Main] Error showing current feed after tutorial:', err);
     logError(err, 'Show current after tutorial');
   });
-  
-  // Show multiplayer panel to right of 3D model after tutorial (only for GLB models)
-  if (!multiplayer.isConnected() && store.isCurrentItemGLB()) {
-    setTimeout(() => {
-      // Only show if panel is enabled (will be enabled for GLB models)
-      if (xrMultiplayerPanel.isEnabled()) {
-        xrMultiplayerPanel.show();
-        console.log('[Main] Multiplayer panel shown after tutorial (GLB model)');
-      }
-    }, 1000); // Small delay to let model load
-  }
 });
 
 // Sync asset links to feed when added
