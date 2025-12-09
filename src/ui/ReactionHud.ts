@@ -83,11 +83,11 @@ export class ReactionHud {
       map: this.panelTex,
       transparent: true,
       opacity: 1.0,             // transparency drawn in canvas
-      depthTest: true,          // Proper depth testing for MR visibility
-      depthWrite: false
+      depthTest: false,         // Disable depth test to always render on top (overlay on Gaussian splats)
+      depthWrite: false         // Don't write to depth buffer (always on top)
     });
     this.panel = new THREE.Mesh(geo, mat);
-    this.panel.renderOrder = 9999;
+    this.panel.renderOrder = 10000; // High render order to overlay on top of Gaussian splats
     this.anchor.add(this.panel);
     this.scene.add(this.anchor);
 

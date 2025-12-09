@@ -1357,7 +1357,7 @@ export class FeedStore {
   getObject(): THREE.Object3D | undefined {
     try {
       const found = this.parent.children.find(
-        (c) => c.name === 'content-shape' || c.name === 'content-mesh' || c.name === 'content-gltf'
+        (c) => c.name === 'content-shape' || c.name === 'content-mesh' || c.name === 'content-gltf' || c.name === 'content-gaussian-splat'
       );
       if (found) return found;
 

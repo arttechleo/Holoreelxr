@@ -502,14 +502,16 @@ async function loadMainFeed() {
     // Register callback to handle GS mode changes (called ONCE when item changes, not every frame)
     (store as any).onGaussianSplatModeChange = (isGsActive: boolean, gsState: ReturnType<typeof store.getGaussianSplatState>) => {
       if (isGsActive) {
-        // GAUSSIAN SPLAT ACTIVE: Disable all canvas UI to prevent XR artifacts
-        logger.verbose('[Main] 🔴 Gaussian Splat active - disabling all canvas-based UI');
+        // GAUSSIAN SPLAT ACTIVE: Disable most canvas UI to prevent XR artifacts
+        // BUT keep ReactionHud enabled to overlay on top of Gaussian splat
+        logger.verbose('[Main] 🔴 Gaussian Splat active - disabling most canvas-based UI, keeping ReactionHud');
         
         // Disable multiplayer panel (fully stops canvas updates, removes from scene)
         xrMultiplayerPanel.setEnabled(false);
         
-        // Disable ReactionHud (canvas-based)
-        controls.getReactionHudManager()?.setEnabled(false);
+        // KEEP ReactionHud ENABLED during GS mode - it will overlay on top of the splat
+        // ReactionHud uses high render order (9999) to ensure it renders above the splat
+        controls.getReactionHudManager()?.setEnabled(true);
         
         // Disable TikTokFeedUI (canvas-based)
         controls.getTikTokFeedUI()?.setEnabled(false);
@@ -528,29 +530,9 @@ async function loadMainFeed() {
           }, 500); // Small delay to let cleanup complete
         }
         
-        // Attach engagement panel to splat group (world-locked, not head-tracked)
-        // Show panel for PLY files only (engagement panel is shown separately for GLB files)
-        if (gsState && gsState.isPly) {
-          const splatGroup = (store as any)._currentSplatGroup as THREE.Group | undefined;
-          if (splatGroup) {
-            engagementPanel.attachToAnchor(splatGroup);
-            engagementPanel.show();
-            
-            // Debug: Add axis helper at panel position for visibility testing
-            const debugHelper = new THREE.AxesHelper(0.2);
-            debugHelper.name = 'engagement-panel-debug-helper';
-            engagementPanel['group'].add(debugHelper);
-            
-            logger.verbose('[Main] 📱 Engagement panel attached to splat (world-locked)');
-            console.log('[Main] 📱 Engagement panel visibility:', {
-              visible: engagementPanel.isPanelVisible(),
-              parent: engagementPanel['group'].parent?.name || 'none',
-              position: engagementPanel.getPosition().toArray()
-            });
-          } else {
-            logger.warn('[Main] ⚠️ Splat group not found - engagement panel not attached');
-          }
-        }
+        // Hide the lightweight engagement panel (use ReactionHud canvas UI instead)
+        engagementPanel.detachFromAnchor();
+        engagementPanel.hide();
         
       } else {
         // GAUSSIAN SPLAT INACTIVE: Check if current item is GLB/GLTF, attach engagement panel
