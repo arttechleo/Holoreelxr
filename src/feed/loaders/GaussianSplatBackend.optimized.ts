@@ -5,7 +5,9 @@
  * This module provides optimized backends that add:
  * - Cached bounding volumes (Box3 + Sphere)
  * - Frustum culling + disabled matrix auto-updates on static splat children
- * - Per-splat onBeforeRender handler for distance-based LOD (opacity only)
+ * 
+ * NOTE: Dynamic opacity LOD is disabled to prevent stereo flicker in WebXR.
+ * Per-eye opacity changes cause right-eye blinking artifacts.
  * 
  * All optimizations are gated behind isGaussianSplatOptimizedEnabled flag.
  */
@@ -37,48 +39,25 @@ type LODMeta = {
 /**
  * Update LOD for a splat object based on camera distance.
  * Called from onBeforeRender handler.
+ * 
+ * TEMP: Disabled to prevent stereo flicker in WebXR.
+ * Per-eye opacity changes cause right-eye blinking artifacts.
+ * We keep the function signature for future use but make it a no-op.
+ * 
+ * Safe optimizations still active:
+ * - Cached bounding volumes
+ * - Frustum culling on splat children
+ * - matrixAutoUpdate=false on static splats
  */
 export function updateSplatLOD(
   root: THREE.Object3D,
   camera: THREE.Camera,
   meta: LODMeta
 ): void {
-  meta.frameCounter++;
-  if (meta.frameCounter < QUEST3_OPTIMIZATION.LOD.FRAMES_PER_UPDATE) return;
-  meta.frameCounter = 0;
-
-  const distance = camera.position.distanceTo(meta.boundingSphere.center);
-
-  let targetOpacity: number;
-  if (distance < QUEST3_OPTIMIZATION.LOD.NEAR) {
-    targetOpacity = QUEST3_OPTIMIZATION.LOD.OPACITY_NEAR;
-  } else if (distance < QUEST3_OPTIMIZATION.LOD.MEDIUM) {
-    targetOpacity = QUEST3_OPTIMIZATION.LOD.OPACITY_MEDIUM;
-  } else if (distance < QUEST3_OPTIMIZATION.LOD.FAR) {
-    targetOpacity = QUEST3_OPTIMIZATION.LOD.OPACITY_FAR;
-  } else {
-    targetOpacity = QUEST3_OPTIMIZATION.LOD.OPACITY_VERY_FAR;
-  }
-
-  if (Math.abs(targetOpacity - meta.lastOpacity) < 0.01) return;
-  meta.lastOpacity = targetOpacity;
-
-  root.traverse((obj) => {
-    const mat = (obj as any).material;
-    if (!mat) return;
-
-    if (Array.isArray(mat)) {
-      for (const m of mat) {
-        m.opacity = targetOpacity;
-        m.transparent = targetOpacity < 1.0;
-        m.needsUpdate = true;
-      }
-    } else {
-      mat.opacity = targetOpacity;
-      mat.transparent = targetOpacity < 1.0;
-      mat.needsUpdate = true;
-    }
-  });
+  // TEMP: Disable dynamic opacity LOD to prevent stereo flicker
+  // and reduce per-frame overhead. We still keep cached bounds
+  // + frustum culling from attachBoundsAndLOD.
+  return;
 }
 
 function attachBoundsAndLOD(root: THREE.Object3D): void {
