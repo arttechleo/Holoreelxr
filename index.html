@@ -35,6 +35,11 @@
         transform: scale(0) !important;
       }
       
+      /* Ensure canvas never covers the button */
+      body > canvas {
+        z-index: -1 !important;
+      }
+      
       /* Hide any WebGL or Three.js containers */
       body > canvas,
       #app,
@@ -47,13 +52,18 @@
         pointer-events: none !important;
       }
       
-      /* Logo container */
+      /* Logo container - positioned fixed to stay above canvas */
       #logo-container {
         display: flex;
         justify-content: center;
         align-items: center;
         margin-bottom: 2rem;
         pointer-events: none;
+        position: fixed !important;
+        z-index: 999998 !important; /* Just below button */
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, calc(-50% - 100px)); /* Position above center */
       }
       
       #logo-container img {
@@ -62,10 +72,10 @@
         height: auto;
       }
       
-      /* CTA Button - always visible */
+      /* CTA Button - always visible, positioned outside canvas */
       .ar-cta-button {
-        position: relative;
-        z-index: 10;
+        position: fixed !important;
+        z-index: 999999 !important; /* Extremely high z-index to stay above canvas */
         background: transparent;
         border: none;
         cursor: pointer;
@@ -75,6 +85,11 @@
         justify-content: center;
         visibility: visible !important;
         opacity: 1 !important;
+        pointer-events: auto !important;
+        /* Center the button on screen */
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, calc(-50% + 150px)); /* Position below center (where logo is) */
       }
       
       /* Ensure button stays visible even when XR overlay is active */
@@ -83,6 +98,8 @@
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
+        z-index: 999999 !important;
+        position: fixed !important;
       }
       
       /* Visible silver button label - always visible */
@@ -104,10 +121,11 @@
         text-transform: uppercase;
         letter-spacing: 0.12em;
         position: relative;
-        z-index: 11;
+        z-index: 1000000 !important; /* Even higher than button */
         display: inline-flex !important;
         visibility: visible !important;
         opacity: 1 !important;
+        pointer-events: auto !important;
       }
       
       /* Ensure label stays visible even when XR overlay is active */
@@ -116,6 +134,7 @@
         display: inline-flex !important;
         visibility: visible !important;
         opacity: 1 !important;
+        z-index: 1000000 !important;
       }
       
       /* Hover / Focus */
@@ -201,18 +220,24 @@
         document.addEventListener('DOMContentLoaded', hideCanvas);
       })();
       
-      // CRITICAL: Keep Enter AR button visible at all times
+      // CRITICAL: Keep Enter AR button visible at all times, above canvas
       (function() {
         const ensureButtonVisible = () => {
           const button = document.getElementById('enter-ar');
           const label = button?.querySelector('.ar-cta-label');
+          const logo = document.getElementById('logo-container');
           
           if (button) {
-            // Force button visibility
+            // Force button visibility with fixed positioning
             button.style.display = 'flex';
             button.style.visibility = 'visible';
             button.style.opacity = '1';
             button.style.pointerEvents = 'auto';
+            button.style.position = 'fixed';
+            button.style.zIndex = '999999';
+            button.style.left = '50%';
+            button.style.top = '50%';
+            button.style.transform = 'translate(-50%, calc(-50% + 150px))';
             
             // Ensure label exists and is visible
             if (!label && button.textContent) {
@@ -227,8 +252,23 @@
               label.style.display = 'inline-flex';
               label.style.visibility = 'visible';
               label.style.opacity = '1';
+              label.style.zIndex = '1000000';
             }
           }
+          
+          // Also ensure logo stays visible
+          if (logo) {
+            logo.style.position = 'fixed';
+            logo.style.zIndex = '999998';
+            logo.style.left = '50%';
+            logo.style.top = '50%';
+            logo.style.transform = 'translate(-50%, calc(-50% - 100px))';
+          }
+          
+          // Ensure all canvases have low z-index
+          document.querySelectorAll('canvas').forEach(canvas => {
+            canvas.style.zIndex = '-1';
+          });
         };
         
         // Run immediately
@@ -260,3 +300,4 @@
     </script>
   </body>
 </html>
+
