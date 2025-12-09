@@ -1,39 +1,72 @@
-# Holoreelxr - WebXR Social Feed Viewer
+# HoloreelXR - Immersive 3D Social Feed
 
-An immersive 3D social media feed viewer built with Three.js and WebXR, featuring advanced hand gesture controls for intuitive interactions in AR/VR.
+**HoloreelXR** is a cutting-edge WebXR application that transforms social media into an immersive 3D experience. Browse animated 3D models, Gaussian Splats, and interactive content using natural hand gestures in Augmented Reality (AR) and Virtual Reality (VR).
+
+## 🌟 What is HoloreelXR?
+
+HoloreelXR is a TikTok-style social feed viewer built for WebXR devices like Meta Quest, HoloLens, and other AR/VR headsets. Instead of scrolling through flat images and videos, you interact with 3D content floating in your space using intuitive hand gestures—no controllers needed.
+
+### Key Highlights
+
+- **🎮 Hand Tracking**: Control everything with natural hand gestures
+- **🎨 3D Content**: View GLB/GLTF models, Gaussian Splats, and animated sequences
+- **🌐 WebXR**: Works on any WebXR-compatible device via browser
+- **👥 Multiplayer**: Real-time collaboration with hand tracking sync
+- **✨ Mixed Reality**: Seamless AR/VR mode switching
 
 ## ✨ Features
 
-- **Hand Gesture Recognition**
-  - 👍 **Thumbs Up** - Like content
-  - ❤️ **Heart Gesture** - Save/favorite (two hands together)
-  - ✌️ **Peace Sign** - Repost/share
-  - 🤟 **ILY Gesture** - Open comment composer
-  - 🤏 **Pinch** - Scroll feed, grab & move objects
-  - ✋ **Two-Hand Gestures** - Scale and rotate content
+### Hand Gesture Controls
 
-- **3D Content Support**
-  - PLY point cloud files
-  - Animated splat sequences (4D content)
-  - Basic 3D shapes (box, sphere, pyramid)
+| Gesture | Action | Description |
+|---------|--------|------------|
+| 👍 **Thumbs Up** | Like | Quick like gesture with visual feedback |
+| ❤️ **Heart Gesture** | Save/Favorite | Bring both index and thumb tips together |
+| ✌️ **Peace Sign** | Repost/Share | Two-finger peace gesture |
+| 🤏 **Pinch** | Scroll & Grab | Pinch and move vertically to scroll feed, pinch near objects to grab |
+| ✋ **Two-Hand Pinch** | Scale & Rotate | Use both hands to resize and rotate 3D content |
+| 🤟 **ILY Gesture** | Comment | Open virtual keyboard to compose comments |
 
-- **Immersive UI**
-  - Mixed reality HUD with reaction counts
-  - Floating comment panels
-  - Visual feedback with particles and effects
-  - Ray-based interaction helpers
+### 3D Content Support
+
+- **GLB/GLTF Models**: Animated 3D models with full animation playback
+- **Gaussian Splats**: High-quality point cloud scenes (PLY files)
+- **Animated Sequences**: 4D splat sequences with frame-by-frame playback
+- **Basic Shapes**: Interactive 3D primitives (box, sphere, pyramid)
+
+### Immersive UI
+
+- **Mixed Reality HUD**: Floating panels with reaction counts and engagement stats
+- **TikTok-Style Feed**: Vertical scrolling through 3D content
+- **Visual Feedback**: Particle effects, platform pulses, and smooth animations
+- **Ray-Based Interaction**: Point at UI elements with your finger to interact
+- **Virtual Keyboard**: Pinch-to-touch keyboard for text input in XR
+
+### Multiplayer Features
+
+- **Real-Time Hand Sync**: See other users' hands in your space
+- **Feed Synchronization**: Share the same feed position with others
+- **Voice Chat**: Integrated voice communication (experimental)
+- **Collaborative Viewing**: Experience content together in real-time
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 
-- Node.js 18+ and npm
-- WebXR-compatible device (Meta Quest, HoloLens, etc.) or browser
-- HTTPS-enabled local network (required for WebXR)
+- **Node.js 18+** and npm
+- **WebXR-Compatible Device**:
+  - Meta Quest 2/3/Pro (recommended)
+  - HoloLens 2
+  - Any device with WebXR support
+- **HTTPS**: Required for WebXR (dev server includes HTTPS)
 
 ### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/arttechleo/Holoreelxr.git
+cd Holoreelxr
+
 # Install dependencies
 npm install
 
@@ -41,59 +74,91 @@ npm install
 npm run dev
 ```
 
-The dev server will be available at `https://localhost:5173` (or your local IP for Quest/other devices).
+The development server will start at `https://localhost:5173`. For headset access, use your local IP address (e.g., `https://192.168.1.100:5173`).
 
 ### Building for Production
 
 ```bash
+# Build optimized production bundle
 npm run build
+
+# Preview production build
 npm run preview
 ```
 
-## 🎮 Controls
+## 🎮 How to Use
 
 ### Desktop/2D Mode
-- Use the **Enter AR** or **Enter VR** buttons to start an immersive session
+
+1. Open the application in a modern browser
+2. You'll see the **Holoreel logo** and **Enter AR** button
+3. Click **Enter AR** to start an immersive session
 
 ### AR/VR Mode
 
+#### First Time Setup
+
+1. **Enter AR/VR**: Click the "Enter AR" button or use the XR bar controls
+2. **Onboarding Tutorial**: Complete the interactive tutorial to learn gestures
+3. **Grant Permissions**: Allow hand tracking when prompted
+
 #### Navigation
-- **Single pinch + vertical movement** - Scroll through feed items
-- **Two-hand pinch** - Scale and rotate content
+
+- **Scroll Feed**: Pinch with one hand and move vertically up/down
+- **Next/Previous Item**: Swipe left/right with pinch gesture
+- **Scale Content**: Pinch with both hands and move apart/together
+- **Rotate Content**: Use two-hand pinch and rotate hands
 
 #### Interactions
-- **Pinch on UI panel** - Click reaction buttons
-- **Thumbs up** - Quick like
-- **Heart gesture** (both index + thumb tips together) - Save/favorite
-- **Peace sign** - Repost
-- **ILY gesture** - Open comment composer
-- **Pinch + hold near object** - Grab and reposition
 
-#### UI Raycasting
-- Point at UI elements with index finger from camera view
-- Dwell for 350ms to activate buttons
+- **Like**: Make a thumbs-up gesture
+- **Save/Favorite**: Bring both index and thumb tips together (heart gesture)
+- **Repost**: Make a peace sign (✌️)
+- **Comment**: Make ILY gesture (🤟) to open keyboard
+- **Grab & Move**: Pinch near a 3D object and move your hand to reposition it
+
+#### UI Interaction
+
+- **Point at UI**: Extend your index finger toward UI panels
+- **Activate Buttons**: Dwell on buttons for 350ms to click
+- **Virtual Keyboard**: Touch keys with your fingertips (3cm proximity)
+
+### Desktop Testing (Without Headset)
+
+Press **Shift+H** to see keyboard shortcuts:
+
+| Key | Action |
+|-----|--------|
+| **←** / **A** | Previous item |
+| **→** / **D** | Next item |
+| **↑** / **W** | Zoom in |
+| **↓** / **S** | Zoom out |
+| **Q** | Rotate left |
+| **E** | Rotate right |
+| **L** | Like |
+| **H** | Heart/Save |
+| **R** | Repost |
 
 ## 📁 Project Structure
 
 ```
 src/
 ├── app/
-│   └── ThreeXRApp.ts          # Main WebXR renderer & scene management
+│   └── ThreeXRApp.ts          # WebXR renderer & scene management
 ├── controls/
 │   └── FeedControls.ts        # Gesture-based interaction logic
 ├── feed/
 │   ├── FeedStore.ts           # Content management & state
-│   └── loaders/
-│       └── SplatSequence.ts   # PLY/splat loader with animation
+│   └── loaders/               # GLB, PLY, and splat loaders
 ├── gestures/
-│   ├── HandEngine.ts          # Hand tracking & gesture recognition
-│   └── StopPalmGesture.ts     # Additional gesture patterns
-├── integrations/
-│   └── player.ts              # Global audio player
+│   └── HandEngine.ts          # Hand tracking & gesture recognition
 ├── ui/
-│   ├── Hud.ts                 # 2D overlay HUD
-│   ├── ReactionHud.ts         # 3D floating UI panel
-│   └── ReactionHudManager.ts  # Per-model UI state management
+│   ├── ReactionHud.ts         # 3D floating UI panels
+│   ├── TikTokFeedUI.ts        # Feed UI overlay
+│   └── XRMultiplayerPanel.ts  # Multiplayer controls
+├── multiplayer/
+│   ├── MultiplayerManager.ts  # Real-time sync
+│   └── RemoteHands.ts         # Remote hand visualization
 └── main.ts                    # Application entry point
 ```
 
@@ -101,7 +166,7 @@ src/
 
 ### Feed Content
 
-Edit `public/feed.json` to customize the feed:
+Edit `public/feed.json` to customize your feed:
 
 ```json
 [
@@ -109,82 +174,127 @@ Edit `public/feed.json` to customize the feed:
     "id": "unique-id",
     "title": "Content Title",
     "author": "creator-name",
-    "type": "splat4d",
-    "fps": 30,
-    "frames": ["/assets/500/frame_0000.ply", "..."]
+    "type": "glb",
+    "src": "/assets/feeddata/model.glb"
+  },
+  {
+    "id": "world-01",
+    "title": "World 1",
+    "author": "FeedData",
+    "type": "gaussianSplat",
+    "src": "/assets/feeddata/world1.ply"
   }
 ]
 ```
 
-**Supported types:**
+**Supported Content Types:**
+
+- `glb` / `gltf` - 3D models with animations
+- `gaussianSplat` - Gaussian Splat point clouds (PLY files)
 - `shape` - Basic 3D shapes (box, sphere, pyramid)
-- `ply` - Static PLY point cloud
-- `splat4d` - Animated PLY sequence
-- `mesh` - Generic 3D mesh (placeholder)
+- `splat4d` - Animated PLY sequences (experimental)
 
 ### Gesture Tuning
 
-Adjust gesture thresholds in `src/gestures/HandEngine.ts`:
+Adjust gesture sensitivity in `src/gestures/HandEngine.ts`:
+
 - `pinchThreshold`: Distance for pinch detection (default: 0.035m)
 - `heartThreshold`: Distance for heart gesture (default: 0.045m)
 
-## 🛠️ Development
+## 🛠️ Tech Stack
 
-### Tech Stack
-- **Three.js** 0.181 - 3D rendering
-- **Vite** 7.2 - Build tool & dev server
+- **Three.js 0.181** - 3D rendering engine
+- **WebXR Device API** - AR/VR support
+- **@sparkjsdev/spark** - Gaussian Splat rendering
+- **@mkkellogg/gaussian-splats-3d** - Alternative splat renderer
+- **Vite 7.2** - Build tool & dev server
 - **TypeScript** - Type safety
-- **WebXR Device API** - Immersive experiences
+- **PeerJS** - Multiplayer networking
+
+## 🐛 Troubleshooting
+
+### Canvas Not Hiding on Index Page
+
+The canvas is automatically hidden on the landing page. If you see 3D content before entering AR:
+
+1. Clear browser cache
+2. Hard refresh (Ctrl+Shift+R / Cmd+Shift+R)
+3. Check browser console for errors
+
+### Hand Tracking Not Working
+
+1. Ensure WebXR hand tracking is enabled in your device settings
+2. Grant hand tracking permissions when prompted
+3. Check that your device supports hand tracking (Quest 2+ required)
+
+### Content Not Loading
+
+1. Check browser console for error messages
+2. Verify file paths in `feed.json` are correct
+3. Ensure assets exist in `public/assets/` directory
+4. Check network tab for failed requests
+
+### Performance Issues
+
+- Lower framebuffer scale in `src/app/ThreeXRApp.ts` (default: 0.75)
+- Reduce pixel ratio for mobile XR devices
+- Disable MSAA on Quest devices (already optimized)
+
+## 📝 Development
 
 ### Adding New Gestures
 
-1. Define gesture detection in `HandEngine.ts`:
+1. Define gesture detection in `src/gestures/HandEngine.ts`:
+
 ```typescript
 const myGesture = (side: Side) => {
   const W = J(side, 'wrist');
   const T = J(side, 'thumb-tip');
-  // ... your logic
+  // Your detection logic
   return isGestureActive;
 };
 ```
 
-2. Emit events:
-```typescript
-if (myGesture('left')) this.emit('mygesturestart', {side: 'left'});
+2. Emit events when gesture is detected
+3. Handle in `src/controls/FeedControls.ts`
+
+### Adding Content to Feed
+
+1. Place assets in `public/assets/feeddata/`
+2. Add entry to `public/feed.json`:
+
+```json
+{
+  "id": "my-content",
+  "title": "My 3D Model",
+  "author": "Creator",
+  "type": "glb",
+  "src": "/assets/feeddata/my-model.glb"
+}
 ```
 
-3. Handle in `FeedControls.ts`:
-```typescript
-this.hands.on('mygesturestart', () => {
-  // Your action
-});
-```
+3. Maintain GLB → PLY alternating pattern for best experience
 
-## 🐛 Known Issues
-
-- **Audio player**: `/assets/track.mp3` is referenced but not included
-- **Compose keyboard**: Uses fallback `prompt()` without native XR keyboard
-- **Quest Browser**: Some runtimes may need WebXR Emulator extension for testing
-
-## 📝 License
+## 📄 License
 
 ISC
 
 ## 🤝 Contributing
 
-Contributions welcome! Please ensure:
-- TypeScript compiles without errors
+Contributions are welcome! Please ensure:
+
+- TypeScript compiles without errors (`npm run lint`)
 - Code follows existing style conventions
 - Test on at least one WebXR device
-
-## 📚 Documentation
-
-- **[Adding Assets Guide](docs/ADDING_ASSETS.md)** - Learn how to add 3D model links to your feed (`public/feed.json`)
-- See `docs/` directory for detailed architecture and development guides
+- Update documentation for new features
 
 ## 🔗 Resources
 
-- [WebXR Device API Spec](https://immersiveweb.dev/)
+- [WebXR Device API](https://immersiveweb.dev/)
 - [Three.js Documentation](https://threejs.org/docs/)
 - [Hand Tracking in WebXR](https://immersiveweb.dev/webxr-hand-input/)
+- [Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)
 
+---
+
+**Built with ❤️ for the future of immersive social media**
