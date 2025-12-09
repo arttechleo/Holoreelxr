@@ -374,7 +374,14 @@ export class ThreeXRApp {
 
     const setLabel = (el: HTMLButtonElement | null, label: string, enabled: boolean) => {
       if (!el) return;
-      el.textContent = label;
+      // Preserve the inner span structure - only update text if span exists
+      const labelSpan = el.querySelector('.ar-cta-label');
+      if (labelSpan) {
+        labelSpan.textContent = label;
+      } else {
+        // Fallback: if no span exists, set textContent (but preserve structure)
+        el.textContent = label;
+      }
       el.disabled = !enabled;
     };
 

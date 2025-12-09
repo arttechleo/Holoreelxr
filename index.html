@@ -62,7 +62,7 @@
         height: auto;
       }
       
-      /* CTA Button */
+      /* CTA Button - always visible */
       .ar-cta-button {
         position: relative;
         z-index: 10;
@@ -70,12 +70,22 @@
         border: none;
         cursor: pointer;
         padding: 0;
-        display: flex;
+        display: flex !important;
         align-items: center;
         justify-content: center;
+        visibility: visible !important;
+        opacity: 1 !important;
       }
       
-      /* Visible silver button label */
+      /* Ensure button stays visible even when XR overlay is active */
+      body.xr-overlay .ar-cta-button,
+      .xr-overlay .ar-cta-button {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+      }
+      
+      /* Visible silver button label - always visible */
       .ar-cta-label {
         padding: 0.9rem 2.8rem;
         border-radius: 999px;
@@ -95,6 +105,17 @@
         letter-spacing: 0.12em;
         position: relative;
         z-index: 11;
+        display: inline-flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+      }
+      
+      /* Ensure label stays visible even when XR overlay is active */
+      body.xr-overlay .ar-cta-label,
+      .xr-overlay .ar-cta-label {
+        display: inline-flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
       }
       
       /* Hover / Focus */
@@ -178,6 +199,63 @@
         // Also hide on load
         window.addEventListener('load', hideCanvas);
         document.addEventListener('DOMContentLoaded', hideCanvas);
+      })();
+      
+      // CRITICAL: Keep Enter AR button visible at all times
+      (function() {
+        const ensureButtonVisible = () => {
+          const button = document.getElementById('enter-ar');
+          const label = button?.querySelector('.ar-cta-label');
+          
+          if (button) {
+            // Force button visibility
+            button.style.display = 'flex';
+            button.style.visibility = 'visible';
+            button.style.opacity = '1';
+            button.style.pointerEvents = 'auto';
+            
+            // Ensure label exists and is visible
+            if (!label && button.textContent) {
+              // If label was removed, recreate it
+              const span = document.createElement('span');
+              span.className = 'ar-cta-label';
+              span.textContent = button.textContent || 'Enter AR';
+              button.textContent = '';
+              button.appendChild(span);
+            } else if (label) {
+              // Ensure label is visible
+              label.style.display = 'inline-flex';
+              label.style.visibility = 'visible';
+              label.style.opacity = '1';
+            }
+          }
+        };
+        
+        // Run immediately
+        ensureButtonVisible();
+        
+        // Run after DOM is ready
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', ensureButtonVisible);
+        }
+        
+        // Run after page load
+        window.addEventListener('load', ensureButtonVisible);
+        
+        // Monitor for changes and restore visibility
+        const observer = new MutationObserver(() => {
+          ensureButtonVisible();
+        });
+        
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['style', 'class']
+        });
+        
+        // Also check periodically (fallback)
+        setInterval(ensureButtonVisible, 500);
       })();
     </script>
   </body>
