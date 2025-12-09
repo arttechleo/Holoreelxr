@@ -18,6 +18,7 @@ import { XRAuthPanel } from './ui/XRAuthPanel';
 import { XRMusicPanel } from './ui/XRMusicPanel';
 import { OnboardingTutorial } from './ui/OnboardingTutorial';
 import { XRGaussianEngagementPanel } from './ui/XRGaussianEngagementPanel';
+import { debugGaussianSplatScene, restoreDebugHighlights } from './debug/SceneDebug';
 import { MultiplayerManager, HandState, GestureEvent, TransformEvent } from './multiplayer/MultiplayerManager';
 import { RemoteHands } from './multiplayer/RemoteHands';
 import { XRMultiplayerPanel } from './ui/XRMultiplayerPanelCanvas';
@@ -314,7 +315,11 @@ async function loadMainFeed() {
   let stopPalmWasActive = false; // Track previous state for edge detection
   const STOP_PALM_COOLDOWN = 500; // 500ms cooldown to prevent rapid toggling
   
-  app.onFrame((info) => { 
+  // Performance monitoring (lightweight, only when GS active)
+  let frameCount = 0;
+  
+  app.onFrame((info) => {
+    const frameStart = performance.now(); 
     hands.update(info);
     
     // ENHANCED: Single-tap host panel toggle (edge detection on stop-palm gesture)
@@ -403,90 +408,14 @@ async function loadMainFeed() {
     xrAuthPanel?.update(app.camera);
     xrMusicPanel?.update(app.camera);
     
-    // ========== GAUSSIAN SPLAT MODE: Disable all canvas-based UI to prevent XR artifacts ==========
-    // 
-    // PHANTOM CANVAS / CUTOUT FIX:
-    // When viewing Gaussian splats in WebXR, canvas-based UI panels can cause:
-    // - Small floating white/rectangular patches
-    // - Rectangular "holes" or cutouts showing passthrough
-    // - Per-eye flicker (especially right eye)
-    // 
-    // These artifacts are caused by XR layer conflicts when multiple canvases are active.
-    // Solution: When a Gaussian splat is active, fully disable ALL non-essential canvas UI.
-    // 
-    // What gets disabled:
-    // - Multiplayer panel (canvas-based)
-    // - Auth panel (canvas-based) 
-    // - Music panel (canvas-based)
-    // - Tutorial panels (canvas-based)
-    // - ReactionHud (canvas-based)
-    // - TikTokFeedUI (canvas-based)
-    // - Error/Loading panels (canvas-based)
-    // 
-    // What stays enabled:
-    // - SparkRenderer (required for splat rendering)
-    // - Hand tracking (required for interaction)
-    // - Lightweight engagement panel (for .ply splats, uses simple geometry, not canvas)
+    // ========== PERFORMANCE: GS mode is handled ONCE per item change, not every frame ==========
+    // All GS mode logic (canvas disabling, panel attachment) happens in FeedStore.showCurrent()
+    // via the onGaussianSplatModeChange callback. This prevents freezes from per-frame checks.
     
-    const gsState = store.getGaussianSplatState();
-    const isGaussianSplatActive = gsState !== null;
-    const wasGaussianSplatActive = (app as any)._lastGaussianSplatState || false;
-    
-    if (isGaussianSplatActive !== wasGaussianSplatActive) {
-      // State changed - update all canvas-based UI
-      
-      if (isGaussianSplatActive) {
-        // GAUSSIAN SPLAT ACTIVE: Disable all canvas UI to prevent XR artifacts
-        logger.verbose('[Main] 🔴 Gaussian Splat active - disabling all canvas-based UI');
-        
-        // Disable multiplayer panel (fully stops canvas updates)
-        xrMultiplayerPanel.setEnabled(false);
-        
-        // Note: Auth/music panels are already disabled by default (ENABLE_AUTH_PANELS = false)
-        // If they were enabled, they would need similar canvas disabling logic
-        
-        // Hide tutorial panels (uses TutorialPanel with canvas)
-        if (onboarding.isVisible()) {
-          onboarding.hide();
-        }
-        
-        // Note: ReactionHud, TikTokFeedUI, etc. should be hidden via their visibility flags
-        // We rely on FeedStore/FeedControls to not show them during GS viewing
-        
-      } else {
-        // GAUSSIAN SPLAT INACTIVE: Re-enable canvas UI
-        logger.verbose('[Main] 🟢 Gaussian Splat inactive - re-enabling canvas-based UI');
-        
-        // Re-enable multiplayer panel (canvas updates resume)
-        xrMultiplayerPanel.setEnabled(true);
-        
-        // Note: Auth/music panels are disabled by default (ENABLE_AUTH_PANELS = false)
-        
-        // Tutorial panels will show when needed (onboarding flow)
-      }
-    }
-    
-    (app as any)._lastGaussianSplatState = isGaussianSplatActive;
-    
-    // Store GS state for engagement panel (used below)
-    (app as any)._currentGsState = gsState;
-    
-    // ========== ENGAGEMENT PANEL: Show lightweight UI for .ply splats ==========
-    // Only show engagement panel for .ply splats (not .spz)
-    // Panel uses simple geometry (not canvas) to avoid XR layer conflicts
-    if (gsState && gsState.isPly) {
-      if (!engagementPanel.isPanelVisible()) {
-        engagementPanel.show();
-        logger.verbose('[Main] 📱 Engagement panel shown (Gaussian splat .ply active)');
-      }
-      // Update panel position to face camera
+    // Update engagement panel billboard effect (only if visible and attached)
+    const currentGsState = (app as any)._currentGsState;
+    if (currentGsState && currentGsState.isPly && engagementPanel.isPanelVisible()) {
       engagementPanel.update(app.camera);
-    } else {
-      // Hide panel for non-.ply items or when no GS is active
-      if (engagementPanel.isPanelVisible()) {
-        engagementPanel.hide();
-        logger.verbose('[Main] 🙈 Engagement panel hidden (not .ply splat)');
-      }
     }
     
     // Update multiplayer panel (like ReactionHud - positions itself relative to object)
@@ -514,6 +443,18 @@ async function loadMainFeed() {
       // Update tutorial grab system (frame-based, reliable)
       // Only call if tutorial is actually active
       (onboarding as any).updateGrab?.(info);
+    }
+    
+    // Performance monitoring: log long frames in GS mode (debug only)
+    const frameEnd = performance.now();
+    const frameTime = frameEnd - frameStart;
+    frameCount++;
+    
+    if ((app as any)._currentGsState && frameTime > 20) {
+      // Log only occasionally to avoid spam (every 60 frames ~ 1 second at 60fps)
+      if (frameCount % 60 === 0) {
+        console.warn(`[Main] ⚠️ Long frame in GS mode: ${frameTime.toFixed(2)}ms (threshold: 20ms)`);
+      }
     }
   });
 
@@ -557,6 +498,87 @@ async function loadMainFeed() {
     // Set engagement panel reference for interaction handling
     controls.setEngagementPanel(engagementPanel);
     controls.setFeedSyncCallback(() => broadcastFeedSync('scroll'));
+    
+    // ========== GAUSSIAN SPLAT MODE CHANGE HANDLER ==========
+    // Register callback to handle GS mode changes (called ONCE when item changes, not every frame)
+    (store as any).onGaussianSplatModeChange = (isGsActive: boolean, gsState: ReturnType<typeof store.getGaussianSplatState>) => {
+      if (isGsActive) {
+        // GAUSSIAN SPLAT ACTIVE: Disable all canvas UI to prevent XR artifacts
+        logger.verbose('[Main] 🔴 Gaussian Splat active - disabling all canvas-based UI');
+        
+        // Disable multiplayer panel (fully stops canvas updates, removes from scene)
+        xrMultiplayerPanel.setEnabled(false);
+        
+        // Disable ReactionHud (canvas-based)
+        controls.getReactionHudManager()?.setEnabled(false);
+        
+        // Disable TikTokFeedUI (canvas-based)
+        controls.getTikTokFeedUI()?.setEnabled(false);
+        
+        // Hide tutorial panels (uses TutorialPanel with canvas)
+        if (onboarding.isVisible()) {
+          onboarding.hide();
+        }
+        
+        // Debug: Identify phantom panels (only when DEBUG_GS_SCENE is true)
+        // Enable via: (window as any).DEBUG_GS_SCENE = true in console
+        if ((window as any).DEBUG_GS_SCENE) {
+          setTimeout(() => {
+            const suspects = debugGaussianSplatScene(app.scene, false);
+            console.log('[Main] 🔍 Debug: Found', suspects.length, 'suspect meshes in GS mode');
+          }, 500); // Small delay to let cleanup complete
+        }
+        
+        // Attach engagement panel to splat group (world-locked, not head-tracked)
+        if (gsState && gsState.isPly) {
+          const splatGroup = (store as any)._currentSplatGroup as THREE.Group | undefined;
+          if (splatGroup) {
+            engagementPanel.attachToAnchor(splatGroup);
+            engagementPanel.show();
+            
+            // Debug: Add axis helper at panel position for visibility testing
+            const debugHelper = new THREE.AxesHelper(0.2);
+            debugHelper.name = 'engagement-panel-debug-helper';
+            engagementPanel['group'].add(debugHelper);
+            
+            logger.verbose('[Main] 📱 Engagement panel attached to splat (world-locked)');
+            console.log('[Main] 📱 Engagement panel visibility:', {
+              visible: engagementPanel.isPanelVisible(),
+              parent: engagementPanel['group'].parent?.name || 'none',
+              position: engagementPanel.getPosition().toArray()
+            });
+          } else {
+            logger.warn('[Main] ⚠️ Splat group not found - engagement panel not attached');
+          }
+        }
+        
+      } else {
+        // GAUSSIAN SPLAT INACTIVE: Re-enable canvas UI
+        logger.verbose('[Main] 🟢 Gaussian Splat inactive - re-enabling canvas-based UI');
+        
+        // Detach engagement panel from splat
+        engagementPanel.detachFromAnchor();
+        engagementPanel.hide();
+        
+        // Re-enable multiplayer panel
+        xrMultiplayerPanel.setEnabled(true);
+        
+        // Re-enable ReactionHud
+        controls.getReactionHudManager()?.setEnabled(true);
+        
+        // Re-enable TikTokFeedUI
+        controls.getTikTokFeedUI()?.setEnabled(true);
+        
+        // Restore debug highlights if any
+        restoreDebugHighlights(app.scene);
+      }
+    };
+    
+    // Initialize GS mode state (check initial item)
+    const initialGsState = store.getGaussianSplatState();
+    if (initialGsState !== null && (store as any).onGaussianSplatModeChange) {
+      (store as any).onGaussianSplatModeChange(true, initialGsState);
+    }
     // Wire up 3D panels to controls
     (controls as any).authPanel = xrAuthPanel;
     (controls as any).musicPanel = xrMusicPanel;

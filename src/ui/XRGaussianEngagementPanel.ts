@@ -26,12 +26,16 @@ export class XRGaussianEngagementPanel {
   private buttons: THREE.Mesh[] = [];
   private hoveredButton: EngagementAction | null = null;
   private isVisible = false;
+  private parentAnchor: THREE.Group | null = null; // World-locked anchor (e.g., splat group)
   
   // Panel dimensions (in meters)
   private readonly PANEL_WIDTH = 0.4;
   private readonly PANEL_HEIGHT = 0.12;
   private readonly BUTTON_SIZE = 0.08;
   private readonly BUTTON_SPACING = 0.12;
+  
+  // World-locked offset relative to parent anchor
+  private readonly WORLD_OFFSET = new THREE.Vector3(0, -0.3, 1.0); // 30cm down, 1m in front of splat
   
   // Callbacks
   private callbacks: XRGaussianEngagementPanelCallbacks = {};
@@ -42,9 +46,46 @@ export class XRGaussianEngagementPanel {
   ) {
     this.group.name = 'XRGaussianEngagementPanel';
     this.group.visible = false;
-    this.scene.add(this.group);
+    // DON'T add to scene immediately - will be parented to splat anchor
+    // this.scene.add(this.group);
     
     this.buildPanel();
+  }
+  
+  /**
+   * Attach panel to a world-locked anchor (e.g., splat group).
+   * This makes the panel world-locked instead of head-tracked.
+   */
+  attachToAnchor(anchor: THREE.Group): void {
+    // Remove from current parent
+    if (this.group.parent) {
+      this.group.parent.remove(this.group);
+    }
+    
+    // Set position relative to anchor (world space offset)
+    this.group.position.copy(this.WORLD_OFFSET);
+    
+    // Face user initially (one-time orientation)
+    const cameraPos = new THREE.Vector3();
+    this.camera.getWorldPosition(cameraPos);
+    this.group.lookAt(cameraPos);
+    
+    // Add to anchor
+    anchor.add(this.group);
+    this.parentAnchor = anchor;
+  }
+  
+  /**
+   * Detach panel from anchor (e.g., when splat is unloaded).
+   */
+  detachFromAnchor(): void {
+    if (this.group.parent) {
+      this.group.parent.remove(this.group);
+    }
+    this.parentAnchor = null;
+    
+    // Optionally add back to scene (hidden)
+    // For now, leave it detached until re-attached
   }
   
   private buildPanel(): void {
@@ -143,38 +184,29 @@ export class XRGaussianEngagementPanel {
   }
   
   /**
-   * Update panel position to face camera.
-   * Called every frame when visible.
+   * Update panel to face camera (billboard effect while world-locked).
+   * Called occasionally for billboard effect - panel stays world-locked to parent anchor.
    */
   update(camera: THREE.Camera): void {
-    if (!this.isVisible) return;
-    this.camera = camera;
-    this.updatePosition();
+    if (!this.isVisible || !this.parentAnchor) return;
+    
+    // World-locked billboard: face camera while staying at fixed world position
+    const cameraPos = new THREE.Vector3();
+    camera.getWorldPosition(cameraPos);
+    
+    // Get panel's world position
+    const panelWorldPos = new THREE.Vector3();
+    this.group.getWorldPosition(panelWorldPos);
+    
+    // Make panel look at camera (billboard effect)
+    this.group.lookAt(cameraPos);
   }
   
+  /**
+   * @deprecated - No longer used in world-locked mode
+   */
   private updatePosition(): void {
-    if (!this.camera) return;
-    
-    // Position in front of camera at ~1.2m distance, 0.3m below eye level
-    const cameraPos = new THREE.Vector3();
-    const cameraDir = new THREE.Vector3();
-    this.camera.getWorldPosition(cameraPos);
-    this.camera.getWorldDirection(cameraDir);
-    
-    const distance = 1.2; // meters in front of user
-    const offsetDown = new THREE.Vector3(0, -0.3, 0); // Below eye level
-    
-    const targetPos = cameraPos
-      .clone()
-      .add(cameraDir.multiplyScalar(distance))
-      .add(offsetDown);
-    
-    this.group.position.copy(targetPos);
-    
-    // Make panel face camera
-    this.group.lookAt(cameraPos);
-    // Rotate 180° around Y to face correct direction
-    this.group.rotateY(Math.PI);
+    // Deprecated - panel is now world-locked to parent anchor
   }
   
   /**

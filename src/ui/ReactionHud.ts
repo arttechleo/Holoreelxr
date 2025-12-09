@@ -19,6 +19,8 @@ export class ReactionHud {
   private panelTex: THREE.CanvasTexture;
   private panelCanvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  private enabled = true;
+  private wasInScene = false;
 
   // counters
   private likeCount = 0;
@@ -90,6 +92,43 @@ export class ReactionHud {
     this.scene.add(this.anchor);
 
     this.redraw();
+    this.wasInScene = true;
+  }
+
+  /**
+   * Enable or disable the reaction HUD.
+   * When disabled:
+   * - Removes mesh from scene (prevents XR layer conflicts)
+   * - Detaches canvas texture from material
+   * - Stops all rendering updates
+   */
+  setEnabled(isEnabled: boolean): void {
+    if (this.enabled === isEnabled) return;
+    this.enabled = isEnabled;
+    
+    if (!isEnabled) {
+      // Disable: remove from scene and detach texture
+      if (this.anchor.parent) {
+        this.anchor.parent.remove(this.anchor);
+      }
+      if (this.panel && this.panel.material) {
+        (this.panel.material as THREE.MeshBasicMaterial).map = null;
+        (this.panel.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      }
+    } else {
+      // Enable: re-attach texture and restore to scene
+      if (this.panel && this.panel.material && this.panelTex) {
+        (this.panel.material as THREE.MeshBasicMaterial).map = this.panelTex;
+        (this.panel.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      }
+      if (this.anchor && this.scene && !this.anchor.parent && this.wasInScene) {
+        this.scene.add(this.anchor);
+      }
+    }
+  }
+  
+  isEnabled(): boolean {
+    return this.enabled;
   }
 
   // ----------------- Public API -----------------
@@ -279,6 +318,7 @@ export class ReactionHud {
   }
 
   private redraw() {
+    if (!this.enabled) return; // Don't render when disabled
     const c = this.panelCanvas, ctx = this.ctx;
     ctx.clearRect(0, 0, c.width, c.height);
 

@@ -502,6 +502,9 @@ export class FeedStore {
           this.parent.add(splatAsset.scene);
           this.currentGaussianSplat = splatAsset.scene as THREE.Group;
           
+          // Expose splat group for engagement panel attachment
+          (this as any)._currentSplatGroup = splatAsset.scene;
+          
           // Register splat object with app for optimization tracking (if optimized mode enabled)
           if (isGaussianSplatOptimizedEnabled) {
             const app = (window as any).app;
@@ -688,6 +691,19 @@ export class FeedStore {
       const author = item.author || 'Unknown';
       this.toast(`${title} — @${author}`);
     }
+    
+    // Debug logging for GS state (helpful for troubleshooting visibility issues)
+    const finalGsState = this.getGaussianSplatState();
+    if (finalGsState) {
+      console.log('[FeedStore] 📊 Gaussian Splat loaded:', {
+        type: item.type,
+        src: finalGsState.src,
+        isPly: finalGsState.isPly,
+        isSpz: finalGsState.isSpz,
+        itemTitle: item.title || 'untitled'
+      });
+    }
+    
     } finally {
       this.isLoading = false;
     }

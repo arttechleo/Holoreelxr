@@ -244,23 +244,30 @@ export class ThreeXRApp {
       // 3. SparkRenderer renders splats during the main render pass
       // 4. No manual update() call needed - Spark handles everything
       // 
-      // However, some Spark versions may still need explicit camera sync:
+      // PERFORMANCE FIX: Only call update() if autoUpdate is false
+      // If autoUpdate is true, SparkRenderer handles updates internally
+      // Calling update() manually when autoUpdate is true is redundant and can cause conflicts
       if (this.sparkRenderer && this.sparkRenderer.update) {
-        // Ensure SparkRenderer has the correct camera reference for XR
-        // Even with autoUpdate: true, passing camera explicitly ensures XR compatibility
-        // This is safe to call every frame - Spark will optimize internally
-        try {
-          this.sparkRenderer.update({ 
-            scene: this.scene,
-            camera: activeCamera
-          });
-        } catch (e) {
-          // Ignore update errors (Spark may handle internally with autoUpdate)
-          if (!(this as any)._sparkUpdateErrorLogged) {
-            console.warn('[ThreeXRApp] SparkRenderer.update() error (may be normal with autoUpdate):', e);
-            (this as any)._sparkUpdateErrorLogged = true;
+        // Check if autoUpdate is enabled (if available in SparkRenderer API)
+        const hasAutoUpdate = typeof (this.sparkRenderer as any).autoUpdate !== 'undefined';
+        const autoUpdate = (this.sparkRenderer as any).autoUpdate !== false;
+        
+        // Only manually update if autoUpdate is disabled
+        if (!autoUpdate || !hasAutoUpdate) {
+          try {
+            this.sparkRenderer.update({ 
+              scene: this.scene,
+              camera: activeCamera
+            });
+          } catch (e) {
+            // Ignore update errors (Spark may handle internally)
+            if (!(this as any)._sparkUpdateErrorLogged) {
+              console.warn('[ThreeXRApp] SparkRenderer.update() error:', e);
+              (this as any)._sparkUpdateErrorLogged = true;
+            }
           }
         }
+        // If autoUpdate is true, SparkRenderer handles everything - no manual update needed
       }
       
       // Render the scene with the camera (Three.js handles XR camera updates automatically)

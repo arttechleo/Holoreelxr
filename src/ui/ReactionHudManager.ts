@@ -27,7 +27,17 @@ export class ReactionHudManager {
     this.cam = camera;
     this.getObjPosition = getObjectWorldPos;
     this.hud = new ReactionHud(scene, camera, getObjectWorldPos);
-
+  }
+  
+  /**
+   * Enable or disable the reaction HUD (for Gaussian Splat mode).
+   */
+  setEnabled(isEnabled: boolean): void {
+    this.hud.setEnabled(isEnabled);
+  }
+  
+  isEnabled(): boolean {
+    return this.hud.isEnabled();
   }
 
   // data

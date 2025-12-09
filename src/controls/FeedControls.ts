@@ -461,6 +461,20 @@ export class FeedControls {
   setEngagementPanel(panel: XRGaussianEngagementPanel): void {
     this.engagementPanel = panel;
   }
+  
+  /**
+   * Get ReactionHudManager for enabling/disabling (used in GS mode).
+   */
+  getReactionHudManager(): ReactionHudManager {
+    return this.hudMgr;
+  }
+  
+  /**
+   * Get TikTokFeedUI for enabling/disabling (used in GS mode).
+   */
+  getTikTokFeedUI(): TikTokFeedUI {
+    return this.feedUI;
+  }
 
   setFeedSyncCallback(callback: (info: { reason: 'scroll'; direction: number }) => void): void {
     this.feedSyncCallback = callback;

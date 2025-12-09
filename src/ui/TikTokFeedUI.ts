@@ -41,6 +41,8 @@ export class TikTokFeedUI {
   
   // State
   private currentMeta: FeedItemMeta | null = null;
+  private enabled = true;
+  private wasInScene = false;
   
   constructor() {
     this.group.name = 'TikTokFeedUI';
@@ -112,7 +114,7 @@ export class TikTokFeedUI {
   }
 
   private updateCreatorPanel() {
-    if (!this.currentMeta) return;
+    if (!this.enabled || !this.currentMeta) return; // Don't render when disabled
     
     const ctx = this.creatorCanvas.getContext('2d')!;
     ctx.clearRect(0, 0, this.creatorCanvas.width, this.creatorCanvas.height);
@@ -141,7 +143,7 @@ export class TikTokFeedUI {
   }
 
   private updateStatsPanel() {
-    if (!this.currentMeta) return;
+    if (!this.enabled || !this.currentMeta) return; // Don't render when disabled
     
     const ctx = this.statsCanvas.getContext('2d')!;
     ctx.clearRect(0, 0, this.statsCanvas.width, this.statsCanvas.height);
@@ -189,6 +191,7 @@ export class TikTokFeedUI {
   // updateProgress removed - progress bar no longer exists
 
   tick(dt: number) {
+    if (!this.enabled) return; // Don't update when disabled
     // Pulse trending badge
     if (this.currentMeta?.isTrending) {
       const mat = this.trendingBadge.material as THREE.MeshBasicMaterial;
@@ -251,6 +254,52 @@ export class TikTokFeedUI {
 
   setPosition(pos: THREE.Vector3) {
     this.group.position.copy(pos);
+  }
+  
+  /**
+   * Enable or disable TikTokFeedUI (for Gaussian Splat mode).
+   * When disabled:
+   * - Removes meshes from scene (prevents XR layer conflicts)
+   * - Detaches canvas textures from materials
+   * - Stops all rendering updates
+   */
+  setEnabled(isEnabled: boolean): void {
+    if (this.enabled === isEnabled) return;
+    this.enabled = isEnabled;
+    
+    if (!isEnabled) {
+      // Disable: remove from scene and detach textures
+      if (this.group.parent) {
+        this.group.parent.remove(this.group);
+        this.wasInScene = true;
+      }
+      
+      // Detach textures from materials
+      if (this.creatorPanel && this.creatorPanel.material) {
+        (this.creatorPanel.material as THREE.MeshBasicMaterial).map = null;
+        (this.creatorPanel.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      }
+      if (this.statsPanel && this.statsPanel.material) {
+        (this.statsPanel.material as THREE.MeshBasicMaterial).map = null;
+        (this.statsPanel.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      }
+    } else {
+      // Enable: re-attach textures and restore to scene
+      if (this.creatorPanel && this.creatorPanel.material && this.creatorTexture) {
+        (this.creatorPanel.material as THREE.MeshBasicMaterial).map = this.creatorTexture;
+        (this.creatorPanel.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      }
+      if (this.statsPanel && this.statsPanel.material && this.statsTexture) {
+        (this.statsPanel.material as THREE.MeshBasicMaterial).map = this.statsTexture;
+        (this.statsPanel.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      }
+      
+      // Note: Re-adding to scene is handled by FeedControls (it calls scene.add())
+    }
+  }
+  
+  isEnabled(): boolean {
+    return this.enabled;
   }
 }
 
