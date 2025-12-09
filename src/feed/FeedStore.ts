@@ -373,8 +373,10 @@ export class FeedStore {
             const mixer = new THREE.AnimationMixer(gltf.scene);
             gltf.animations.forEach((clip) => {
               const action = mixer.clipAction(clip);
+              // CRITICAL: Set animation to loop and play
+              action.setLoop(THREE.LoopRepeat);
               action.play();
-              console.log(`[FeedStore] ▶️ Playing animation: "${clip.name}" (duration: ${clip.duration}s)`);
+              console.log(`[FeedStore] ▶️ Playing animation: "${clip.name}" (duration: ${clip.duration}s, looping)`);
             });
             // Store mixer for cleanup
             (gltf.scene as any).mixer = mixer;

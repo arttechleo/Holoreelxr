@@ -5,27 +5,150 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Holoreel</title>
     <style>
-      html,body { margin:0; height:100%; background:#111; color:#eee; font-family: system-ui, Arial }
-      canvas { display:block }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #111;
+        color: #eee;
+        font-family: system-ui, Arial;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      
+      canvas {
+        display: none; /* Hide canvas until AR is entered */
+      }
+      
+      /* Logo container */
+      #logo-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-bottom: 3rem;
+      }
+      
+      #logo-container img {
+        max-width: 300px;
+        width: 100%;
+        height: auto;
+      }
+      
+      /* CTA Button — SILVER VERSION */
+      .ar-cta-button {
+        position: relative;
+        border: none;
+        cursor: pointer;
+        padding: 0;
+        background: transparent;
+        outline: none;
+      }
+      
+      /* Soft glow behind button */
+      .ar-cta-button::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 999px;
+        background: radial-gradient(circle, rgba(255,255,255,0.5), rgba(180,180,180,0.2));
+        filter: blur(12px);
+        opacity: 0.6;
+        transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+        z-index: 0;
+      }
+      
+      /* Metallic silver core */
+      .ar-cta-label {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.9rem 2.8rem;
+        border-radius: 999px;
+        background: linear-gradient(
+          145deg,
+          #f8f8f8 0%,
+          #d9d9d9 30%,
+          #bfbfbf 50%,
+          #e6e6e6 75%,
+          #ffffff 100%
+        );
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        color: #000; /* black text for contrast */
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 0.9rem;
+        font-weight: 700;
+        box-shadow:
+          0 0 15px rgba(255, 255, 255, 0.4),
+          0 0 35px rgba(255, 255, 255, 0.5);
+        transition:
+          transform 0.15s ease-out,
+          box-shadow 0.15s ease-out,
+          filter 0.15s ease-out;
+      }
+      
+      /* Metallic shine highlight */
+      .ar-cta-label::after {
+        content: "";
+        position: absolute;
+        inset: 1px;
+        border-radius: inherit;
+        background: linear-gradient(
+          120deg,
+          rgba(255, 255, 255, 0.65) 0%,
+          rgba(255, 255, 255, 0.15) 40%,
+          transparent 80%
+        );
+        mix-blend-mode: screen;
+        pointer-events: none;
+      }
+      
+      /* Hover / Focus */
+      .ar-cta-button:hover .ar-cta-label,
+      .ar-cta-button:focus-visible .ar-cta-label {
+        transform: translateY(-1px) scale(1.03);
+        box-shadow:
+          0 0 25px rgba(255, 255, 255, 0.8),
+          0 0 55px rgba(255, 255, 255, 0.9);
+        filter: brightness(1.15);
+      }
+      
+      .ar-cta-button:hover::before,
+      .ar-cta-button:focus-visible::before {
+        opacity: 0.9;
+        transform: scale(1.1);
+      }
+      
+      /* Pressed */
+      .ar-cta-button:active .ar-cta-label {
+        transform: translateY(1px) scale(0.97);
+        filter: brightness(0.9);
+      }
+      
+      /* Hide XR bar by default - only show when needed */
       #xr-bar {
-        position: fixed; left: 12px; bottom: 12px; z-index: 100;
-        display: flex; gap: 8px; flex-wrap: wrap;
+        display: none;
       }
-      #xr-bar button {
-        padding: 10px 14px; border-radius: 10px; border: 0;
-        background: #1e222d; color: #fff; font-weight: 600; cursor: pointer;
-        box-shadow: 0 6px 18px rgba(0,0,0,0.35);
-      }
-      #xr-bar button[disabled] { opacity: .5; cursor: not-allowed; }
+      
       .xr-overlay * { pointer-events: auto; } /* keep DOM HUD clickable in AR overlay */
     </style>
   </head>
   <body>
-    <div id="xr-bar">
-      <button id="enter-ar">Enter AR</button>
-      <!-- adding a message on 12.7.2025 for having an MVP release -->
-      <!-- <button id="enter-vr">Enter VR</button> -->
+    <div id="logo-container">
+      <img src="/logo/holoreelLogo.png" alt="Holoreel Logo" />
     </div>
+    
+    <button id="enter-ar" class="ar-cta-button">
+      <span class="ar-cta-label">Enter AR</span>
+    </button>
+    
+    <div id="xr-bar">
+      <!-- XR controls will be shown when AR is active -->
+    </div>
+    
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

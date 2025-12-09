@@ -46,9 +46,5 @@
   { "id": "feeddata-15-steampunk-scout-ship", "title": "Steampunk Scout Ship", "author": "FeedData", "type": "glb", "src": "/assets/feeddata/steampunk_scout_ship.glb" },
   { "id": "feeddata-world-15", "title": "World 15", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world15.ply" },
   { "id": "feeddata-16-telecom-device", "title": "Makeshift Advanced Telecommunications Device", "author": "FeedData", "type": "glb", "src": "/assets/feeddata/makeshift_advanced_telecommunications_device.glb" },
-  { "id": "feeddata-world-16", "title": "World 16", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world16.ply" },
-  { "id": "feeddata-world-18", "title": "World 18", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world18.ply" },
-  { "id": "feeddata-world-19", "title": "World 19", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world19.ply" },
-  { "id": "feeddata-world-20", "title": "World 20", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world20.ply" },
-  { "id": "feeddata-world-21", "title": "World 21", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world21.ply" }
+  { "id": "feeddata-world-16", "title": "World 16", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world16.ply" }
 ]
