@@ -815,22 +815,18 @@ export class XRMultiplayerPanel {
   tick(dt: number): void {
     // CRITICAL: Disabled panels skip all update logic (performance optimization)
     if (!this.enabled || !this.visible) {
-      if (!this.enabled) {
-        console.warn('[XRMultiplayerPanel.tick] Panel disabled, skipping update');
-      }
-      if (!this.visible) {
-        console.warn('[XRMultiplayerPanel.tick] Panel not visible, skipping update');
-      }
       return;
     }
     
     try {
       // Position anchor relative to object (like ReactionHud)
+      // This automatically positions panel to the right of the 3D model
       const center = this.getObjectWorldPos();
       if (center && this.anchor) {
+        // World-locked positioning: panel stays relative to object, not camera
         this.anchor.position.copy(center).add(this.OFFSET);
         
-        // CRITICAL FIX: Make panel face camera for better visibility in MR
+        // Make panel face camera for better visibility (billboard effect)
         const camera = this.getCamera();
         if (camera) {
           const cameraPos = new THREE.Vector3();
@@ -838,23 +834,6 @@ export class XRMultiplayerPanel {
           this.anchor.lookAt(cameraPos);
           // Rotate 180 degrees around Y to face camera (plane faces -Z by default)
           this.anchor.rotateY(Math.PI);
-        }
-        
-        // Ensure anchor is visible and in scene
-        if (!this.anchor.visible) {
-          this.anchor.visible = true;
-          console.warn('[XRMultiplayerPanel.tick] Anchor was not visible - fixed');
-        }
-        if (!this.anchor.parent) {
-          this.scene.add(this.anchor);
-          console.warn('[XRMultiplayerPanel.tick] Anchor was not in scene - re-added');
-        }
-      } else {
-        if (!center) {
-          console.warn('[XRMultiplayerPanel.tick] No object world position available');
-        }
-        if (!this.anchor) {
-          console.error('[XRMultiplayerPanel.tick] Anchor is null!');
         }
       }
       

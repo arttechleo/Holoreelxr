@@ -354,18 +354,14 @@ async function loadMainFeed() {
     
     if (stopPalmJustActivated && !multiplayer.isConnected() && !onboarding.isTutorialActive() && (now - lastStopPalmToggle) > STOP_PALM_COOLDOWN) {
       lastStopPalmToggle = now;
-      // Only allow toggle if panel is enabled (only enabled for GLB models, not Gaussian splats)
-      if (xrMultiplayerPanel.isEnabled() && store.isCurrentItemGLB()) {
-        // Toggle panel visibility (single tap, no hold required)
-        if (!xrMultiplayerPanel.isVisible()) {
-          xrMultiplayerPanel.show();
-          hud.toast('🎮 Multiplayer panel opened!');
-        } else {
-          xrMultiplayerPanel.hide();
-          hud.toast('Multiplayer panel closed');
-        }
+      // Toggle panel visibility (original behavior - works when panel is enabled)
+      // Panel is disabled automatically when GS is active
+      if (!xrMultiplayerPanel.isVisible()) {
+        xrMultiplayerPanel.show();
+        hud.toast('🎮 Multiplayer panel opened!');
       } else {
-        hud.toast('⚠️ Multiplayer panel only available for 3D models');
+        xrMultiplayerPanel.hide();
+        hud.toast('Multiplayer panel closed');
       }
     }
     
@@ -526,69 +522,23 @@ async function loadMainFeed() {
     controls.setEngagementPanel(engagementPanel);
     controls.setFeedSyncCallback(() => broadcastFeedSync('scroll'));
     
-    // ========== CONTENT MODE CHANGE HANDLER ==========
-    // Centralized handler for enabling/disabling UI panels based on content type
-    // Called ONCE when feed item changes, not every frame
-    (store as any).onContentModeChange = () => {
-      const contentKind = store.getContentKind();
-      
-      // ========== MULTIPLAYER PANEL VISIBILITY RULES ==========
-      // Enable ONLY for primitive shapes and GLB/GLTF models
-      // Disable completely for Gaussian splats (prevents phantom canvas artifacts)
-      const shouldShowMultiplayerPanel = contentKind.isPrimitive || contentKind.isGlbModel;
-      
-      if (shouldShowMultiplayerPanel) {
-        // PRIMITIVE OR GLB MODEL: Enable multiplayer panel
-        logger.verbose('[Main] 🟢 Primitive/GLB content - enabling multiplayer panel');
+    // ========== MULTIPLAYER PANEL: Enable by default, disable only for GS ==========
+    // RESTORED: Original approach from commit 5a13113 - panel enabled by default
+    // Only disabled when Gaussian splat is active (prevents phantom canvas artifacts)
+    // Panel positioning happens automatically via tick() method using getObjectWorldPos()
+    
+    // Initialize panel as enabled (will be disabled if GS is active)
+    xrMultiplayerPanel.setEnabled(true);
+    
+    // ========== GAUSSIAN SPLAT MODE CHANGE HANDLER ==========
+    // Handle GS mode changes (called ONCE when item changes, not every frame)
+    (store as any).onGaussianSplatModeChange = (isGsActive: boolean, gsState: ReturnType<typeof store.getGaussianSplatState>) => {
+      if (isGsActive) {
+        // GAUSSIAN SPLAT ACTIVE: Disable multiplayer panel and other canvas UI
+        logger.verbose('[Main] 🔴 Gaussian Splat active - disabling multiplayer panel and canvas UI');
         
-        // CRITICAL: Enable first, then show, with a small delay to ensure setup completes
-        xrMultiplayerPanel.setEnabled(true);
-        
-        // Force show after a brief delay to ensure anchor is in scene
-        setTimeout(() => {
-          xrMultiplayerPanel.show();
-          console.log('[Main] 🎮 Multiplayer panel enabled and shown', {
-            isPrimitive: contentKind.isPrimitive,
-            isGlbModel: contentKind.isGlbModel,
-            contentType: store.getCurrentItem()?.type,
-            enabled: xrMultiplayerPanel.isEnabled(),
-            visible: xrMultiplayerPanel.isVisible()
-          });
-        }, 100);
-        
-        // Position panel to the right of content (world-locked)
-        // Panel positioning happens in tick() via getObjectWorldPos() callback
-        // OFFSET is already set to (0.80, 0.20, 0) - 80cm right, 20cm up
-        
-        console.log('[Main] 🎮 Multiplayer panel enabling...', {
-          isPrimitive: contentKind.isPrimitive,
-          isGlbModel: contentKind.isGlbModel,
-          contentType: store.getCurrentItem()?.type
-        });
-      } else {
-        // GAUSSIAN SPLAT OR NO CONTENT: Disable multiplayer panel completely
-        logger.verbose('[Main] 🔴 Gaussian Splat or no content - disabling multiplayer panel');
+        // Disable multiplayer panel (fully stops canvas updates, removes from scene)
         xrMultiplayerPanel.setEnabled(false);
-        xrMultiplayerPanel.hide();
-        
-        // Debug: Verify panel is fully removed from scene
-        if ((window as any).DEBUG_GS_SCENE) {
-          setTimeout(() => {
-            const suspects = debugGaussianSplatScene(app.scene, false);
-            console.log('[Main] 🔍 Debug: Found', suspects.length, 'suspect meshes after multiplayer panel disable');
-          }, 500);
-        }
-        
-        console.log('[Main] 🎮 Multiplayer panel disabled', {
-          isGaussianSplat: contentKind.isGaussianSplat,
-          contentType: store.getCurrentItem()?.type || 'none'
-        });
-      }
-      
-      // ========== GAUSSIAN SPLAT MODE: Handle other UI ==========
-      if (contentKind.isGaussianSplat) {
-        // GAUSSIAN SPLAT ACTIVE: Disable other canvas UI but keep ReactionHud
-        logger.verbose('[Main] 🔴 Gaussian Splat active - disabling canvas-based UI, keeping ReactionHud');
         
         // KEEP ReactionHud ENABLED during GS mode - it overlays on top of the splat
         controls.getReactionHudManager()?.setEnabled(true);
@@ -604,9 +554,21 @@ async function loadMainFeed() {
         // Hide lightweight engagement panel
         engagementPanel.detachFromAnchor();
         engagementPanel.hide();
+        
+        // Debug: Identify phantom panels
+        if ((window as any).DEBUG_GS_SCENE) {
+          setTimeout(() => {
+            const suspects = debugGaussianSplatScene(app.scene, false);
+            console.log('[Main] 🔍 Debug: Found', suspects.length, 'suspect meshes in GS mode');
+          }, 500);
+        }
       } else {
-        // NOT GAUSSIAN SPLAT: Re-enable standard UI
-        logger.verbose('[Main] 🟢 Non-GS content - re-enabling standard UI');
+        // GAUSSIAN SPLAT INACTIVE: Re-enable multiplayer panel and standard UI
+        logger.verbose('[Main] 🟢 Gaussian Splat inactive - re-enabling multiplayer panel and standard UI');
+        
+        // Re-enable multiplayer panel (for primitives and GLB models)
+        xrMultiplayerPanel.setEnabled(true);
+        xrMultiplayerPanel.show(); // Ensure it's visible
         
         // Re-enable ReactionHud
         controls.getReactionHudManager()?.setEnabled(true);
@@ -615,6 +577,7 @@ async function loadMainFeed() {
         controls.getTikTokFeedUI()?.setEnabled(true);
         
         // Handle engagement panel for GLB models
+        const contentKind = store.getContentKind();
         if (contentKind.isGlbModel) {
           const modelGroup = store.getCurrentModelGroup();
           if (modelGroup) {
@@ -632,18 +595,14 @@ async function loadMainFeed() {
       }
     };
     
-    // Legacy GS mode callback - now just calls content mode change
-    (store as any).onGaussianSplatModeChange = (isGsActive: boolean, gsState: ReturnType<typeof store.getGaussianSplatState>) => {
-      // Delegate to unified content mode handler
-      if ((store as any).onContentModeChange) {
-        (store as any).onContentModeChange();
-      }
-    };
-    
-    // Initialize UI panels for current item using unified content mode handler
-    if ((store as any).onContentModeChange) {
-      (store as any).onContentModeChange();
-      logger.verbose('[Main] ✅ Initial UI state set based on content type');
+    // Initialize UI panels for current item
+    const initialGsState = store.getGaussianSplatState();
+    if (initialGsState !== null && (store as any).onGaussianSplatModeChange) {
+      // GS active - disable panel
+      (store as any).onGaussianSplatModeChange(true, initialGsState);
+    } else if ((store as any).onGaussianSplatModeChange) {
+      // Not GS - ensure panel is enabled
+      (store as any).onGaussianSplatModeChange(false, null);
     }
     // Wire up 3D panels to controls
     (controls as any).authPanel = xrAuthPanel;
