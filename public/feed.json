@@ -11,10 +11,6 @@
   { "id": "tutorial-heart", "title": "[Tutorial] Heart Gesture", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#AA96DA" },
   { "id": "tutorial-repost", "title": "[Tutorial] Repost (Peace)", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "pyramid", "color": "#FFD93D" },
 
-  { "id": "mainfeed-cube", "title": "Blue Cube", "author": "Basic Shapes", "type": "shape", "shape": "box", "color": "#0080FF" },
-  { "id": "mainfeed-pyramid", "title": "Yellow Pyramid", "author": "Basic Shapes", "type": "shape", "shape": "pyramid", "color": "#FFD700" },
-  { "id": "mainfeed-sphere", "title": "Red Sphere", "author": "Basic Shapes", "type": "shape", "shape": "sphere", "color": "#FF0000" },
-
   { "id": "feeddata-01-animated-astronaut", "title": "Animated Astronaut Character", "author": "FeedData", "type": "glb", "src": "/assets/feeddata/animated_astronaut_character_in_space_suit_loop.glb" },
   { "id": "feeddata-world-01", "title": "World 1", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world1.ply" },
   { "id": "feeddata-02-animated-pterodactyl", "title": "Animated Flying Pterodactyl", "author": "FeedData", "type": "glb", "src": "/assets/feeddata/animated_flying_pteradactal_dinosaur_loop.glb" },
@@ -46,5 +42,9 @@
   { "id": "feeddata-15-steampunk-scout-ship", "title": "Steampunk Scout Ship", "author": "FeedData", "type": "glb", "src": "/assets/feeddata/steampunk_scout_ship.glb" },
   { "id": "feeddata-world-15", "title": "World 15", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world15.ply" },
   { "id": "feeddata-16-telecom-device", "title": "Makeshift Advanced Telecommunications Device", "author": "FeedData", "type": "glb", "src": "/assets/feeddata/makeshift_advanced_telecommunications_device.glb" },
-  { "id": "feeddata-world-16", "title": "World 16", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world16.ply" }
+  { "id": "feeddata-world-16", "title": "World 16", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world16.ply" },
+  { "id": "feeddata-world-18", "title": "World 18", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world18.ply" },
+  { "id": "feeddata-world-19", "title": "World 19", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world19.ply" },
+  { "id": "feeddata-world-20", "title": "World 20", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world20.ply" },
+  { "id": "feeddata-world-21", "title": "World 21", "author": "FeedData", "type": "gaussianSplat", "src": "/assets/feeddata/world21.ply" }
 ]
