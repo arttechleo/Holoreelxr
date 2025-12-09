@@ -526,8 +526,9 @@ async function loadMainFeed() {
     // Only disabled when Gaussian splat is active (prevents phantom canvas artifacts)
     // Panel positioning happens automatically via tick() method using getObjectWorldPos()
     
-    // Initialize panel as enabled (will be disabled if GS is active)
+    // Initialize panel as enabled and visible (will be disabled if GS is active)
     xrMultiplayerPanel.setEnabled(true);
+    xrMultiplayerPanel.show(); // CRITICAL: Make panel visible on startup
     
     // ========== GAUSSIAN SPLAT MODE CHANGE HANDLER ==========
     // Handle GS mode changes (called ONCE when item changes, not every frame)
