@@ -84,6 +84,9 @@ export class XRMultiplayerPanel {
   // This prevents flicker when Gaussian splats are active in WebXR
   private enabled = true;
   
+  // Store scene reference for re-adding anchor when needed
+  private scene: THREE.Scene;
+
   // Button interaction state
   private buttonHoverProgress = new Map<ButtonType, number>(); // 0.0 to 1.0 (visual feedback only)
   private buttonHoverStartTime = new Map<ButtonType, number>(); // timestamp when hover started
@@ -112,6 +115,7 @@ export class XRMultiplayerPanel {
     getObjectWorldPos: () => THREE.Vector3 | null,
     getCamera: () => THREE.Camera
   ) {
+    this.scene = scene; // CRITICAL: Store scene reference for re-adding anchor
     this.multiplayer = multiplayer;
     this.getObjectWorldPos = getObjectWorldPos;
     this.getCamera = getCamera;
