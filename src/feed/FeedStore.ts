@@ -369,12 +369,18 @@ export class FeedStore {
           // Play animations if available
           if (gltf.animations && gltf.animations.length > 0) {
             logger.verbose(`[FeedStore] Playing ${gltf.animations.length} animation(s) for ${item.title}`);
+            console.log(`[FeedStore] 🎬 Creating mixer for ${item.title} with ${gltf.animations.length} animation(s)`);
             const mixer = new THREE.AnimationMixer(gltf.scene);
             gltf.animations.forEach((clip) => {
-              mixer.clipAction(clip).play();
+              const action = mixer.clipAction(clip);
+              action.play();
+              console.log(`[FeedStore] ▶️ Playing animation: "${clip.name}" (duration: ${clip.duration}s)`);
             });
             // Store mixer for cleanup
             (gltf.scene as any).mixer = mixer;
+            console.log(`[FeedStore] ✅ Mixer created and stored on scene for ${item.title}`);
+          } else {
+            console.log(`[FeedStore] ⚠️ No animations found for ${item.title} (animations: ${gltf.animations?.length || 0})`);
           }
         } catch (loadError: any) {
           logger.error(`[FeedStore] ❌ FAILED to load GLB/GLTF: ${item.title}`, loadError);
@@ -869,8 +875,18 @@ export class FeedStore {
       if (mixer && typeof mixer.update === 'function') {
         try {
           mixer.update(dt);
+          // Debug: log mixer time occasionally (throttled to avoid spam)
+          if (Math.random() < 0.01) { // 1% of frames
+            console.log(`[FeedStore.tick] 🎬 Mixer time: ${mixer.time.toFixed(3)}s`);
+          }
         } catch (e) {
           logger.error('[FeedStore.tick] Error updating GLTF mixer', e);
+          console.error('[FeedStore.tick] ❌ Mixer update error:', e);
+        }
+      } else if (this.currentGLTF) {
+        // Debug: log when mixer is missing (throttled)
+        if (Math.random() < 0.01) { // 1% of frames
+          console.log(`[FeedStore.tick] ⚠️ No mixer found on currentGLTF (mixer: ${mixer ? 'exists but no update' : 'null/undefined'})`);
         }
       }
     }
