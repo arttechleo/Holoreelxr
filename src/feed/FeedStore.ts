@@ -4,6 +4,8 @@ import { GLTFModelLoader } from './loaders/GLTFLoader';
 import { ModelAssetManager } from './loaders/ModelAssetManager';
 import { GaussianSplatLoader } from './loaders/GaussianSplatLoader';
 import { createGaussianSplatBackend, IGaussianSplatBackend, GAUSSIAN_BACKEND } from './loaders/GaussianSplatBackend';
+import { createGaussianSplatBackend as createOptimizedBackend, GaussianSplatAsset } from './loaders/GaussianSplatBackend.optimized';
+import { isGaussianSplatOptimizedEnabled } from '../config/gaussianEnv';
 import { logError } from '../utils/errors';
 import { logger } from '../config/production';
 
@@ -423,15 +425,33 @@ export class FeedStore {
         // Local test assets:
         // - public/assets/world.spz (compressed, recommended)
         // - public/assets/aigengsplat.ply (uncompressed, fallback)
-        console.log(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
+        if (!isGaussianSplatOptimizedEnabled) {
+          console.log(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
+        }
         logger.verbose(`[FeedStore] 🔄 Loading Gaussian Splat: "${item.title}" from ${item.src}`);
         try {
-          console.log(`[FeedStore] 📦 Loading Gaussian Splat via backend: ${GAUSSIAN_BACKEND}`);
-          const backend = this.ensureGaussianSplatBackend();
-          console.log(`[FeedStore] 📦 Backend: ${backend.getName()}, URL: ${item.src}`);
-          const splatAsset = await backend.loadSplat(item.src, item.settingsUrl);
-          console.log(`[FeedStore] ✅ Successfully loaded Gaussian Splat: ${item.title}`);
-          logger.verbose(`[FeedStore] ✅ Successfully loaded Gaussian Splat: ${item.title}`);
+          let splatAsset: GaussianSplatAsset;
+          
+          if (isGaussianSplatOptimizedEnabled) {
+            // NEW: optimized Gaussian splat path
+            if ((import.meta as any).env?.MODE === 'development') {
+              console.log(`[FeedStore] 📦 Loading Gaussian Splat via optimized backend`);
+            }
+            const optimizedBackend = createOptimizedBackend();
+            splatAsset = await optimizedBackend.loadSplat(item.src, item.settingsUrl);
+            if ((import.meta as any).env?.MODE === 'development') {
+              console.log(`[FeedStore] ✅ Successfully loaded Gaussian Splat (optimized): ${item.title}`);
+            }
+            logger.verbose(`[FeedStore] ✅ Successfully loaded Gaussian Splat (optimized): ${item.title}`);
+          } else {
+            // LEGACY PATH (unchanged)
+            console.log(`[FeedStore] 📦 Loading Gaussian Splat via backend: ${GAUSSIAN_BACKEND}`);
+            const backend = this.ensureGaussianSplatBackend();
+            console.log(`[FeedStore] 📦 Backend: ${backend.getName()}, URL: ${item.src}`);
+            splatAsset = await backend.loadSplat(item.src, item.settingsUrl);
+            console.log(`[FeedStore] ✅ Successfully loaded Gaussian Splat: ${item.title}`);
+            logger.verbose(`[FeedStore] ✅ Successfully loaded Gaussian Splat: ${item.title}`);
+          }
           
           // Add to scene like GLTF models
           splatAsset.scene.name = 'content-gaussian-splat';
@@ -451,14 +471,24 @@ export class FeedStore {
           this.parent.add(splatAsset.scene);
           this.currentGaussianSplat = splatAsset.scene as THREE.Group;
           
+          // Register splat object with app for optimization tracking (if optimized mode enabled)
+          if (isGaussianSplatOptimizedEnabled) {
+            const app = (window as any).app;
+            if (app && app.registerSplatObject) {
+              app.registerSplatObject(splatAsset.scene);
+            }
+          }
+          
           // Debug: Add axes helper for visibility testing (can be removed later)
           // NOTE: If you see the axes but no splat, the file loaded but may not be rendering
           // Check: 1) Is SparkRenderer initialized? 2) Is camera passed to SparkRenderer.update()?
           try {
-            const axesHelper = new THREE.AxesHelper(0.5);
-            axesHelper.name = 'gaussian-splat-debug-axes';
-            splatAsset.scene.add(axesHelper);
-            console.log(`[FeedStore] ✅ Added debug axes helper (if you see axes but no splat, check SparkRenderer)`);
+            if (!isGaussianSplatOptimizedEnabled || (import.meta as any).env?.MODE === 'development') {
+              const axesHelper = new THREE.AxesHelper(0.5);
+              axesHelper.name = 'gaussian-splat-debug-axes';
+              splatAsset.scene.add(axesHelper);
+              console.log(`[FeedStore] ✅ Added debug axes helper (if you see axes but no splat, check SparkRenderer)`);
+            }
             logger.verbose(`[FeedStore] Added debug axes helper for Gaussian Splat visibility testing`);
           } catch (helperError) {
             // Helper not critical - just log and continue
@@ -467,64 +497,67 @@ export class FeedStore {
           
           // DEBUG: Count SplatMesh instances in the scene after adding
           // This helps verify that SparkRenderer can discover the SplatMesh
-          const splatMesh = splatAsset.scene.children.find((child: any) => 
-            child && (
-              child.constructor?.name === 'SplatMesh' ||
-              (child.url && child.initialized !== undefined) ||
-              child.type === 'SplatMesh' ||
-              (child.isSplatMesh === true)
-            )
-          );
-          console.log(`[FeedStore] 🔍 SplatMesh discovery check:`, {
-            found: !!splatMesh,
-            splatMeshType: splatMesh?.constructor?.name || 'unknown',
-            splatMeshUrl: (splatMesh as any)?.url || 'unknown',
-            totalChildren: splatAsset.scene.children.length,
-            scenePath: `contentRoot -> ${splatAsset.scene.name} -> SplatMesh`,
-            splatMeshVisible: (splatMesh as any)?.visible !== false,
-            splatMeshParent: splatMesh?.parent?.name || 'unknown'
-          });
-          
-          // CRITICAL: Immediately check if SparkRenderer can discover this SplatMesh
-          // SparkRenderer needs to traverse the scene to find SplatMesh objects
-          // If it's wrapped in a Group, it should still be discoverable via scene traversal
-          setTimeout(() => {
-            // Give SparkRenderer a moment to discover the new SplatMesh
-            const app = (window as any).app as any;
-            if (app && app.sparkRenderer) {
-              const splatMeshInfo = app.countSplatMeshesInScene?.();
-              if (splatMeshInfo) {
-                console.log(`[FeedStore] 🔍 SparkRenderer discovery check (after 100ms):`, {
-                  count: splatMeshInfo.count,
-                  details: splatMeshInfo.details
-                });
-                if (splatMeshInfo.count === 0) {
-                  console.warn(`[FeedStore] ⚠️ SparkRenderer found 0 SplatMesh objects - splat may not render!`);
-                  console.warn(`[FeedStore] 💡 Check: Is SplatMesh properly initialized? Is it in the scene graph?`);
+          // Only log in development mode or when optimization is disabled
+          if (!isGaussianSplatOptimizedEnabled || (import.meta as any).env?.MODE === 'development') {
+            const splatMesh = splatAsset.scene.children.find((child: any) => 
+              child && (
+                child.constructor?.name === 'SplatMesh' ||
+                (child.url && child.initialized !== undefined) ||
+                child.type === 'SplatMesh' ||
+                (child.isSplatMesh === true)
+              )
+            );
+            console.log(`[FeedStore] 🔍 SplatMesh discovery check:`, {
+              found: !!splatMesh,
+              splatMeshType: splatMesh?.constructor?.name || 'unknown',
+              splatMeshUrl: (splatMesh as any)?.url || 'unknown',
+              totalChildren: splatAsset.scene.children.length,
+              scenePath: `contentRoot -> ${splatAsset.scene.name} -> SplatMesh`,
+              splatMeshVisible: (splatMesh as any)?.visible !== false,
+              splatMeshParent: splatMesh?.parent?.name || 'unknown'
+            });
+            
+            // CRITICAL: Immediately check if SparkRenderer can discover this SplatMesh
+            // SparkRenderer needs to traverse the scene to find SplatMesh objects
+            // If it's wrapped in a Group, it should still be discoverable via scene traversal
+            setTimeout(() => {
+              // Give SparkRenderer a moment to discover the new SplatMesh
+              const app = (window as any).app as any;
+              if (app && app.sparkRenderer) {
+                const splatMeshInfo = app.countSplatMeshesInScene?.();
+                if (splatMeshInfo) {
+                  console.log(`[FeedStore] 🔍 SparkRenderer discovery check (after 100ms):`, {
+                    count: splatMeshInfo.count,
+                    details: splatMeshInfo.details
+                  });
+                  if (splatMeshInfo.count === 0) {
+                    console.warn(`[FeedStore] ⚠️ SparkRenderer found 0 SplatMesh objects - splat may not render!`);
+                    console.warn(`[FeedStore] 💡 Check: Is SplatMesh properly initialized? Is it in the scene graph?`);
+                  }
                 }
               }
+            }, 100);
+            
+            // XR DEBUG: Log position and scale when in XR mode
+            // This helps verify the splat is positioned correctly for XR viewing
+            if ((window as any).app?.renderer?.xr?.isPresenting) {
+              console.log(`[XRDebug] 📍 Gaussian Splat loaded in XR mode:`, {
+                position: spawnPos.toArray(),
+                scale: autoScale.scale,
+                cameraMode: 'XR (automatic)',
+                note: 'Camera will be updated by Three.js for XR'
+              });
             }
-          }, 100);
-          
-          // XR DEBUG: Log position and scale when in XR mode
-          // This helps verify the splat is positioned correctly for XR viewing
-          if ((window as any).app?.renderer?.xr?.isPresenting) {
-            console.log(`[XRDebug] 📍 Gaussian Splat loaded in XR mode:`, {
+            
+            console.log(`[FeedStore] ✅ Gaussian Splat attached to scene:`, {
               position: spawnPos.toArray(),
               scale: autoScale.scale,
-              cameraMode: 'XR (automatic)',
-              note: 'Camera will be updated by Three.js for XR'
+              originalSize: autoScale.originalSize,
+              visible: splatAsset.scene.visible,
+              parent: this.parent.name || 'contentRoot',
+              childrenCount: splatAsset.scene.children.length
             });
           }
-          
-          console.log(`[FeedStore] ✅ Gaussian Splat attached to scene:`, {
-            position: spawnPos.toArray(),
-            scale: autoScale.scale,
-            originalSize: autoScale.originalSize,
-            visible: splatAsset.scene.visible,
-            parent: this.parent.name || 'contentRoot',
-            childrenCount: splatAsset.scene.children.length
-          });
           logger.verbose(`[FeedStore] Attaching Gaussian Splat object to scene:`, {
             position: spawnPos.toArray(),
             scale: autoScale.scale,

@@ -275,6 +275,12 @@ export const GAUSSIAN_SPLAT = {
   TARGET_FPS: 72,
 } as const;
 
+// ========== GAUSSIAN SPLAT OPTIMIZATION ==========
+export const GAUSSIAN_SPLAT_OPTIMIZATION = {
+  /** Enable Quest 3 optimizations (frustum culling, LOD, foveated rendering) */
+  ENABLED: getEnvVar('VITE_GAUSSIAN_SPLAT_OPTIMIZED') === '1',
+} as const;
+
 // ========== DEBUG ==========
 export const DEBUG = {
   /** Enable console logging for gestures */

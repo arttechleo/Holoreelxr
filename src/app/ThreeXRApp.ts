@@ -3,6 +3,8 @@ import { XRHandModelFactory } from 'three/examples/jsm/webxr/XRHandModelFactory.
 import { logError } from '../utils/errors';
 import { GAUSSIAN_SPLAT } from '../config/constants';
 import { logger } from '../config/production';
+import { OptimizedXRRenderLoop } from '../xr/OptimizedXRRenderLoop';
+import { isGaussianSplatOptimizedEnabled } from '../config/gaussianEnv';
 
 export type XRFrameInfo = { frame: XRFrame | null; refSpace: XRReferenceSpace | null };
 
@@ -30,6 +32,10 @@ export class ThreeXRApp {
   private loopFn?: (t: number, frame?: XRFrame) => void;
   private onPauseCbs: Array<() => void> = [];
   private onResumeCbs: Array<() => void> = [];
+
+  // Optimized XR render loop (gated behind flag)
+  private optimizedRenderLoop: OptimizedXRRenderLoop | null = null;
+  private splatObjects: THREE.Object3D[] = [];
 
   constructor() {
     // ✅ Quest 3 Performance Optimization
@@ -150,6 +156,54 @@ export class ThreeXRApp {
     window.addEventListener('focus', () => this.resume());
 
     this.wireExplicitButtons();
+
+    // Setup optimized render loop if flag is enabled
+    this.setupOptimizedRenderLoop();
+  }
+
+  private setupOptimizedRenderLoop(): void {
+    if (!isGaussianSplatOptimizedEnabled) return;
+    if (!this.renderer || !this.scene || !this.camera) return;
+
+    console.log('[ThreeXRApp] Initializing OptimizedXRRenderLoop (Quest 3)');
+
+    this.optimizedRenderLoop = new OptimizedXRRenderLoop(
+      this.renderer,
+      this.scene,
+      this.camera
+    );
+
+    this.renderer.xr.addEventListener('sessionstart', () => {
+      const session = this.renderer.xr.getSession();
+      if (session && this.optimizedRenderLoop) {
+        this.optimizedRenderLoop.onXRSessionStart(session);
+        console.log('[ThreeXRApp] OptimizedXRRenderLoop active for XR session');
+      }
+    });
+
+    this.renderer.xr.addEventListener('sessionend', () => {
+      console.log('[ThreeXRApp] XR session ended');
+    });
+  }
+
+  /**
+   * Register a splat object for optimization tracking.
+   */
+  public registerSplatObject(obj: THREE.Object3D): void {
+    if (!this.optimizedRenderLoop) return;
+    this.splatObjects.push(obj);
+    this.optimizedRenderLoop.registerSplatObject(obj);
+  }
+
+  /**
+   * Unregister a splat object.
+   */
+  public unregisterSplatObject(obj: THREE.Object3D): void {
+    const idx = this.splatObjects.indexOf(obj);
+    if (idx !== -1) this.splatObjects.splice(idx, 1);
+    if (this.optimizedRenderLoop) {
+      this.optimizedRenderLoop.unregisterSplatObject(obj);
+    }
   }
 
   onFrame(cb: (info: XRFrameInfo) => void) {
@@ -222,25 +276,36 @@ export class ThreeXRApp {
       // - Three.js automatically renders left and right eye views
       // - SparkRenderer attached to camera follows XR camera correctly
       // - Each eye gets consistent splat rendering (no flicker)
-      this.renderer.render(this.scene, activeCamera);
+      if (
+        isGaussianSplatOptimizedEnabled &&
+        this.optimizedRenderLoop &&
+        this.renderer.xr.isPresenting
+      ) {
+        this.optimizedRenderLoop.render(_t, frame);
+      } else {
+        this.renderer.render(this.scene, activeCamera);
+      }
       
       // DEBUG: Periodically log SplatMesh count (throttled to avoid spam)
-      if (this.sparkRenderer && !(this as any)._lastSplatMeshCheck) {
-        (this as any)._lastSplatMeshCheck = performance.now();
-      }
-      if (this.sparkRenderer && (this as any)._lastSplatMeshCheck && 
-          performance.now() - (this as any)._lastSplatMeshCheck > 5000) {
-        const splatMeshInfo = this._countSplatMeshesInScene();
-        if (splatMeshInfo.count > 0) {
-          console.log(`[SparkDebug] SplatMesh count in scene: ${splatMeshInfo.count}`);
-          splatMeshInfo.details.forEach((detail, i) => {
-            console.log(`[SparkDebug]   SplatMesh ${i + 1}: ${detail.path} (url: ${detail.url})`);
-          });
-          console.log(`[SparkDebug] 💡 If count > 0 but splats don't render, check SparkRenderer.update() and camera`);
-        } else {
-          console.log(`[SparkDebug] ⚠️ No SplatMesh instances found in scene - splats may not be loaded yet`);
+      // Only log in development mode to avoid performance impact on Quest 3
+      if ((import.meta as any).env?.MODE === 'development') {
+        if (this.sparkRenderer && !(this as any)._lastSplatMeshCheck) {
+          (this as any)._lastSplatMeshCheck = performance.now();
         }
-        (this as any)._lastSplatMeshCheck = performance.now();
+        if (this.sparkRenderer && (this as any)._lastSplatMeshCheck && 
+            performance.now() - (this as any)._lastSplatMeshCheck > 5000) {
+          const splatMeshInfo = this._countSplatMeshesInScene();
+          if (splatMeshInfo.count > 0) {
+            console.log(`[SparkDebug] SplatMesh count in scene: ${splatMeshInfo.count}`);
+            splatMeshInfo.details.forEach((detail, i) => {
+              console.log(`[SparkDebug]   SplatMesh ${i + 1}: ${detail.path} (url: ${detail.url})`);
+            });
+            console.log(`[SparkDebug] 💡 If count > 0 but splats don't render, check SparkRenderer.update() and camera`);
+          } else {
+            console.log(`[SparkDebug] ⚠️ No SplatMesh instances found in scene - splats may not be loaded yet`);
+          }
+          (this as any)._lastSplatMeshCheck = performance.now();
+        }
       }
     };
     this.renderer.setAnimationLoop(this.loopFn);

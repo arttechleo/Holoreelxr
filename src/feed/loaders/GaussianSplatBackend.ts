@@ -60,9 +60,11 @@ export interface IGaussianSplatBackend {
 }
 
 /**
- * Create a Gaussian Splat backend instance based on configuration.
+ * Internal factory that creates a backend without optimization wrapper.
+ * Used by the optimized wrapper to avoid infinite recursion.
+ * @internal
  */
-export function createGaussianSplatBackend(): IGaussianSplatBackend {
+export function createLegacyBackendInternal(): IGaussianSplatBackend {
   const backend = GAUSSIAN_BACKEND;
   console.log(`[GaussianSplatBackend] Creating backend: ${backend}`);
   
@@ -75,6 +77,18 @@ export function createGaussianSplatBackend(): IGaussianSplatBackend {
       console.warn(`[GaussianSplatBackend] Unknown backend "${backend}", falling back to spark`);
       return new SparkGaussianSplatBackend();
   }
+}
+
+/**
+ * Create a Gaussian Splat backend instance based on configuration.
+ * 
+ * NOTE: This function always returns the legacy backend.
+ * For optimized backends, use createGaussianSplatBackend() from GaussianSplatBackend.optimized.ts
+ */
+export function createGaussianSplatBackend(): IGaussianSplatBackend {
+  // LEGACY PATH: keep the existing implementation exactly as it was
+  // (When flag is OFF, behavior must be byte-for-byte equivalent to what it was before)
+  return createLegacyBackendInternal();
 }
 
 /**
