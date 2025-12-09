@@ -242,11 +242,14 @@ onboarding.setOnComplete(() => {
     logError(err, 'Show current after tutorial');
   });
   
-  // Show multiplayer panel to right of 3D model after tutorial
-  if (!multiplayer.isConnected()) {
+  // Show multiplayer panel to right of 3D model after tutorial (only for GLB models)
+  if (!multiplayer.isConnected() && store.isCurrentItemGLB()) {
     setTimeout(() => {
-      xrMultiplayerPanel.show();
-      console.log('[Main] Multiplayer panel shown after tutorial');
+      // Only show if panel is enabled (will be enabled for GLB models)
+      if (xrMultiplayerPanel.isEnabled()) {
+        xrMultiplayerPanel.show();
+        console.log('[Main] Multiplayer panel shown after tutorial (GLB model)');
+      }
     }, 1000); // Small delay to let model load
   }
 });
@@ -331,13 +334,18 @@ async function loadMainFeed() {
     
     if (stopPalmJustActivated && !multiplayer.isConnected() && !onboarding.isTutorialActive() && (now - lastStopPalmToggle) > STOP_PALM_COOLDOWN) {
       lastStopPalmToggle = now;
-      // Toggle panel visibility (single tap, no hold required)
-      if (!xrMultiplayerPanel.isVisible()) {
-        xrMultiplayerPanel.show();
-        hud.toast('🎮 Multiplayer panel opened!');
+      // Only allow toggle if panel is enabled (only enabled for GLB models, not Gaussian splats)
+      if (xrMultiplayerPanel.isEnabled() && store.isCurrentItemGLB()) {
+        // Toggle panel visibility (single tap, no hold required)
+        if (!xrMultiplayerPanel.isVisible()) {
+          xrMultiplayerPanel.show();
+          hud.toast('🎮 Multiplayer panel opened!');
+        } else {
+          xrMultiplayerPanel.hide();
+          hud.toast('Multiplayer panel closed');
+        }
       } else {
-        xrMultiplayerPanel.hide();
-        hud.toast('Multiplayer panel closed');
+        hud.toast('⚠️ Multiplayer panel only available for 3D models');
       }
     }
     
@@ -554,14 +562,19 @@ async function loadMainFeed() {
           } else {
             logger.warn('[Main] ⚠️ GLB model group not found - engagement panel not attached');
           }
+          
+          // Enable multiplayer panel ONLY for GLB models
+          xrMultiplayerPanel.setEnabled(true);
+          logger.verbose('[Main] 🎮 Multiplayer panel enabled for GLB model');
         } else {
-          // Not GLB and not GS - hide engagement panel
+          // Not GLB (e.g., shapes, other content types) - hide engagement panel and disable multiplayer
           engagementPanel.detachFromAnchor();
           engagementPanel.hide();
+          
+          // Disable multiplayer panel for non-GLB items
+          xrMultiplayerPanel.setEnabled(false);
+          logger.verbose('[Main] 🎮 Multiplayer panel disabled (not a GLB model)');
         }
-        
-        // Re-enable multiplayer panel
-        xrMultiplayerPanel.setEnabled(true);
         
         // Re-enable ReactionHud
         controls.getReactionHudManager()?.setEnabled(true);
@@ -574,18 +587,23 @@ async function loadMainFeed() {
       }
     };
     
-    // Initialize engagement panel for current item (GLB or PLY)
+    // Initialize engagement panel and multiplayer panel for current item (GLB or PLY)
     const initialGsState = store.getGaussianSplatState();
     const initialModelGroup = store.getCurrentModelGroup();
     
     if (initialGsState !== null && (store as any).onGaussianSplatModeChange) {
-      // PLY file - handle via GS mode callback
+      // PLY file - handle via GS mode callback (will disable multiplayer panel)
       (store as any).onGaussianSplatModeChange(true, initialGsState);
     } else if (store.isCurrentItemGLB() && initialModelGroup) {
-      // GLB file - attach engagement panel directly
+      // GLB file - attach engagement panel directly and enable multiplayer panel
       engagementPanel.attachToAnchor(initialModelGroup);
       engagementPanel.show();
+      xrMultiplayerPanel.setEnabled(true);
       logger.verbose('[Main] 📱 Engagement panel attached to initial GLB model');
+      logger.verbose('[Main] 🎮 Multiplayer panel enabled for initial GLB model');
+    } else {
+      // Not GLB or PLY - disable multiplayer panel
+      xrMultiplayerPanel.setEnabled(false);
     }
     // Wire up 3D panels to controls
     (controls as any).authPanel = xrAuthPanel;
