@@ -862,6 +862,18 @@ export class FeedStore {
         this.effects.splice(i, 1);
       }
     }
+
+    // --- Update GLTF/GLB animation mixer, if any ---
+    if (this.currentGLTF) {
+      const mixer = (this.currentGLTF as any).mixer as THREE.AnimationMixer | undefined;
+      if (mixer && typeof mixer.update === 'function') {
+        try {
+          mixer.update(dt);
+        } catch (e) {
+          logger.error('[FeedStore.tick] Error updating GLTF mixer', e);
+        }
+      }
+    }
   }
 
   /**
