@@ -198,6 +198,34 @@ export class FeedStore {
     return { isPly, isSpz, src: item.src };
   }
 
+  /**
+   * Get the current model group (GLB/GLTF or Gaussian Splat) for UI attachment.
+   * Returns the THREE.Group that represents the currently loaded 3D content.
+   * Returns null if no model is currently loaded.
+   */
+  getCurrentModelGroup(): THREE.Group | null {
+    // Check for Gaussian Splat first (PLY/SPZ)
+    const splatGroup = (this as any)._currentSplatGroup as THREE.Group | undefined;
+    if (splatGroup) {
+      return splatGroup;
+    }
+    
+    // Check for GLB/GLTF model
+    if (this.currentGLTF) {
+      return this.currentGLTF;
+    }
+    
+    return null;
+  }
+
+  /**
+   * Check if current item is a GLB/GLTF model.
+   */
+  isCurrentItemGLB(): boolean {
+    const item = this.getCurrentItem();
+    return item?.type === 'glb' || item?.type === 'gltf';
+  }
+
   // Add item
   addItem(item: Item) {
     this.items.push(item);
@@ -702,6 +730,18 @@ export class FeedStore {
         isSpz: finalGsState.isSpz,
         itemTitle: item.title || 'untitled'
       });
+    }
+    
+    // Trigger callback for GS mode changes (if registered)
+    const onGsModeChange = (this as any).onGaussianSplatModeChange as ((isGsActive: boolean, gsState: ReturnType<typeof this.getGaussianSplatState>) => void) | undefined;
+    if (onGsModeChange) {
+      if (finalGsState) {
+        // Gaussian Splat active
+        onGsModeChange(true, finalGsState);
+      } else {
+        // Gaussian Splat inactive (GLB or other content)
+        onGsModeChange(false, null);
+      }
     }
     
     } finally {

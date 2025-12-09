@@ -412,9 +412,8 @@ async function loadMainFeed() {
     // All GS mode logic (canvas disabling, panel attachment) happens in FeedStore.showCurrent()
     // via the onGaussianSplatModeChange callback. This prevents freezes from per-frame checks.
     
-    // Update engagement panel billboard effect (only if visible and attached)
-    const currentGsState = (app as any)._currentGsState;
-    if (currentGsState && currentGsState.isPly && engagementPanel.isPanelVisible()) {
+    // Update engagement panel billboard effect (for both GLB and PLY files when visible)
+    if (engagementPanel.isPanelVisible()) {
       engagementPanel.update(app.camera);
     }
     
@@ -530,6 +529,7 @@ async function loadMainFeed() {
         }
         
         // Attach engagement panel to splat group (world-locked, not head-tracked)
+        // Show panel for PLY files only (engagement panel is shown separately for GLB files)
         if (gsState && gsState.isPly) {
           const splatGroup = (store as any)._currentSplatGroup as THREE.Group | undefined;
           if (splatGroup) {
@@ -553,12 +553,30 @@ async function loadMainFeed() {
         }
         
       } else {
-        // GAUSSIAN SPLAT INACTIVE: Re-enable canvas UI
-        logger.verbose('[Main] 🟢 Gaussian Splat inactive - re-enabling canvas-based UI');
+        // GAUSSIAN SPLAT INACTIVE: Check if current item is GLB/GLTF, attach engagement panel
+        logger.verbose('[Main] 🟢 Gaussian Splat inactive - checking for GLB/GLTF model');
         
-        // Detach engagement panel from splat
-        engagementPanel.detachFromAnchor();
-        engagementPanel.hide();
+        // Check if current item is GLB/GLTF - if so, show engagement panel
+        if (store.isCurrentItemGLB()) {
+          const modelGroup = store.getCurrentModelGroup();
+          if (modelGroup) {
+            engagementPanel.attachToAnchor(modelGroup);
+            engagementPanel.show();
+            
+            logger.verbose('[Main] 📱 Engagement panel attached to GLB model (world-locked)');
+            console.log('[Main] 📱 Engagement panel visibility for GLB:', {
+              visible: engagementPanel.isPanelVisible(),
+              parent: engagementPanel['group'].parent?.name || 'none',
+              position: engagementPanel.getPosition().toArray()
+            });
+          } else {
+            logger.warn('[Main] ⚠️ GLB model group not found - engagement panel not attached');
+          }
+        } else {
+          // Not GLB and not GS - hide engagement panel
+          engagementPanel.detachFromAnchor();
+          engagementPanel.hide();
+        }
         
         // Re-enable multiplayer panel
         xrMultiplayerPanel.setEnabled(true);
@@ -574,10 +592,18 @@ async function loadMainFeed() {
       }
     };
     
-    // Initialize GS mode state (check initial item)
+    // Initialize engagement panel for current item (GLB or PLY)
     const initialGsState = store.getGaussianSplatState();
+    const initialModelGroup = store.getCurrentModelGroup();
+    
     if (initialGsState !== null && (store as any).onGaussianSplatModeChange) {
+      // PLY file - handle via GS mode callback
       (store as any).onGaussianSplatModeChange(true, initialGsState);
+    } else if (store.isCurrentItemGLB() && initialModelGroup) {
+      // GLB file - attach engagement panel directly
+      engagementPanel.attachToAnchor(initialModelGroup);
+      engagementPanel.show();
+      logger.verbose('[Main] 📱 Engagement panel attached to initial GLB model');
     }
     // Wire up 3D panels to controls
     (controls as any).authPanel = xrAuthPanel;
