@@ -216,8 +216,30 @@ export class XRMultiplayerPanel {
     }
     this.visible = true;
     this.mode = 'idle';
+    
+    // CRITICAL: Ensure anchor is visible and in scene
+    if (this.anchor) {
+      this.anchor.visible = true;
+      if (!this.anchor.parent && this.scene) {
+        this.scene.add(this.anchor);
+        console.log('[XRMultiplayerPanel.show] Re-added anchor to scene');
+      }
+    }
+    
+    // Ensure panel material is visible
+    if (this.panel && this.panel.material) {
+      (this.panel.material as THREE.MeshBasicMaterial).opacity = 1.0;
+      (this.panel.material as THREE.MeshBasicMaterial).visible = true;
+    }
+    
     this.render();
-    console.log('[XRMultiplayerPanel] 📺 Panel shown');
+    console.log('[XRMultiplayerPanel] 📺 Panel shown', {
+      visible: this.visible,
+      enabled: this.enabled,
+      anchorVisible: this.anchor?.visible,
+      anchorInScene: !!this.anchor?.parent,
+      panelVisible: this.panel?.visible
+    });
   }
   
   hide(): void {
@@ -275,9 +297,17 @@ export class XRMultiplayerPanel {
       if (this.anchor && this.scene && !this.anchor.parent) {
         this.scene.add(this.anchor);
         this.anchor.visible = true;
+        console.log('[XRMultiplayerPanel.setEnabled] Re-added anchor to scene');
+      } else if (this.anchor) {
+        // Ensure anchor is visible even if already in scene
+        this.anchor.visible = true;
       }
       // Don't automatically set this.visible = true - let show() be called explicitly
-      console.log('[XRMultiplayerPanel] 🟢 Panel enabled + canvas re-attached (Gaussian splat inactive)');
+      console.log('[XRMultiplayerPanel] 🟢 Panel enabled + canvas re-attached (Gaussian splat inactive)', {
+        anchorInScene: !!this.anchor?.parent,
+        anchorVisible: this.anchor?.visible,
+        sceneExists: !!this.scene
+      });
     }
   }
   
@@ -772,13 +802,48 @@ export class XRMultiplayerPanel {
    */
   tick(dt: number): void {
     // CRITICAL: Disabled panels skip all update logic (performance optimization)
-    if (!this.enabled || !this.visible) return;
+    if (!this.enabled || !this.visible) {
+      if (!this.enabled) {
+        console.warn('[XRMultiplayerPanel.tick] Panel disabled, skipping update');
+      }
+      if (!this.visible) {
+        console.warn('[XRMultiplayerPanel.tick] Panel not visible, skipping update');
+      }
+      return;
+    }
     
     try {
       // Position anchor relative to object (like ReactionHud)
       const center = this.getObjectWorldPos();
       if (center && this.anchor) {
         this.anchor.position.copy(center).add(this.OFFSET);
+        
+        // CRITICAL FIX: Make panel face camera for better visibility in MR
+        const camera = this.getCamera();
+        if (camera) {
+          const cameraPos = new THREE.Vector3();
+          camera.getWorldPosition(cameraPos);
+          this.anchor.lookAt(cameraPos);
+          // Rotate 180 degrees around Y to face camera (plane faces -Z by default)
+          this.anchor.rotateY(Math.PI);
+        }
+        
+        // Ensure anchor is visible and in scene
+        if (!this.anchor.visible) {
+          this.anchor.visible = true;
+          console.warn('[XRMultiplayerPanel.tick] Anchor was not visible - fixed');
+        }
+        if (!this.anchor.parent) {
+          this.scene.add(this.anchor);
+          console.warn('[XRMultiplayerPanel.tick] Anchor was not in scene - re-added');
+        }
+      } else {
+        if (!center) {
+          console.warn('[XRMultiplayerPanel.tick] No object world position available');
+        }
+        if (!this.anchor) {
+          console.error('[XRMultiplayerPanel.tick] Anchor is null!');
+        }
       }
       
       // Update keypad position to face camera
