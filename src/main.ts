@@ -317,9 +317,7 @@ async function loadMainFeed() {
     }
 
     // Keep joints flowing
-  let lastStopPalmToggle = 0;
-  let stopPalmWasActive = false; // Track previous state for edge detection
-  const STOP_PALM_COOLDOWN = 500; // 500ms cooldown to prevent rapid toggling
+  // Removed: Gesture toggle variables (panel is now always visible for GLB/primitive content)
   
   // Performance monitoring (lightweight, only when GS active)
   let frameCount = 0;
@@ -328,28 +326,8 @@ async function loadMainFeed() {
     const frameStart = performance.now(); 
     hands.update(info);
     
-    // ENHANCED: Single-tap host panel toggle (edge detection on stop-palm gesture)
-    // CRITICAL FIX: Only allow multiplayer panel AFTER tutorial is complete
-    // Use edge detection: trigger on stopPalm becoming true (not while held)
-    const now = performance.now();
-    const stopPalmActive = hands.state.stopPalm;
-    const stopPalmJustActivated = stopPalmActive && !stopPalmWasActive; // Edge detection
-    
-    if (stopPalmJustActivated && !multiplayer.isConnected() && !onboarding.isTutorialActive() && (now - lastStopPalmToggle) > STOP_PALM_COOLDOWN) {
-      lastStopPalmToggle = now;
-      // Toggle panel visibility (original behavior - works when panel is enabled)
-      // Panel is disabled automatically when GS is active
-      if (!xrMultiplayerPanel.isVisible()) {
-        xrMultiplayerPanel.show();
-        hud.toast('🎮 Multiplayer panel opened!');
-      } else {
-        xrMultiplayerPanel.hide();
-        hud.toast('Multiplayer panel closed');
-      }
-    }
-    
-    // Update previous state for edge detection
-    stopPalmWasActive = stopPalmActive;
+    // REMOVED: Gesture-based panel toggle - panel is now always visible for GLB/primitive content
+    // Panel visibility is controlled automatically based on content type (GS mode handler)
     
     // EXPERIMENTAL: Broadcast hand positions to multiplayer partner (throttled)
     // OPTIMIZATION: Reuse Vector3/Quaternion objects to avoid allocations
@@ -429,9 +407,14 @@ async function loadMainFeed() {
         logger.verbose('[Main] 🔴 Multiplayer panel disabled (Gaussian splat active - prevents XR flicker)');
       } else {
         logger.verbose('[Main] 🟢 Multiplayer panel enabled (Gaussian splat inactive)');
-        // Ensure panel is shown when re-enabled
+        // ALWAYS show panel when re-enabled for GLB/primitive content
         xrMultiplayerPanel.show();
       }
+    }
+    
+    // Ensure panel stays visible for non-GS content (in case it was hidden)
+    if (!isGaussianSplatActive && xrMultiplayerPanel.isEnabled() && !xrMultiplayerPanel.isVisible()) {
+      xrMultiplayerPanel.show();
     }
     (app as any)._lastGaussianSplatState = isGaussianSplatActive;
     
@@ -567,8 +550,9 @@ async function loadMainFeed() {
         logger.verbose('[Main] 🟢 Gaussian Splat inactive - re-enabling multiplayer panel and standard UI');
         
         // Re-enable multiplayer panel (for primitives and GLB models)
+        // ALWAYS show panel for non-GS content (no gesture required)
         xrMultiplayerPanel.setEnabled(true);
-        xrMultiplayerPanel.show(); // Ensure it's visible
+        xrMultiplayerPanel.show(); // Always visible - no gesture trigger needed
         
         // Re-enable ReactionHud
         controls.getReactionHudManager()?.setEnabled(true);
