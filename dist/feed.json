@@ -1,7 +1,8 @@
 [
-  { "id": "test-gaussian-splat", "title": "Test Gaussian Splat", "author": "HoloreelXR", "type": "gaussianSplat", "src": "/assets/aigengsplat.ply" },
   { "id": "tutorial-rotate", "title": "[Tutorial] Rotate", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#4ECDC4" },
   { "id": "tutorial-scale", "title": "[Tutorial] Scale", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#95E1D3" },
+  { "id": "test-gaussian-splat-spz", "title": "Test Gaussian Splat (SPZ)", "author": "HoloreelXR", "type": "gaussianSplat", "src": "auto" },
+  { "id": "test-gaussian-splat-ply", "title": "Test Gaussian Splat (PLY)", "author": "HoloreelXR", "type": "gaussianSplat", "src": "/assets/aigengsplat.ply" },
   { "id": "tutorial-grab", "title": "[Tutorial] Grab & Move", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#FF6B6B" },
   { "id": "tutorial-scroll", "title": "[Tutorial] Scroll Feed", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "sphere", "color": "#6BCF7F" },
   { "id": "tutorial-like", "title": "[Tutorial] Like (Thumbs Up)", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "sphere", "color": "#F38181" },

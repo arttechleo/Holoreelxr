@@ -1,4 +1,6 @@
 [
+  { "id": "mainfeed-00-mountains", "title": "Mountains 500k", "author": "HoloreelXR", "type": "gaussianSplat", "src": "/assets/mountains500k.ply" },
+
   { "id": "tutorial-rotate", "title": "[Tutorial] Rotate", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#4ECDC4" },
   { "id": "tutorial-scale", "title": "[Tutorial] Scale", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#95E1D3" },
   { "id": "test-gaussian-splat-spz", "title": "Test Gaussian Splat (SPZ)", "author": "HoloreelXR", "type": "gaussianSplat", "src": "auto" },
@@ -8,9 +10,11 @@
   { "id": "tutorial-like", "title": "[Tutorial] Like (Thumbs Up)", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "sphere", "color": "#F38181" },
   { "id": "tutorial-heart", "title": "[Tutorial] Heart Gesture", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "box", "color": "#AA96DA" },
   { "id": "tutorial-repost", "title": "[Tutorial] Repost (Peace)", "author": "HoloreelXR Tutorial", "type": "shape", "shape": "pyramid", "color": "#FFD93D" },
+
   { "id": "mainfeed-cube", "title": "Blue Cube", "author": "Basic Shapes", "type": "shape", "shape": "box", "color": "#0080FF" },
   { "id": "mainfeed-pyramid", "title": "Yellow Pyramid", "author": "Basic Shapes", "type": "shape", "shape": "pyramid", "color": "#FFD700" },
   { "id": "mainfeed-sphere", "title": "Red Sphere", "author": "Basic Shapes", "type": "shape", "shape": "sphere", "color": "#FF0000" },
+
   { "id": "mainfeed-01-suzanne", "title": "Suzanne (Blender Monkey)", "author": "Three.js", "type": "glb", "src": "https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Suzanne/glTF-Binary/Suzanne.glb" },
   { "id": "mainfeed-02-flamingo", "title": "Flamingo", "author": "Three.js", "type": "glb", "src": "https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Flamingo/glTF-Binary/Flamingo.glb" },
   { "id": "mainfeed-03-turkey", "title": "Turkey", "author": "HoloreelXR", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF-Binary/Duck.glb" },
@@ -33,4 +37,3 @@
   { "id": "mainfeed-20-barramundi", "title": "Barramundi Fish", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/BarramundiFish/glTF-Binary/BarramundiFish.glb" },
   { "id": "mainfeed-21-corset", "title": "Corset", "author": "Khronos", "type": "glb", "src": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Corset/glTF-Binary/Corset.glb" }
 ]
- 
