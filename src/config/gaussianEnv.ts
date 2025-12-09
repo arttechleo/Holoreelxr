@@ -8,6 +8,12 @@
  * 
  * When unset or 0, legacy behavior is preserved.
  */
-export const isGaussianSplatOptimizedEnabled =
-  (import.meta as any).env?.VITE_GAUSSIAN_SPLAT_OPTIMIZED === '1';
+const rawFlag = (import.meta as any).env?.VITE_GAUSSIAN_SPLAT_OPTIMIZED ?? '0';
+
+export const isGaussianSplatOptimizedEnabled: boolean = 
+  rawFlag === '1' || rawFlag === 'true';
+
+if ((import.meta as any).env?.PROD) {
+  console.log('[GaussianEnv] VITE_GAUSSIAN_SPLAT_OPTIMIZED =', rawFlag, '→ enabled =', isGaussianSplatOptimizedEnabled);
+}
 

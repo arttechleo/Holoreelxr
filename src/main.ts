@@ -34,6 +34,7 @@ const player = new GlobalPlayer();
 
 // Expose app globally for debugging (can be removed in production)
 (window as any).app = app;
+(window as any).hud = hud; // Expose for UI gating
 
 // New managers
 const assetLinkMgr = new AssetLinkManager(store);

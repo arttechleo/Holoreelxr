@@ -84,6 +84,13 @@ export class ReactionHudManager {
 
   hide() { /* panel remains visible by design */ }
 
+  /**
+   * Set icons-only mode (hide panel for Gaussian splats to reduce overdraw).
+   */
+  setIconsOnly(enabled: boolean) {
+    (this.hud as any).setIconsOnly?.(enabled);
+  }
+
   // counters
   bump(modelKey: string, kind: ReactionKind) {
     const c = this.getCounts(modelKey);

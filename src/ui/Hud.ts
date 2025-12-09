@@ -10,6 +10,8 @@ export class Hud {
 
   private likeCount = 0;
   private heartCount = 0;
+  
+  private enabledForCurrentItem = true;
 
   constructor() {
     // ===== Root =====
@@ -85,6 +87,17 @@ export class Hud {
   mountPlayer(onPlay: () => void, onPause: () => void) {
     (document.getElementById('mvp-play') as HTMLButtonElement).onclick = onPlay;
     (document.getElementById('mvp-pause') as HTMLButtonElement).onclick = onPause;
+  }
+
+  /**
+   * Enable/disable HUD for current feed item.
+   * When disabled, hides the HUD root to reduce overdraw for Gaussian splats.
+   */
+  setEnabledForItem(enabled: boolean) {
+    this.enabledForCurrentItem = enabled;
+    if (this.el) {
+      this.el.style.display = enabled ? '' : 'none';
+    }
   }
 
   // === Reaction HUD ===

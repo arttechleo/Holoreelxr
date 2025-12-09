@@ -1570,3 +1570,12 @@ export class FeedStore {
     return new THREE.Mesh(geo, mat);
   }
 }
+
+/**
+ * Check if a feed item is a Gaussian splat type.
+ * Exported for use in UI components to gate heavy UI when splats are active.
+ */
+export function isGaussianSplatItem(item: Item | null | undefined): boolean {
+  if (!item) return false;
+  return item.type === 'splat4d' || item.type === 'ply' || item.type === 'gaussianSplat';
+}

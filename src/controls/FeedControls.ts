@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { HandEngine } from '../gestures/HandEngine';
 import { ThreeXRApp } from '../app/ThreeXRApp';
-import { FeedStore } from '../feed/FeedStore';
+import { FeedStore, isGaussianSplatItem } from '../feed/FeedStore';
 import ReactionHudManager from '../ui/ReactionHudManager';
 import { TikTokFeedUI } from '../ui/TikTokFeedUI';
 import { GestureTutorial } from '../ui/GestureTutorial';
@@ -407,6 +407,9 @@ export class FeedControls {
           }
         }
       }
+      
+      // Update UI visibility based on content type (hide heavy UI for Gaussian splats)
+      this.updateUIVisibilityForCurrentItem();
       
       this.hudMgr.tick(dt);
       this.store.tick(dt);
@@ -2052,6 +2055,10 @@ export class FeedControls {
       }
       
       this.hudMgr.showFor(this.currentModelKey());
+      
+      // Update UI visibility based on content type (hide heavy UI for Gaussian splats)
+      this.updateUIVisibilityForCurrentItem();
+      
       this.scrollAccum = 0;
       this.scrollCooldownUntil = now + this.SCROLL_COOLDOWN_MS;
       
@@ -2475,6 +2482,26 @@ export class FeedControls {
     const anyStore = this.store as any;
     if (typeof anyStore.getCurrentKey === 'function') return String(anyStore.getCurrentKey());
     return 'default';
+  }
+
+  /**
+   * Update UI visibility based on current feed item type.
+   * Hides heavy UI (HUD, ReactionHud panel) for Gaussian splats to reduce overdraw.
+   */
+  private updateUIVisibilityForCurrentItem() {
+    const currentItem = this.store.items[this.store.index];
+    const isSplat = isGaussianSplatItem(currentItem);
+    
+    // Get Hud instance from main.ts (exposed globally)
+    const hud = (window as any).hud;
+    if (hud && hud.setEnabledForItem) {
+      hud.setEnabledForItem(!isSplat);
+    }
+    
+    // Hide ReactionHud panel for splats (icons-only mode)
+    if (this.hudMgr) {
+      this.hudMgr.setIconsOnly(isSplat);
+    }
   }
 }
 

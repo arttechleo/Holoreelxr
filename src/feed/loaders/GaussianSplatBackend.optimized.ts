@@ -109,12 +109,20 @@ class OptimizedSparkBackend implements IGaussianSplatBackend {
   async loadSplat(url: string, settingsUrl?: string): Promise<GaussianSplatAsset> {
     const asset = await this.legacy.loadSplat(url, settingsUrl);
 
-    if (!isGaussianSplatOptimizedEnabled || !asset?.scene) {
+    if (!isGaussianSplatOptimizedEnabled) return asset;
+
+    if (!asset?.scene) {
+      console.warn('[OptimizedSparkBackend] No scene in asset, returning legacy asset as-is', url);
       return asset;
     }
 
-    attachBoundsAndLOD(asset.scene);
-    return asset;
+    try {
+      attachBoundsAndLOD(asset.scene);
+      return asset;
+    } catch (err) {
+      console.error('[OptimizedSparkBackend] Failed to attach bounds/LOD, returning legacy asset', err);
+      return asset; // DO NOT break rendering
+    }
   }
 
   async preloadSplat(url: string, settingsUrl?: string): Promise<void> {
@@ -143,12 +151,20 @@ class OptimizedGaussianSplats3DBackend implements IGaussianSplatBackend {
   async loadSplat(url: string, settingsUrl?: string): Promise<GaussianSplatAsset> {
     const asset = await this.legacy.loadSplat(url, settingsUrl);
 
-    if (!isGaussianSplatOptimizedEnabled || !asset?.scene) {
+    if (!isGaussianSplatOptimizedEnabled) return asset;
+
+    if (!asset?.scene) {
+      console.warn('[OptimizedGaussianSplats3DBackend] No scene in asset, returning legacy asset as-is', url);
       return asset;
     }
 
-    attachBoundsAndLOD(asset.scene);
-    return asset;
+    try {
+      attachBoundsAndLOD(asset.scene);
+      return asset;
+    } catch (err) {
+      console.error('[OptimizedGaussianSplats3DBackend] Failed to attach bounds/LOD, returning legacy asset', err);
+      return asset; // DO NOT break rendering
+    }
   }
 
   async preloadSplat(url: string, settingsUrl?: string): Promise<void> {
@@ -163,22 +179,33 @@ class OptimizedGaussianSplats3DBackend implements IGaussianSplatBackend {
 /**
  * Create an optimized Gaussian Splat backend instance.
  * Returns optimized wrapper when flag is enabled, otherwise legacy backend.
+ * Fail-safe: always falls back to legacy on error.
  */
 export function createGaussianSplatBackend(): IGaussianSplatBackend {
+  // If flag off → always legacy
   if (!isGaussianSplatOptimizedEnabled) {
+    console.log('[GaussianSplatBackend.optimized] Optimization flag OFF → using legacy backend');
     return createLegacyBackendInternal();
   }
 
-  const legacy = createLegacyBackendInternal();
-  const backendName = legacy.getName();
+  try {
+    const legacy = createLegacyBackendInternal();
+    const backendName = legacy.getName();
 
-  if (backendName === 'spark') {
-    return new OptimizedSparkBackend();
-  } else if (backendName === 'gaussian-splats-3d') {
-    return new OptimizedGaussianSplats3DBackend();
-  } else {
-    // Fallback to optimized wrapper
-    return new OptimizedSparkBackend();
+    console.log('[GaussianSplatBackend.optimized] Optimization flag ON, legacy backend =', backendName);
+
+    if (backendName === 'spark') {
+      return new OptimizedSparkBackend();
+    }
+    if (backendName === 'gaussian-splats-3d') {
+      return new OptimizedGaussianSplats3DBackend();
+    }
+
+    console.warn('[GaussianSplatBackend.optimized] Unknown backend, falling back to legacy only');
+    return legacy;
+  } catch (err) {
+    console.error('[GaussianSplatBackend.optimized] ERROR, falling back to legacy backend:', err);
+    return createLegacyBackendInternal();
   }
 }
 

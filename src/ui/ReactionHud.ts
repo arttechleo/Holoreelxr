@@ -127,6 +127,20 @@ export class ReactionHud {
     return this.anchor.position.clone();
   }
 
+  /**
+   * Set icons-only mode (hide panel for Gaussian splats to reduce overdraw).
+   * When enabled, hides the panel mesh but keeps the anchor for potential future use.
+   */
+  setIconsOnly(enabled: boolean) {
+    if (this.panel) {
+      this.panel.visible = !enabled;
+    }
+    // Optionally hide the entire anchor for splats
+    if (this.anchor) {
+      this.anchor.visible = !enabled;
+    }
+  }
+
   /** Raycast in world space against the panel. */
   raycastHit(ray: THREE.Ray, thickness = 10): HudHit {
     // build plane for panel (facing camera-ish, but we keep it axis-aligned)
