@@ -16,10 +16,41 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        position: relative;
+        z-index: 1;
       }
       
+      /* Aggressively hide canvas and all 3D content on index page */
       canvas {
-        display: none; /* Hide canvas until AR is entered */
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        position: fixed !important;
+        top: -9999px !important;
+        left: -9999px !important;
+        width: 1px !important;
+        height: 1px !important;
+        pointer-events: none !important;
+        z-index: -99999 !important;
+        transform: scale(0) !important;
+      }
+      
+      /* Hide any WebGL or Three.js containers */
+      body > canvas,
+      #app,
+      [data-threejs],
+      .threejs-container {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        z-index: -99999 !important;
+        pointer-events: none !important;
+      }
+      
+      /* Ensure body content is on top */
+      body > *:not(canvas):not(script) {
+        position: relative;
+        z-index: 100;
       }
       
       /* Logo container */
@@ -28,8 +59,9 @@
         justify-content: center;
         align-items: center;
         margin-bottom: 3rem;
-        z-index: 999; /* Logo behind button */
+        z-index: 100;
         position: relative;
+        pointer-events: auto;
       }
       
       #logo-container img {
@@ -46,7 +78,11 @@
         padding: 0;
         background: transparent;
         outline: none;
-        z-index: 1000; /* Ensure button is in front - fix z-fighting */
+        z-index: 10000 !important; /* Ensure button is in front - fix z-fighting */
+        pointer-events: auto !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
       }
       
       /* Soft glow behind button */
@@ -65,7 +101,7 @@
       /* Metallic silver core */
       .ar-cta-label {
         position: relative;
-        display: inline-flex;
+        display: inline-flex !important;
         align-items: center;
         justify-content: center;
         padding: 0.9rem 2.8rem;
@@ -79,7 +115,7 @@
           #ffffff 100%
         );
         border: 1px solid rgba(255, 255, 255, 0.35);
-        color: #000; /* black text for contrast */
+        color: #000 !important; /* black text for contrast */
         text-transform: uppercase;
         letter-spacing: 0.12em;
         font-size: 0.9rem;
@@ -91,7 +127,10 @@
           transform 0.15s ease-out,
           box-shadow 0.15s ease-out,
           filter 0.15s ease-out;
-        z-index: 1001; /* Ensure label is in front */
+        z-index: 10001 !important; /* Ensure label is in front */
+        pointer-events: auto !important;
+        visibility: visible !important;
+        opacity: 1 !important;
       }
       
       /* Metallic shine highlight */
@@ -161,5 +200,43 @@
     </div>
     
     <script type="module" src="/src/main.ts"></script>
+    <script>
+      // Aggressively hide canvas immediately after it's created
+      (function() {
+        const hideCanvas = () => {
+          const canvases = document.querySelectorAll('canvas');
+          canvases.forEach(canvas => {
+            canvas.style.display = 'none';
+            canvas.style.visibility = 'hidden';
+            canvas.style.opacity = '0';
+            canvas.style.position = 'fixed';
+            canvas.style.top = '-9999px';
+            canvas.style.left = '-9999px';
+            canvas.style.width = '1px';
+            canvas.style.height = '1px';
+            canvas.style.pointerEvents = 'none';
+            canvas.style.zIndex = '-99999';
+            canvas.style.transform = 'scale(0)';
+          });
+        };
+        
+        // Hide immediately
+        hideCanvas();
+        
+        // Watch for new canvases
+        const observer = new MutationObserver(() => {
+          hideCanvas();
+        });
+        
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true
+        });
+        
+        // Also hide on load
+        window.addEventListener('load', hideCanvas);
+        document.addEventListener('DOMContentLoaded', hideCanvas);
+      })();
+    </script>
   </body>
 </html>
