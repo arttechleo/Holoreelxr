@@ -238,40 +238,23 @@ onboarding.setOnComplete(() => {
   const item = store.items[store.index];
   console.log(`[Main] Showing feed item at index ${store.index}: ${item?.title || item?.id || 'unknown'}`);
   
-  // Show content and trigger content mode change to set up UI panels
-  store.showCurrent().then(() => {
-    // CRITICAL: Explicitly trigger content mode change after content loads
-    // This ensures multiplayer panel is enabled/shown for primitives and GLB models
-    if ((store as any).onContentModeChange) {
-      (store as any).onContentModeChange();
-      console.log('[Main] ✅ Content mode change triggered after tutorial');
-    }
-    
-    // Ensure multiplayer panel is shown after tutorial (for primitives OR GLB models)
-    const contentKind = store.getContentKind();
-    if (!multiplayer.isConnected() && (contentKind.isPrimitive || contentKind.isGlbModel)) {
-      setTimeout(() => {
-        // Panel should already be enabled by onContentModeChange, just ensure it's shown
-        if (xrMultiplayerPanel.isEnabled()) {
-          xrMultiplayerPanel.show();
-          console.log('[Main] ✅ Multiplayer panel shown after tutorial', {
-            isPrimitive: contentKind.isPrimitive,
-            isGlbModel: contentKind.isGlbModel,
-            enabled: xrMultiplayerPanel.isEnabled(),
-            visible: xrMultiplayerPanel.isVisible()
-          });
-        } else {
-          console.warn('[Main] ⚠️ Multiplayer panel not enabled after tutorial!', {
-            contentKind,
-            enabled: xrMultiplayerPanel.isEnabled()
-          });
-        }
-      }, 500); // Reduced delay for faster appearance
-    }
-  }).catch(err => {
+  // Show content - GS mode handler will enable/disable panels automatically
+  store.showCurrent().catch(err => {
     console.error('[Main] Error showing current feed after tutorial:', err);
     logError(err, 'Show current after tutorial');
   });
+  
+  // Show multiplayer panel after tutorial (original behavior from commit 5a13113)
+  // Panel is enabled by default, will be disabled automatically if GS is active
+  if (!multiplayer.isConnected()) {
+    setTimeout(() => {
+      // Only show if panel is enabled (not disabled for GS)
+      if (xrMultiplayerPanel.isEnabled()) {
+        xrMultiplayerPanel.show();
+        console.log('[Main] ✅ Multiplayer panel shown after tutorial');
+      }
+    }, 1000); // Small delay to let model load (original timing)
+  }
 });
 
 // Sync asset links to feed when added
@@ -432,9 +415,25 @@ async function loadMainFeed() {
     xrAuthPanel?.update(app.camera);
     xrMusicPanel?.update(app.camera);
     
-    // ========== PERFORMANCE: GS mode is handled ONCE per item change, not every frame ==========
-    // All GS mode logic (canvas disabling, panel attachment) happens in FeedStore.showCurrent()
-    // via the onGaussianSplatModeChange callback. This prevents freezes from per-frame checks.
+    // ========== PERFORMANCE: GS mode check (original approach from commit 5a13113) ==========
+    // Check GS state and enable/disable multiplayer panel accordingly
+    // This runs every frame but only toggles when state changes (lightweight)
+    const isGaussianSplatActive = store.isCurrentItemGaussianSplat();
+    const wasGaussianSplatActive = (app as any)._lastGaussianSplatState || false;
+    
+    if (isGaussianSplatActive !== wasGaussianSplatActive) {
+      // State changed - update panel enabled state
+      xrMultiplayerPanel.setEnabled(!isGaussianSplatActive);
+      
+      if (isGaussianSplatActive) {
+        logger.verbose('[Main] 🔴 Multiplayer panel disabled (Gaussian splat active - prevents XR flicker)');
+      } else {
+        logger.verbose('[Main] 🟢 Multiplayer panel enabled (Gaussian splat inactive)');
+        // Ensure panel is shown when re-enabled
+        xrMultiplayerPanel.show();
+      }
+    }
+    (app as any)._lastGaussianSplatState = isGaussianSplatActive;
     
     // Update engagement panel billboard effect (for both GLB and PLY files when visible)
     if (engagementPanel.isPanelVisible()) {
