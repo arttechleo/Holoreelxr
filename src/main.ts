@@ -563,9 +563,10 @@ async function loadMainFeed() {
             logger.warn('[Main] ⚠️ GLB model group not found - engagement panel not attached');
           }
           
-          // Enable multiplayer panel ONLY for GLB models
+          // Enable multiplayer panel ONLY for GLB models and show it
           xrMultiplayerPanel.setEnabled(true);
-          logger.verbose('[Main] 🎮 Multiplayer panel enabled for GLB model');
+          xrMultiplayerPanel.show(); // CRITICAL: Must explicitly show after enabling
+          logger.verbose('[Main] 🎮 Multiplayer panel enabled and shown for GLB model');
         } else {
           // Not GLB (e.g., shapes, other content types) - hide engagement panel and disable multiplayer
           engagementPanel.detachFromAnchor();
@@ -595,12 +596,13 @@ async function loadMainFeed() {
       // PLY file - handle via GS mode callback (will disable multiplayer panel)
       (store as any).onGaussianSplatModeChange(true, initialGsState);
     } else if (store.isCurrentItemGLB() && initialModelGroup) {
-      // GLB file - attach engagement panel directly and enable multiplayer panel
+      // GLB file - attach engagement panel directly and enable/show multiplayer panel
       engagementPanel.attachToAnchor(initialModelGroup);
       engagementPanel.show();
       xrMultiplayerPanel.setEnabled(true);
+      xrMultiplayerPanel.show(); // CRITICAL: Must explicitly show after enabling
       logger.verbose('[Main] 📱 Engagement panel attached to initial GLB model');
-      logger.verbose('[Main] 🎮 Multiplayer panel enabled for initial GLB model');
+      logger.verbose('[Main] 🎮 Multiplayer panel enabled and shown for initial GLB model');
     } else {
       // Not GLB or PLY - disable multiplayer panel
       xrMultiplayerPanel.setEnabled(false);
